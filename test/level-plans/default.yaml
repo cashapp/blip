@@ -1,0 +1,12 @@
+---
+kpi:
+  freq: 5s
+  timeout: 1s
+  collect:
+    status.global:
+      options:
+        source: auto
+      metrics:
+      - queries
+      - threads_running
+
