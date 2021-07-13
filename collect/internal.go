@@ -2,6 +2,8 @@ package collect
 
 func InternalLevelPlan() Plan {
 	return Plan{
+		internal: true,
+
 		Name: "Internal Level Plan",
 		Levels: map[string]Level{
 			"key-performance-indicators": Level{

@@ -1,35 +1,48 @@
 package heartbeat
 
 import (
-	"github.com/square/blip/db"
+	"database/sql"
+	"time"
+
+	"github.com/square/blip"
 )
 
 // Monitor reads and writes heartbeats to a table.
 type Monitor interface {
-	Start() error
-	Stop() error
+	Run(stopChan, doneChan chan struct{}) error
 	Status() error
 }
 
-// dbMonitor is the main implementation of Monitor.
-type dbMonitor struct {
-	in db.Instance
+// hb is the main implementation of Monitor.
+type hb struct {
+	cfg blip.ConfigHeartbeat
+	db  *sql.DB
 }
 
-func NewHeartbeat(in db.Instance) Monitor {
-	return &dbMonitor{
-		in: in,
+func NewMonitor(cfg blip.ConfigHeartbeat, db *sql.DB) *hb {
+	return &hb{
+		cfg: cfg,
+		db:  db,
 	}
 }
 
-func (m *dbMonitor) Start() error {
+func (m *hb) Run(stopChan, doneChan chan struct{}) error {
+	defer close(doneChan)
+
+	d, _ := time.ParseDuration(m.cfg.Freq)
+	ticker := time.NewTicker(d)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ticker.C:
+			// read or write heartbeat
+		case <-stopChan:
+			return nil
+		}
+	}
 	return nil
 }
 
-func (m *dbMonitor) Stop() error {
-	return nil
-}
-
-func (m *dbMonitor) Status() error {
+func (m *hb) Status() error {
 	return nil
 }
