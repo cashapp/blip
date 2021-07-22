@@ -17,6 +17,10 @@ type Instance struct {
 	id string
 }
 
+func NewInstance(db *sql.DB, id string) Instance {
+	return Instance{db, id}
+}
+
 func (in *Instance) Id() string {
 	return in.id
 }
