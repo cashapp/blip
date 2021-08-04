@@ -61,5 +61,13 @@ func (f connFactory) Make(cfg blip.ConfigMonitor) (*sql.DB, error) {
 		addr = fmt.Sprintf("tcp(%s)", cfg.Hostname)
 	}
 	dsn := fmt.Sprintf("%s@%s/", cred, addr)
-	return sql.Open("mysql", dsn)
+
+	db, err := sql.Open("mysql", dsn)
+	if err != nil {
+		return nil, err
+	}
+	db.SetMaxOpenConns(2)
+	db.SetMaxIdleConns(2)
+
+	return db, nil
 }

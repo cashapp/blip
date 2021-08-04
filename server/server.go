@@ -125,6 +125,7 @@ func (s *Server) Boot(plugin Plugins, factory Factories) error {
 		return err
 	}
 
+	cfg.Interpolate()
 	s.cfg = cfg // final immutable config
 	event.Send(event.BOOT_CONFIG_LOADED)
 

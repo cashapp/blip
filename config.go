@@ -5,6 +5,9 @@ import (
 	"crypto/x509"
 	"fmt"
 	"io/ioutil"
+	"os"
+	"regexp"
+	"strings"
 )
 
 const (
@@ -78,6 +81,30 @@ func (c Config) Validate() error {
 	return nil
 }
 
+func (c *Config) Interpolate() {
+	for k, v := range c.Tags {
+		c.Tags[k] = interpolateEnv(v)
+	}
+
+	for sink, kv := range c.Sinks {
+		for k, v := range kv {
+			kv[k] = interpolateEnv(v)
+		}
+		c.Sinks[sink] = kv
+	}
+
+	c.API.Interpolate()
+	c.MonitorLoader.Interpolate()
+
+	c.AWS.Interpolate()
+	c.Exporter.Interpolate()
+	c.HA.Interpolate()
+	c.Heartbeat.Interpolate()
+	c.MySQL.Interpolate()
+	c.Plans.Interpolate()
+	c.TLS.Interpolate()
+}
+
 // --------------------------------------------------------------------------
 
 type ConfigMySQL struct {
@@ -101,6 +128,9 @@ func DefaultConfigMySQL() ConfigMySQL {
 
 func (c ConfigMySQL) Validate() error {
 	return nil
+}
+
+func (c *ConfigMySQL) Interpolate() {
 }
 
 // --------------------------------------------------------------------------
@@ -163,6 +193,9 @@ func (c ConfigMonitor) Validate() error {
 	return nil
 }
 
+func (c *ConfigMonitor) Interpolate() {
+}
+
 // --------------------------------------------------------------------------
 
 type ConfigMonitorLoader struct {
@@ -189,6 +222,9 @@ func DefaultConfigMonitorLoader() ConfigMonitorLoader {
 func (c ConfigMonitorLoader) Validate() error {
 	// StopLoss match N%
 	return nil
+}
+
+func (c *ConfigMonitorLoader) Interpolate() {
 }
 
 // --------------------------------------------------------------------------
@@ -222,6 +258,9 @@ func (c ConfigPlans) Validate() error {
 	return nil
 }
 
+func (c *ConfigPlans) Interpolate() {
+}
+
 // --------------------------------------------------------------------------
 
 type ConfigAPI struct {
@@ -241,6 +280,9 @@ func DefaultConfigAPI() ConfigAPI {
 
 func (c ConfigAPI) Validate() error {
 	return nil
+}
+
+func (c *ConfigAPI) Interpolate() {
 }
 
 // --------------------------------------------------------------------------
@@ -265,6 +307,9 @@ func (c ConfigAWS) Validate() error {
 	return nil
 }
 
+func (c *ConfigAWS) Interpolate() {
+}
+
 // --------------------------------------------------------------------------
 
 type ConfigExporter struct {
@@ -283,6 +328,9 @@ func DefaultConfigExporter() ConfigExporter {
 
 func (c ConfigExporter) Validate() error {
 	return nil
+}
+
+func (c *ConfigExporter) Interpolate() {
 }
 
 // --------------------------------------------------------------------------
@@ -314,6 +362,9 @@ func (c ConfigHeartbeat) Validate() error {
 	return nil
 }
 
+func (c *ConfigHeartbeat) Interpolate() {
+}
+
 // --------------------------------------------------------------------------
 
 type ConfigHighAvailability struct {
@@ -339,6 +390,13 @@ func (c ConfigHighAvailability) Validate() error {
 	return nil
 }
 
+func (c *ConfigHighAvailability) Interpolate() {
+	c.Freq = interpolateEnv(c.Freq)
+	c.Role = interpolateEnv(c.Role)
+	c.Table = interpolateEnv(c.Table)
+	c.CreateTable = interpolateEnv(c.CreateTable)
+}
+
 // --------------------------------------------------------------------------
 
 type ConfigTLS struct {
@@ -353,6 +411,12 @@ func DefaultConfigTLS() ConfigTLS {
 
 func (c ConfigTLS) Validate() error {
 	return nil
+}
+
+func (c *ConfigTLS) Interpolate() {
+	c.Cert = interpolateEnv(c.Cert)
+	c.Key = interpolateEnv(c.Key)
+	c.CA = interpolateEnv(c.CA)
 }
 
 func (c ConfigTLS) LoadTLS() (*tls.Config, error) {
@@ -386,4 +450,23 @@ func (c ConfigTLS) LoadTLS() (*tls.Config, error) {
 	}
 
 	return tlsConfig, nil
+}
+
+// ---------------------------------------------------------------------------
+
+var envvar = regexp.MustCompile(`^\${([\w_.-]+)(?:(\:\-)([\w_.-]*))?}`)
+
+func interpolateEnv(v string) string {
+	if !strings.HasPrefix(v, "${") {
+		return v
+	}
+	m := envvar.FindStringSubmatch(v)
+	if len(m) != 2 {
+		// @todo error
+	}
+	v2 := os.Getenv(m[1])
+	if v2 == "" && m[2] != "" {
+		return m[3]
+	}
+	return v2
 }
