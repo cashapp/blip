@@ -3,7 +3,6 @@ package monitor
 import (
 	"context"
 	"database/sql"
-	"log"
 	"sync"
 	"time"
 
@@ -21,7 +20,7 @@ type Monitor struct {
 	// --
 	mcList  map[string]metrics.Collector   // keyed on domain
 	atLevel map[string][]metrics.Collector // keyed on level
-	*sync.Mutex
+	*sync.RWMutex
 	connected bool
 	ready     bool
 	plan      collect.Plan
@@ -44,7 +43,7 @@ func NewMonitor(monitorId string, db *sql.DB, mcMaker metrics.CollectorFactory) 
 		// --
 		atLevel: map[string][]metrics.Collector{},
 		mcList:  map[string]metrics.Collector{},
-		Mutex:   &sync.Mutex{},
+		RWMutex: &sync.RWMutex{},
 		event:   event.MonitorSink{MonitorId: monitorId},
 		sem:     sem,
 		semSize: semSize,
@@ -137,26 +136,36 @@ func (m *Monitor) Prepare(ctx context.Context, plan collect.Plan) error {
 	return nil
 }
 
-func (m *Monitor) Collect(ctx context.Context, levelName string) (collect.Metrics, error) {
-	m.Lock()
-	defer m.Unlock()
-	blip.Debug("%s collecting %s", m.monitorId, levelName)
+func (m *Monitor) Collect(ctx context.Context, levelName string) (blip.Metrics, error) {
+	// Lock while collecting so Preapre cannot change plan while using it.
+	// This func shouldn't take a lot less than 1s to exec.
+	m.RLock()
+	defer func() {
+	RECHARGE_SEMAPHORE:
+		for i := 0; i < m.semSize; i++ {
+			select {
+			case m.sem <- true:
+			default:
+				break RECHARGE_SEMAPHORE
+			}
+		}
+		m.RUnlock()
+	}()
 
 	if !m.ready {
 		blip.Debug("%s not ready", m.monitorId)
-		return collect.Metrics{}, nil
+		return blip.NoMetrics, nil
 	}
 
 	mc := m.atLevel[levelName]
 	if mc == nil {
 		blip.Debug("%s no", m.monitorId)
-		return collect.Metrics{}, nil
+		return blip.NoMetrics, nil
 	}
 
-	var wg sync.WaitGroup
 	res := make([]collect.Metrics, len(mc))
-
-	t0 := time.Now()
+	var wg sync.WaitGroup
+	begin := time.Now()
 	for i := range mc {
 		<-m.sem
 		wg.Add(1)
@@ -171,20 +180,25 @@ func (m *Monitor) Collect(ctx context.Context, levelName string) (collect.Metric
 		}(mc[i], i)
 	}
 	wg.Wait()
-	cd := time.Now().Sub(t0)
+	end := time.Now()
 
-	for _, m := range res {
-		log.Printf("%d ms -> %+v", cd.Milliseconds(), m)
+	n := 0
+	for i := range res {
+		n += len(res[i].Values)
 	}
-
-RECHARGE_SEMAPHORE:
-	for i := 0; i < m.semSize; i++ {
-		select {
-		case m.sem <- true:
-		default:
-			break RECHARGE_SEMAPHORE
+	bm := blip.Metrics{
+		Begin:     begin,
+		End:       end,
+		Plan:      m.plan.Name,
+		Level:     levelName,
+		MonitorId: m.monitorId,
+		Values:    make(map[string]float64, n),
+	}
+	for i := range res {
+		for k, v := range res[i].Values {
+			bm.Values[k] = v
 		}
 	}
 
-	return collect.Metrics{}, nil
+	return bm, nil
 }

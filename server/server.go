@@ -13,6 +13,7 @@ import (
 	"github.com/square/blip"
 	"github.com/square/blip/collect"
 	"github.com/square/blip/event"
+	"github.com/square/blip/sink"
 )
 
 // ControlChans is a convenience function to return arguments for Run.
@@ -162,6 +163,48 @@ func (s *Server) Boot(plugin Plugins, factory Factories) error {
 	}
 
 	// ----------------------------------------------------------------------
+	// Sinks
+
+	sinks := []sink.Sink{}
+	if plugin.LoadMetricSinks != nil {
+		blip.Debug("call plugin.LoadMetricSinks")
+		sinks, err = plugin.LoadMetricSinks(cfg)
+	} else {
+		for sinkName, opts := range cfg.Sinks {
+			sink, err := factory.MakeMetricSink.Make(sinkName, opts)
+			if err != nil {
+				// @todo
+			}
+			sinks = append(sinks, sink)
+		}
+		if len(sinks) == 0 && !blip.Strict {
+			sink, _ := factory.MakeMetricSink.Make("log", nil)
+			sinks = append(sinks, sink)
+			blip.Debug("using default log sink")
+		}
+	}
+
+	if plugin.TransformMetrics != nil {
+		allSinks := sinks
+		tf := sink.TransformMetrics{
+			Plugin: plugin.TransformMetrics,
+			Sinks:  allSinks,
+		}
+		sinks = []sink.Sink{tf}
+		blip.Debug("using plugin.TransformMetrics")
+	}
+
+	// Make deferred dbmon factory
+	if factory.MakeDbMon == nil {
+		factory.MakeDbMon = &dbmonFactory{
+			mcMaker:    factory.MakeMetricsCollector,
+			dbMaker:    factory.MakeDbConn,
+			planLoader: collect.DefaultPlanLoader(),
+			sinks:      sinks,
+		}
+	}
+
+	// ----------------------------------------------------------------------
 	// Database monitors (dbmon)
 
 	// Create, but don't start, database monitors. They're started later in Run.
@@ -174,9 +217,6 @@ func (s *Server) Boot(plugin Plugins, factory Factories) error {
 	if !s.cmdline.Options.BootCheck && (s.cmdline.Options.PrintConfig || s.cmdline.Options.PrintPlans) {
 		os.Exit(0)
 	}
-
-	// ----------------------------------------------------------------------
-	// Sinks
 
 	// ----------------------------------------------------------------------
 	// API

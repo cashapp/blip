@@ -2,17 +2,11 @@ package metrics
 
 import (
 	"context"
-	"database/sql"
 
 	"github.com/square/blip"
 	"github.com/square/blip/collect"
 	sysvar "github.com/square/blip/metrics/var"
 )
-
-type Db struct {
-	DB        *sql.DB
-	MonitorId string
-}
 
 // Collector collects metrics for a single metric domain.
 type Collector interface {

@@ -64,7 +64,7 @@ func (ml *MonitorLoader) Load(ctx context.Context) (MonitorChanges, error) {
 			len(ch.Added), len(ch.Removed), len(ch.Changed))
 	}()
 
-	dbmon := map[string]*DbMon{}
+	moncfg := map[string]blip.ConfigMonitor{}
 
 	if ml.plugin != nil {
 		blip.Debug("call plugin.LoadMonitors")
@@ -72,11 +72,11 @@ func (ml *MonitorLoader) Load(ctx context.Context) (MonitorChanges, error) {
 		if err != nil {
 			return ch, err
 		}
-		ml.merge(monitors, dbmon)
+		ml.merge(monitors, moncfg)
 	} else {
 		// First, monitors from the config file
 		if len(ml.cfg.Monitors) != 0 {
-			ml.merge(ml.cfg.Monitors, dbmon)
+			ml.merge(ml.cfg.Monitors, moncfg)
 		}
 
 		// Second, monitors from the monitor files
@@ -84,21 +84,21 @@ func (ml *MonitorLoader) Load(ctx context.Context) (MonitorChanges, error) {
 		if err != nil {
 			return ch, err
 		}
-		ml.merge(monitors, dbmon)
+		ml.merge(monitors, moncfg)
 
 		// Third, monitors from the AWS RDS API
 		monitors, err = ml.loadAWS(ctx)
 		if err != nil {
 			return ch, err
 		}
-		ml.merge(monitors, dbmon)
+		ml.merge(monitors, moncfg)
 
 		// Last, local monitors auto-detected
 		monitors, err = ml.LoadLocal(ctx)
 		if err != nil {
 			return ch, err
 		}
-		ml.merge(monitors, dbmon)
+		ml.merge(monitors, moncfg)
 	}
 
 	ml.Lock()
@@ -107,39 +107,49 @@ func (ml *MonitorLoader) Load(ctx context.Context) (MonitorChanges, error) {
 	// Don't change if >= StopLoss% of monitors are lost/don't load
 	if ml.stopLoss > 0 {
 		nBefore := float64(len(ml.dbmon))
-		nNow := float64(len(ml.dbmon))
+		nNow := float64(len(moncfg))
 		if nNow < nBefore && (nBefore-nNow)/nBefore >= ml.stopLoss {
 			return ch, fmt.Errorf("stop-loss") // @tody
 		}
 	}
 
-	for monitorId, newDbmon := range dbmon {
+	// Make new dbmon, swap changed dbmon, and keep existing/same dbmon
+	for monitorId, cfg := range moncfg {
 		oldDbmon := ml.dbmon[monitorId]
-		if oldDbmon == nil {
-			ch.Added = append(ch.Added, newDbmon)
-			ml.dbmon[monitorId] = newDbmon
-		} else if hash(newDbmon) != hash(oldDbmon) {
-			go oldDbmon.Stop()
-			ch.Changed = append(ch.Changed, oldDbmon)
-			ml.dbmon[monitorId] = newDbmon
-		} else {
-			// existing dbmon, no change
+		switch {
+		case oldDbmon == nil:
+			// NEW dbmon -----------------------------------------------------
+			newDbmon := ml.factory.MakeDbMon.Make(cfg) // make new
+			ch.Added = append(ch.Added, newDbmon)      // note new
+			ml.dbmon[monitorId] = newDbmon             // save new
+		case hash(cfg) != hash(oldDbmon.Config):
+			// CHANGED dmon --------------------------------------------------
+			go oldDbmon.Stop()                         // stop prev
+			delete(ml.dbmon, monitorId)                // remove prev
+			ch.Changed = append(ch.Changed, oldDbmon)  // note prev
+			newDbmon := ml.factory.MakeDbMon.Make(cfg) // make new
+			ml.dbmon[monitorId] = newDbmon             // save new
+		default:
+			// Existing dbmon, no change -------------------------------------
 		}
 	}
+
+	// Stop and removed dbmon that have been removed
 	for monitorId, oldDbmon := range ml.dbmon {
-		if _, ok := dbmon[monitorId]; !ok {
-			go oldDbmon.Stop()
-			ch.Removed = append(ch.Removed, oldDbmon)
-			delete(ml.dbmon, monitorId)
+		if _, ok := moncfg[monitorId]; ok {
+			continue
 		}
+		go oldDbmon.Stop()
+		ch.Removed = append(ch.Removed, oldDbmon)
+		delete(ml.dbmon, monitorId)
 	}
 
 	return ch, nil
 }
 
-func (ml *MonitorLoader) merge(monitors []blip.ConfigMonitor, dbmon map[string]*DbMon) {
-	for _, mon := range monitors {
-		dbmon[mon.Id] = ml.factory.MakeDbMon.Make(mon)
+func (ml *MonitorLoader) merge(monitors []blip.ConfigMonitor, moncfg map[string]blip.ConfigMonitor) {
+	for _, cfg := range monitors {
+		moncfg[cfg.Id] = cfg
 	}
 }
 

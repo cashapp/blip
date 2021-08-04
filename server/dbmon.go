@@ -15,6 +15,7 @@ import (
 	"github.com/square/blip/level"
 	"github.com/square/blip/metrics"
 	"github.com/square/blip/monitor"
+	"github.com/square/blip/sink"
 )
 
 type DbMonFactory interface {
@@ -27,6 +28,7 @@ type dbmonFactory struct {
 	mcMaker    metrics.CollectorFactory
 	dbMaker    dbconn.Factory
 	planLoader *collect.PlanLoader
+	sinks      []sink.Sink
 }
 
 func (f dbmonFactory) Make(cfg blip.ConfigMonitor) *DbMon {
@@ -36,6 +38,7 @@ func (f dbmonFactory) Make(cfg blip.ConfigMonitor) *DbMon {
 		MCMaker:    f.mcMaker,
 		DBMaker:    f.dbMaker,
 		PlanLoader: f.planLoader,
+		Sinks:      f.sinks,
 	}
 }
 
@@ -46,6 +49,7 @@ type DbMon struct {
 	MCMaker    metrics.CollectorFactory
 	DBMaker    dbconn.Factory
 	PlanLoader *collect.PlanLoader
+	Sinks      []sink.Sink
 	// --
 	Monitor *monitor.Monitor
 	LPC     level.Collector
@@ -71,7 +75,12 @@ func (dbmon *DbMon) Start() error {
 	dbmon.metronome = sync.NewCond(&sync.Mutex{})
 	dbmon.stopChan = make(chan struct{})
 	dbmon.Monitor = monitor.NewMonitor(dbmon.MonitorId, dbmon.DB, dbmon.MCMaker)
-	dbmon.LPC = level.NewCollector(dbmon.Monitor, dbmon.metronome, dbmon.PlanLoader)
+	dbmon.LPC = level.NewCollector(level.CollectorArgs{
+		Monitor:    dbmon.Monitor,
+		Metronome:  dbmon.metronome,
+		PlanLoader: dbmon.PlanLoader,
+		Sinks:      dbmon.Sinks,
+	})
 	go dbmon.run()
 	return nil
 }

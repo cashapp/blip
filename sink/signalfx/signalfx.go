@@ -1,17 +1,21 @@
 package signalfx
 
+import (
+	"github.com/square/blip"
+)
+
 // Sink sends metrics to SignalFx.
-type Sink struct {
+type sink struct {
 }
 
-func NewSink() *Sink {
-	return &Sink{}
+func NewSink(opts map[string]string) (sink, error) {
+	return sink{}, nil
 }
 
-func (s *Sink) Send() error {
+func (s sink) Send(m blip.Metrics) error {
 	return nil
 }
 
-func (s *Sink) Status() error {
+func (s sink) Status() error {
 	return nil
 }

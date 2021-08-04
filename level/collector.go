@@ -11,6 +11,7 @@ import (
 	"github.com/square/blip/collect"
 	"github.com/square/blip/event"
 	"github.com/square/blip/monitor"
+	"github.com/square/blip/sink"
 )
 
 // Collector calls a monitor to collect metrics according to a plan.
@@ -40,6 +41,7 @@ type collector struct {
 	monitor    *monitor.Monitor
 	metronome  *sync.Cond
 	planLoader *collect.PlanLoader
+	sinks      []sink.Sink
 	// --
 	state                string
 	plan                 collect.Plan
@@ -52,25 +54,57 @@ type collector struct {
 	levels               []level
 }
 
-func NewCollector(monitor *monitor.Monitor, metronome *sync.Cond, planLoader *collect.PlanLoader) *collector {
+type CollectorArgs struct {
+	Monitor    *monitor.Monitor
+	Metronome  *sync.Cond
+	PlanLoader *collect.PlanLoader
+	Sinks      []sink.Sink
+}
+
+func NewCollector(args CollectorArgs) *collector {
 	return &collector{
-		monitor:    monitor,
-		metronome:  metronome,
-		planLoader: planLoader,
+		monitor:    args.Monitor,
+		metronome:  args.Metronome,
+		planLoader: args.PlanLoader,
+		sinks:      args.Sinks,
 		// --
 		changeMux: &sync.Mutex{},
 		stateMux:  &sync.Mutex{},
-		event:     event.MonitorSink{MonitorId: monitor.MonitorId()},
+		event:     event.MonitorSink{MonitorId: args.Monitor.MonitorId()},
 	}
 }
 
 func (c *collector) Run(stopChan, doneChan chan struct{}) error {
 	defer close(doneChan)
 
+	// Metrics are collected async so that this main loop does not block.
+	// Normally, collecting metrics should be synchronous: every 1s, take
+	// about 100-300 milliseconds get metrics and done--plenty of time
+	// before the next whole second tick. But in the real world, there are
+	// always blips (yes, that's partly where Blip gets its name from):
+	// MySQL takes 1 or 2 seconds--or longer--to return metrics, especially
+	// for "big" domains like size.data that might need to iterator over
+	// hundreds or thousands of tables. Consequently, we collect metrics
+	// asynchronously in two collector goroutines: a primary (1) that should
+	// be all that's needed, but also a secondary/backup (2) to handle
+	// real world blips. This is hard-coded because the primary should
+	// be sufficient 99% of the time, and the backup is just that: a backup
+	// to handle rare blips. If both are slow/blocked, then that's a genuine
+	// problem to report and let the user deal with--don't hide the problem
+	// with more collector goroutines.
+	//
+	// Do not buffer collectLevelChan: a collector goroutine must be ready
+	// on send, else it means both are slow/blocked and that's a problem.
+	collectLevelChan := make(chan string)         // DO NOT BUFFER
+	go c.collector(1, collectLevelChan, stopChan) // primary
+	go c.collector(2, collectLevelChan, stopChan) // secondary/backup
+
+	// -----------------------------------------------------------------------
+	// LPC main loop: collect metrics on whole second ticks
+
 	n := 1          // 1=whole second tick, -1=half second (500ms) tick
 	s := float64(0) // number of whole second ticks
 	level := 0
-
 	c.metronome.L.Lock()
 	for {
 		c.metronome.Wait() // for tick every 500ms
@@ -86,27 +120,50 @@ func (c *collector) Run(stopChan, doneChan chan struct{}) error {
 		// if this is a half- or whole-second tick
 		n = n * -1
 		if n == -1 {
-			continue
+			continue // ignore half-second ticks (500ms, 1.5s, etc.)
 		}
 		s = s + 1
-		c.stateMux.Lock()
 
-		// Determine highest level of metrics to collect. For exmaple, given
-		// levels at 1, 5, and 30s, when s=5 we up to
+		// Determine lowest level to collect
+		c.stateMux.Lock()
 		for i := range c.levels {
 			if math.Mod(s, c.levels[i].freq) == 0 {
 				level = i
 			}
 		}
 		if level == -1 {
+			c.stateMux.Unlock()
 			continue // no metrics to collect at this frequency
 		}
 
 		// Collect metrics at this level, unlock, and reset
-		c.monitor.Collect(context.Background(), c.levels[level].name)
+		select {
+		case collectLevelChan <- c.levels[level].name:
+		default:
+			// all collectors blocked
+			blip.Debug("all mon chan blocked")
+		}
 		c.stateMux.Unlock()
 		level = -1
+	}
+}
 
+func (c *collector) collector(n int, col chan string, stopChan chan struct{}) {
+	var level string
+	for {
+		select {
+		case level = <-col: // signal
+		case <-stopChan:
+			return
+		}
+		metrics, err := c.monitor.Collect(context.Background(), level)
+		if err != nil {
+			// @todo
+		}
+		for i := range c.sinks {
+			c.sinks[i].Send(metrics)
+			// @todo error
+		}
 	}
 }
 

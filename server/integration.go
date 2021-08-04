@@ -13,6 +13,7 @@ import (
 	"github.com/square/blip/dbconn"
 	"github.com/square/blip/event"
 	"github.com/square/blip/metrics"
+	"github.com/square/blip/sink"
 )
 
 func Defaults() (Plugins, Factories) {
@@ -23,11 +24,8 @@ func Defaults() (Plugins, Factories) {
 	factories := Factories{
 		MakeMetricsCollector: mcMaker,
 		MakeDbConn:           dbMaker,
-		MakeDbMon: &dbmonFactory{
-			mcMaker:    mcMaker,
-			dbMaker:    dbMaker,
-			planLoader: collect.DefaultPlanLoader(),
-		},
+		MakeDbMon:            nil, // deferred, created in server.Boot
+		MakeMetricSink:       sink.NewFactory(),
 	}
 	return Plugins{}, factories
 }
@@ -37,6 +35,7 @@ type Plugins struct {
 	LoadConfig       func(blip.Config) (blip.Config, error)
 	LoadLevelPlans   func(blip.Config) ([]collect.Plan, error)
 	LoadMonitors     func(blip.Config) ([]blip.ConfigMonitor, error)
+	LoadMetricSinks  func(blip.Config) ([]sink.Sink, error)
 	TransformMetrics func(*blip.Metrics) error
 }
 
@@ -44,6 +43,7 @@ type Factories struct {
 	MakeMetricsCollector metrics.CollectorFactory
 	MakeDbConn           dbconn.Factory
 	MakeDbMon            DbMonFactory
+	MakeMetricSink       sink.Factory
 }
 
 func LoadConfig(filePath string, cfg blip.Config) (blip.Config, error) {

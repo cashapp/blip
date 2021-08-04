@@ -16,13 +16,16 @@ var SHA = ""
 
 // Metrics are metrics collected for one plan level, from one database instance.
 type Metrics struct {
-	Ts     time.Time
-	Plan   string
-	Level  string
-	DbId   string
-	State  string
-	Values map[string]float64
+	Begin     time.Time // when collection started
+	End       time.Time // when collection completed
+	MonitorId string    // ID of monitor (MySQL)
+	Plan      string    // plan name
+	Level     string    // level name
+	State     string    // state of monitor
+	Values    map[string]float64
 }
+
+var NoMetrics = Metrics{}
 
 // Monitor provides information about a MySQL instance that Blip monitors.
 type Monitor interface {
@@ -43,6 +46,10 @@ var (
 	Debugging = false
 	debugLog  = log.New(os.Stderr, "DEBUG ", log.LstdFlags|log.Lmicroseconds)
 )
+
+func init() {
+	log.SetFlags(log.LstdFlags | log.Lmicroseconds)
+}
 
 func Debug(msg string, v ...interface{}) {
 	if !Debugging {
