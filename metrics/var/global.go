@@ -2,6 +2,7 @@ package sysvar
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"log"
 	"regexp"
@@ -10,8 +11,8 @@ import (
 
 	_ "github.com/go-sql-driver/mysql"
 
+	"github.com/square/blip"
 	"github.com/square/blip/collect"
-	"github.com/square/blip/db"
 )
 
 const (
@@ -25,21 +26,23 @@ var validMetricRegex = regexp.MustCompile("^[a-zA-Z0-9_-]*$")
 
 // Global collects global system variables for the var.global domain.
 type Global struct {
-	in       db.Instance
-	plans    collect.Plan
-	domain   string
-	workIn   map[string][]string
-	queryIn  map[string]string
-	sourceIn map[string]string
+	monitorId string
+	db        *sql.DB
+	plans     collect.Plan
+	domain    string
+	workIn    map[string][]string
+	queryIn   map[string]string
+	sourceIn  map[string]string
 }
 
-func NewGlobal(in db.Instance) *Global {
+func NewGlobal(monitor blip.Monitor) *Global {
 	return &Global{
-		in:       in,
-		domain:   "var.global",
-		workIn:   map[string][]string{},
-		queryIn:  make(map[string]string),
-		sourceIn: make(map[string]string),
+		monitorId: monitor.MonitorId(),
+		db:        monitor.DB(),
+		domain:    "var.global",
+		workIn:    map[string][]string{},
+		queryIn:   make(map[string]string),
+		sourceIn:  make(map[string]string),
 	}
 }
 
@@ -60,6 +63,42 @@ func (c *Global) Help() collect.Help {
 		},
 	}
 }
+
+// Prepares queries for all levels in the plan that contain the "var.global" domain
+func (c *Global) Prepare(plan collect.Plan) error {
+LEVEL:
+	for levelName, level := range plan.Levels {
+		dom, ok := level.Collect[c.domain]
+		if !ok {
+			// This domain not collected in this level
+			continue LEVEL
+		}
+		err := c.prepareLevel(levelName, dom.Metrics, dom.Options)
+		if err != nil {
+			// return early with error even if preparing a single level fails
+			return err
+		}
+	}
+	return nil
+}
+
+func (c *Global) Collect(ctx context.Context, levelName string) (collect.Metrics, error) {
+	switch c.sourceIn[levelName] {
+	case SOURCE_SELECT:
+		return c.collectSELECT(ctx, levelName)
+	case SOURCE_PFS:
+		return c.collectPFS(ctx, levelName)
+	case SOURCE_SHOW:
+		return c.collectSHOW(ctx, levelName)
+	}
+
+	errorStr := fmt.Sprintf("invalid source in Collect %s", c.sourceIn[levelName])
+	panic(errorStr)
+}
+
+// //////////////////////////////////////////////////////////////////////////
+// Internal methods
+// //////////////////////////////////////////////////////////////////////////
 
 // Prepares the query for given level based on it's metrics and source option
 func (c *Global) prepareLevel(levelName string, metrics []string, options map[string]string) error {
@@ -120,38 +159,6 @@ func (c *Global) prepareLevel(levelName string, metrics []string, options map[st
 	return fmt.Errorf("auto source failed, last error: %s", err)
 }
 
-// Prepares queries for all levels in the plan that contain the "var.global" domain
-func (c *Global) Prepare(plan collect.Plan) error {
-LEVEL:
-	for levelName, level := range plan.Levels {
-		dom, ok := level.Collect[c.domain]
-		if !ok {
-			// This domain not collected in this level
-			continue LEVEL
-		}
-		err := c.prepareLevel(levelName, dom.Metrics, dom.Options)
-		if err != nil {
-			// return early with error even if preparing a single level fails
-			return err
-		}
-	}
-	return nil
-}
-
-func (c *Global) Collect(ctx context.Context, levelName string) (collect.Metrics, error) {
-	switch c.sourceIn[levelName] {
-	case SOURCE_SELECT:
-		return c.collectSELECT(ctx, levelName)
-	case SOURCE_PFS:
-		return c.collectPFS(ctx, levelName)
-	case SOURCE_SHOW:
-		return c.collectSHOW(ctx, levelName)
-	}
-
-	errorStr := fmt.Sprintf("invalid source in Collect %s", c.sourceIn[levelName])
-	panic(errorStr)
-}
-
 // Validate input metric names to make sure there won't be any
 // sql injection attacks.
 func validateMetricNames(metricNames []string) error {
@@ -180,7 +187,7 @@ func (c *Global) prepareSELECT(levelName string) error {
 }
 
 func (c *Global) collectSELECT(ctx context.Context, levelName string) (collect.Metrics, error) {
-	rows, err := c.in.DB().QueryContext(ctx, c.queryIn[levelName])
+	rows, err := c.db.QueryContext(ctx, c.queryIn[levelName])
 	if err != nil {
 		return collect.Metrics{}, err
 	}
@@ -253,7 +260,7 @@ func (c *Global) collectSHOW(ctx context.Context, levelName string) (collect.Met
 // Since both `show` and `pfs` queries return results in same format (ie; 2 columns, name and value)
 // use the same logic for querying and retrieving metrics from the results
 func (c *Global) collectSHOWorPFS(ctx context.Context, levelName string) (collect.Metrics, error) {
-	rows, err := c.in.DB().QueryContext(ctx, c.queryIn[levelName])
+	rows, err := c.db.QueryContext(ctx, c.queryIn[levelName])
 	if err != nil {
 		return collect.Metrics{}, err
 	}

@@ -2,9 +2,12 @@ package level
 
 import (
 	"context"
-	"log"
+	"math"
+	"sort"
 	"sync"
+	"time"
 
+	"github.com/square/blip"
 	"github.com/square/blip/collect"
 	"github.com/square/blip/event"
 	"github.com/square/blip/monitor"
@@ -21,6 +24,17 @@ type Collector interface {
 
 var _ Collector = &collector{}
 
+type level struct {
+	freq float64
+	name string
+}
+
+type byFreq []level
+
+func (a byFreq) Len() int           { return len(a) }
+func (a byFreq) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
+func (a byFreq) Less(i, j int) bool { return a[i].freq < a[j].freq }
+
 // collector is the implementation of Collector.
 type collector struct {
 	monitor    *monitor.Monitor
@@ -35,6 +49,7 @@ type collector struct {
 	changeMux            *sync.Mutex
 	stateMux             *sync.Mutex
 	event                event.MonitorSink
+	levels               []level
 }
 
 func NewCollector(monitor *monitor.Monitor, metronome *sync.Cond, planLoader *collect.PlanLoader) *collector {
@@ -45,15 +60,17 @@ func NewCollector(monitor *monitor.Monitor, metronome *sync.Cond, planLoader *co
 		// --
 		changeMux: &sync.Mutex{},
 		stateMux:  &sync.Mutex{},
-		event:     event.MonitorSink{MonitorId: monitor.Id},
+		event:     event.MonitorSink{MonitorId: monitor.MonitorId()},
 	}
 }
 
 func (c *collector) Run(stopChan, doneChan chan struct{}) error {
 	defer close(doneChan)
 
-	n := 1 // 1=whole second tick, -1=half second (500ms) tick
-	s := 0 // number of whole second ticks
+	n := 1          // 1=whole second tick, -1=half second (500ms) tick
+	s := float64(0) // number of whole second ticks
+	level := 0
+
 	c.metronome.L.Lock()
 	for {
 		c.metronome.Wait() // for tick every 500ms
@@ -68,10 +85,28 @@ func (c *collector) Run(stopChan, doneChan chan struct{}) error {
 		// Multiple n by -1 to flip-flop between 1 and -1 to determine
 		// if this is a half- or whole-second tick
 		n = n * -1
-		if n == 1 { // whole second tick
-			s = s + 1
-			log.Println("woke up - whole", s)
+		if n == -1 {
+			continue
 		}
+		s = s + 1
+		c.stateMux.Lock()
+
+		// Determine highest level of metrics to collect. For exmaple, given
+		// levels at 1, 5, and 30s, when s=5 we up to
+		for i := range c.levels {
+			if math.Mod(s, c.levels[i].freq) == 0 {
+				level = i
+			}
+		}
+		if level == -1 {
+			continue // no metrics to collect at this frequency
+		}
+
+		// Collect metrics at this level, unlock, and reset
+		c.monitor.Collect(context.Background(), c.levels[level].name)
+		c.stateMux.Unlock()
+		level = -1
+
 	}
 }
 
@@ -120,10 +155,12 @@ func (c *collector) changePlan(ctx context.Context, newState, newPlanName string
 		c.stateMux.Unlock()
 	}()
 
-	newPlan, err := c.planLoader.Plan(c.monitor.Id, newPlanName, c.monitor.DB)
+	newPlan, err := c.planLoader.Plan(c.monitor.MonitorId(), newPlanName, c.monitor.DB())
 	if err != nil {
 		return err
 	}
+
+	newLevels := LevelUp(&newPlan)
 
 	if err := c.monitor.Prepare(ctx, newPlan); err != nil {
 		return err
@@ -134,9 +171,49 @@ func (c *collector) changePlan(ctx context.Context, newState, newPlanName string
 	oldPlanName := c.plan.Name
 	c.state = newState
 	c.plan = newPlan
+	c.levels = newLevels
 	c.stateMux.Unlock() // -- X unlock
 
 	c.event.Sendf(event.CHANGE_PLAN, "state:%s plan:%s -> state:%s plan:%s", oldState, oldPlanName, newState, newPlan.Name)
 
 	return nil
+}
+
+func LevelUp(plan *collect.Plan) []level {
+	levels := make([]level, len(plan.Levels))
+	i := 0
+	for _, l := range plan.Levels {
+		d, _ := time.ParseDuration(l.Freq)
+		levels[i] = level{
+			name: l.Name,
+			freq: d.Seconds(),
+		}
+		i++
+	}
+	sort.Sort(byFreq(levels))
+	blip.Debug("levels: %v", levels)
+
+	// Level N applies to N+(N+1)
+	for i := 0; i < len(levels); i++ {
+		rootLevel := levels[i].name
+		root := plan.Levels[rootLevel]
+
+		for j := i + 1; j < len(levels); j++ {
+			leafLevel := levels[j].name
+			leaf := plan.Levels[leafLevel]
+
+			for domain := range root.Collect {
+				dom, ok := leaf.Collect[domain]
+				if !ok {
+					leaf.Collect[domain] = root.Collect[domain]
+				} else {
+					dom.Metrics = append(dom.Metrics, root.Collect[domain].Metrics...)
+					leaf.Collect[domain] = dom
+				}
+			}
+
+		}
+	}
+
+	return levels
 }

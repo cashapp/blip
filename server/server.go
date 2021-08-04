@@ -29,6 +29,8 @@ type Server struct {
 	cfg           blip.Config
 	cmdline       CommandLine
 	monitorLoader *MonitorLoader
+	stopChan      chan struct{}
+	doneChan      chan struct{}
 }
 
 // Boot boots Blip. That means it loads, validates, and creates everything,
@@ -189,6 +191,9 @@ func (s *Server) Boot(plugin Plugins, factory Factories) error {
 func (s *Server) Run(stopChan, doneChan chan struct{}) error {
 	defer close(doneChan)
 
+	s.stopChan = stopChan
+	s.doneChan = doneChan
+
 	event.Send(event.SERVER_RUN)
 	defer event.Send(event.SERVER_RUN_STOP)
 
@@ -226,4 +231,14 @@ func (s *Server) Run(stopChan, doneChan chan struct{}) error {
 }
 
 func (s *Server) Shutdown() {
+	select {
+	case <-s.stopChan:
+		// Already stopped
+	default:
+		close(s.stopChan)
+		select {
+		case <-s.doneChan:
+		case <-time.After(3 * time.Second):
+		}
+	}
 }

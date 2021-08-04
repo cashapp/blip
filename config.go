@@ -25,21 +25,22 @@ const INTERNAL_PLAN_NAME = "blip"
 type Config struct {
 	//
 	// Server configs
-	API           ConfigAPI                    `yaml:"api"`
-	MonitorLoader ConfigMonitorLoader          `yaml:"monitor-loader"`
-	Sinks         map[string]map[string]string `yaml:"sinks"`
+	API           ConfigAPI                    `yaml:"api,omitempty"`
+	MonitorLoader ConfigMonitorLoader          `yaml:"monitor-loader,omitempty"`
+	Sinks         map[string]map[string]string `yaml:"sinks,omitempty"`
 	Strict        bool                         `yaml:"strict"`
 
 	//
 	// Monitor default configs
 	//
-	AWS       ConfigAWS              `yaml:"aws"`
-	Exporter  ConfigExporter         `yaml:"exporter"`
-	HA        ConfigHighAvailability `yaml:"ha"`
-	Heartbeat ConfigHeartbeat        `yaml:"heartbeat"`
-	MySQL     ConfigMySQL            `yaml:"mysql"`
-	Plans     ConfigPlans            `yaml:"plans"`
-	TLS       ConfigTLS              `yaml:"tls"`
+	AWS       ConfigAWS              `yaml:"aws,omitempty"`
+	Exporter  ConfigExporter         `yaml:"exporter,omitempty"`
+	HA        ConfigHighAvailability `yaml:"ha,omitempty"`
+	Heartbeat ConfigHeartbeat        `yaml:"heartbeat,omitempty"`
+	MySQL     ConfigMySQL            `yaml:"mysql,omitempty"`
+	Plans     ConfigPlans            `yaml:"plans,omitempty"`
+	Tags      map[string]string      `yaml:"tags,omitempty"`
+	TLS       ConfigTLS              `yaml:"tls,omitempty"`
 
 	Monitors []ConfigMonitor `yaml:"monitors,omitempty"`
 }
@@ -79,53 +80,83 @@ func (c Config) Validate() error {
 
 // --------------------------------------------------------------------------
 
-type ConfigMonitor struct {
-	Id       string `yaml:"id"`
-	Hostname string `yaml:"hostname"`
-	Socket   string `yaml:"socket"`
-	Auth     string `yaml:"auth"` // file, aws-iam, aws-secrets-manaager
-	Username string `yaml:"username"`
-	Password string `yaml:"password"`
-	MyCnf    string `yaml:"mycnf"`
+type ConfigMySQL struct {
+	MyCnf          string `yaml:"mycnf,omitempty"`
+	Username       string `yaml:"username,omitempty"`
+	Password       string `yaml:"password,omitempty"`
+	TimeoutConnect string `yaml:"timeoutConnect"`
+}
 
-	Tags           map[string]string `yaml:"tags"`
-	TimeoutConnect string            `yaml:"timeoutConnect"`
+const (
+	DEFAULT_MONITOR_USERNAME        = "blip"
+	DEFAULT_MONITOR_TIMEOUT_CONNECT = "5s"
+)
+
+func DefaultConfigMySQL() ConfigMySQL {
+	return ConfigMySQL{
+		Username:       DEFAULT_MONITOR_USERNAME,
+		TimeoutConnect: DEFAULT_MONITOR_TIMEOUT_CONNECT,
+	}
+}
+
+func (c ConfigMySQL) Validate() error {
+	return nil
+}
+
+// --------------------------------------------------------------------------
+
+type ConfigMonitor struct {
+	Id             string `yaml:"id"`
+	MyCnf          string `yaml:"mycnf"`
+	Socket         string `yaml:"socket"`
+	Hostname       string `yaml:"hostname"`
+	Username       string `yaml:"username"`
+	Password       string `yaml:"password"`
+	PasswordFile   string `yaml:"password-file"`
+	TimeoutConnect string `yaml:"timeoutConnect"`
+
+	Tags map[string]string `yaml:"tags"`
 
 	AWS       ConfigAWS              `yaml:"aws"`
-	Exporter  ConfigExporter         `yaml:"exporter"`
+	Exporter  ConfigExporter         `yaml:"exporter,omitempty"`
 	HA        ConfigHighAvailability `yaml:"ha"`
 	Heartbeat ConfigHeartbeat        `yaml:"heartbeat"`
-	MySQL     ConfigMySQL            `yaml:"mysql"`
 	Plans     ConfigPlans            `yaml:"plans"`
 	TLS       ConfigTLS              `yaml:"tls"`
 }
 
-const (
-	DEFAULT_MONITOR_ID              = "localhost"
-	DEFAULT_MONITOR_HOSTNAME        = "127.0.0.1:3306"
-	DEFAULT_MONITOR_USERNAME        = "blip"
-	DEFAULT_MONITOR_PASSWORD        = "blip"
-	DEFAULT_MONITOR_TIMEOUT_CONNECT = "5s"
-)
-
 func DefaultConfigMonitor() ConfigMonitor {
 	return ConfigMonitor{
-		Id:       DEFAULT_MONITOR_ID,
-		Hostname: DEFAULT_MONITOR_HOSTNAME,
-		Username: DEFAULT_MONITOR_USERNAME,
-		Password: DEFAULT_MONITOR_PASSWORD,
-
-		Tags:           map[string]string{},
+		Username:       DEFAULT_MONITOR_USERNAME,
 		TimeoutConnect: DEFAULT_MONITOR_TIMEOUT_CONNECT,
+
+		Tags: map[string]string{},
 
 		AWS:       DefaultConfigAWS(),
 		Exporter:  DefaultConfigExporter(),
 		HA:        DefaultConfigHA(),
 		Heartbeat: DefaultConfigHeartbeat(),
-		MySQL:     DefaultConfigMySQL(),
 		Plans:     DefaultConfigPlans(),
 		TLS:       DefaultConfigTLS(),
 	}
+}
+
+func (mon ConfigMonitor) WithDefaults(cfg Config) ConfigMonitor {
+	if cfg.MySQL.Username != "" {
+		mon.Username = cfg.MySQL.Username
+	}
+	if cfg.MySQL.Password != "" {
+		mon.Password = cfg.MySQL.Password
+	}
+	if cfg.MySQL.TimeoutConnect != "" {
+		mon.TimeoutConnect = cfg.MySQL.TimeoutConnect
+	}
+
+	for k, v := range cfg.Tags {
+		mon.Tags[k] = v
+	}
+
+	return mon
 }
 
 func (c ConfigMonitor) Validate() error {
@@ -135,44 +166,38 @@ func (c ConfigMonitor) Validate() error {
 // --------------------------------------------------------------------------
 
 type ConfigMonitorLoader struct {
-	Freq     string   `yaml:"freq"`
-	StopLoss float64  `yaml:"stop-loss"`
-	Files    []string `yaml:"files"`
-	AWS      ConfigMonitorLoaderAWS
-	Local    ConfigMonitorLoaderLocal
+	Freq     string                   `yaml:"freq,omitempty"`
+	StopLoss string                   `yaml:"stop-loss,omitempty"`
+	Files    []string                 `yaml:"files,omitempty"`
+	AWS      ConfigMonitorLoaderAWS   `yaml:"aws,omitempty"`
+	Local    ConfigMonitorLoaderLocal `yaml:"local,omitempty"`
 }
 
 type ConfigMonitorLoaderAWS struct {
-	Auto bool `yaml:"auto"`
+	DisableAuto bool `yaml:"disable-auto"`
 }
 
 type ConfigMonitorLoaderLocal struct {
-	Auto bool `yaml:"auto"`
+	DisableAuto     bool `yaml:"disable-auto"`
+	DisableAutoRoot bool `yaml:"disable-auto-root"`
 }
 
-const (
-	DEFAULT_MONITOR_LOADER_LOCAL_AUTO = true
-)
-
 func DefaultConfigMonitorLoader() ConfigMonitorLoader {
-	return ConfigMonitorLoader{
-		Local: ConfigMonitorLoaderLocal{
-			Auto: DEFAULT_MONITOR_LOADER_LOCAL_AUTO,
-		},
-	}
+	return ConfigMonitorLoader{}
 }
 
 func (c ConfigMonitorLoader) Validate() error {
+	// StopLoss match N%
 	return nil
 }
 
 // --------------------------------------------------------------------------
 
 type ConfigPlans struct {
-	Files   []string           `yaml:"files"`
-	Table   string             `yaml:"table"`
-	Monitor *ConfigMonitor     `yaml:"monitor"`
-	Adjust  ConfigPlanAdjuster `yaml:"adjust"`
+	Files   []string           `yaml:"files,omitempty"`
+	Table   string             `yaml:"table,omitempty"`
+	Monitor *ConfigMonitor     `yaml:"monitor,omitempty"`
+	Adjust  ConfigPlanAdjuster `yaml:"adjust,omitempty"`
 }
 
 type ConfigPlanAdjuster struct {
@@ -195,10 +220,6 @@ func DefaultConfigPlans() ConfigPlans {
 
 func (c ConfigPlans) Validate() error {
 	return nil
-}
-
-func (c ConfigPlans) MultiState() bool {
-	return c.Adjust.Freq != "" && c.Adjust.ReadOnly != ""
 }
 
 // --------------------------------------------------------------------------
@@ -225,7 +246,9 @@ func (c ConfigAPI) Validate() error {
 // --------------------------------------------------------------------------
 
 type ConfigAWS struct {
-	Role string `yaml:"role"`
+	PasswordSecret string `yaml:"password-secret"`
+	AuthToken      bool   `yaml:"auth-token"`
+	Role           string `yaml:"role"`
 }
 
 const (
@@ -245,7 +268,7 @@ func (c ConfigAWS) Validate() error {
 // --------------------------------------------------------------------------
 
 type ConfigExporter struct {
-	Bind string `yaml:"bind"`
+	Bind string `yaml:"bind,omitempty"`
 }
 
 const (
@@ -309,12 +332,7 @@ const (
 )
 
 func DefaultConfigHA() ConfigHighAvailability {
-	return ConfigHighAvailability{
-		Freq:        DEFAULT_HA_FREQ,
-		Role:        DEFAULT_HA_ROLE,
-		Table:       DEFAULT_HA_TABLE,
-		CreateTable: DEFAULT_HA_CREATE_TABLE,
-	}
+	return ConfigHighAvailability{}
 }
 
 func (c ConfigHighAvailability) Validate() error {
@@ -323,30 +341,10 @@ func (c ConfigHighAvailability) Validate() error {
 
 // --------------------------------------------------------------------------
 
-type ConfigMySQL struct {
-	AutoConfig string `yaml:"autoConfig"`
-}
-
-const (
-	DEFALUT_MYSQL_AUTOCONFIG = "try"
-)
-
-func DefaultConfigMySQL() ConfigMySQL {
-	return ConfigMySQL{
-		AutoConfig: DEFALUT_MYSQL_AUTOCONFIG,
-	}
-}
-
-func (c ConfigMySQL) Validate() error {
-	return nil
-}
-
-// --------------------------------------------------------------------------
-
 type ConfigTLS struct {
-	Cert string `yaml:"cert"`
-	Key  string `yaml:"key"`
-	CA   string `yaml:"ca"`
+	Cert string `yaml:"cert,omitempty"`
+	Key  string `yaml:"key,omitempty"`
+	CA   string `yaml:"ca,omitempty"`
 }
 
 func DefaultConfigTLS() ConfigTLS {

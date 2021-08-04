@@ -5,8 +5,10 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/square/blip"
+	"github.com/square/blip/dbconn"
 	"github.com/square/blip/event"
 )
 
@@ -17,11 +19,12 @@ type MonitorChanges struct {
 }
 
 type MonitorLoader struct {
-	cfg     blip.Config
-	plugin  func(blip.Config) ([]blip.ConfigMonitor, error)
-	factory Factories
-	dbmon   map[string]*DbMon // keyed on monitorId
-	source  string
+	cfg      blip.Config
+	plugin   func(blip.Config) ([]blip.ConfigMonitor, error)
+	factory  Factories
+	dbmon    map[string]*DbMon // keyed on monitorId
+	source   string
+	stopLoss float64
 	*sync.Mutex
 }
 
@@ -91,7 +94,7 @@ func (ml *MonitorLoader) Load(ctx context.Context) (MonitorChanges, error) {
 		ml.merge(monitors, dbmon)
 
 		// Last, local monitors auto-detected
-		monitors, err = ml.loadLocal(ctx)
+		monitors, err = ml.LoadLocal(ctx)
 		if err != nil {
 			return ch, err
 		}
@@ -102,10 +105,10 @@ func (ml *MonitorLoader) Load(ctx context.Context) (MonitorChanges, error) {
 	defer ml.Unlock()
 
 	// Don't change if >= StopLoss% of monitors are lost/don't load
-	if ml.cfg.MonitorLoader.StopLoss > 0 {
+	if ml.stopLoss > 0 {
 		nBefore := float64(len(ml.dbmon))
 		nNow := float64(len(ml.dbmon))
-		if nNow < nBefore && (nBefore-nNow)/nBefore >= ml.cfg.MonitorLoader.StopLoss {
+		if nNow < nBefore && (nBefore-nNow)/nBefore >= ml.stopLoss {
 			return ch, fmt.Errorf("stop-loss") // @tody
 		}
 	}
@@ -152,20 +155,76 @@ func (ml *MonitorLoader) loadFiles(ctx context.Context) ([]blip.ConfigMonitor, e
 }
 
 func (ml *MonitorLoader) loadAWS(ctx context.Context) ([]blip.ConfigMonitor, error) {
-	if !ml.cfg.MonitorLoader.AWS.Auto {
+	if ml.cfg.MonitorLoader.AWS.DisableAuto {
 		return nil, nil
 	}
 	// @todo auto-detect AWS stuff
 	return nil, nil
 }
 
-func (ml *MonitorLoader) loadLocal(ctx context.Context) ([]blip.ConfigMonitor, error) {
-	if !ml.cfg.MonitorLoader.Local.Auto {
+// LoadLocal auto-detects local MySQL instances.
+func (ml *MonitorLoader) LoadLocal(ctx context.Context) ([]blip.ConfigMonitor, error) {
+	// Do nothing if local auto-detect is explicitly disabled
+	if ml.cfg.MonitorLoader.Local.DisableAuto {
 		return nil, nil
 	}
-	// @todo auto-detect local instances
-	monitors := []blip.ConfigMonitor{
-		blip.DefaultConfigMonitor(),
+
+	// Auto-detect using default MySQL username (config.mysql.username),
+	// which is probably "blip". Also try "root" if not explicitly disabled.
+	users := []string{ml.cfg.MySQL.Username}
+	if !ml.cfg.MonitorLoader.Local.DisableAutoRoot {
+		users = append(users, "root")
 	}
-	return monitors, nil
+
+	sockets := dbconn.Sockets()
+
+	// For every user, try every socket, then 127.0.0.1.
+USERS:
+	for _, user := range users {
+
+		moncfg := blip.DefaultConfigMonitor().WithDefaults(ml.cfg)
+		moncfg.Id = "localhost"
+		moncfg.Username = user
+
+	SOCKETS:
+		for _, socket := range sockets {
+			moncfg.Socket = socket
+
+			if err := ml.testLocal(ctx, moncfg); err != nil {
+				// Failed to connect
+				blip.Debug("local auto-detect socket %s user %s: fail: %s",
+					moncfg.Socket, moncfg.Username, err)
+				continue SOCKETS
+			}
+
+			// Connected via socket
+			return []blip.ConfigMonitor{moncfg}, nil
+		}
+
+		// -------------------------------------------------------------------
+		// TCP
+		moncfg.Socket = ""
+		moncfg.Hostname = "127.0.0.1:3306"
+
+		if err := ml.testLocal(ctx, moncfg); err != nil {
+			blip.Debug("local auto-detect tcp %s user %s: fail: %s",
+				moncfg.Hostname, moncfg.Username, err)
+			continue USERS
+		}
+
+		return []blip.ConfigMonitor{moncfg}, nil
+	}
+
+	return nil, nil
+}
+
+func (ml *MonitorLoader) testLocal(bg context.Context, moncfg blip.ConfigMonitor) error {
+	db, err := ml.factory.MakeDbConn.Make(moncfg)
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+	ctx, cancel := context.WithTimeout(bg, 500*time.Millisecond)
+	defer cancel()
+	return db.PingContext(ctx)
 }

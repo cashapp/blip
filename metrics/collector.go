@@ -2,9 +2,17 @@ package metrics
 
 import (
 	"context"
+	"database/sql"
 
+	"github.com/square/blip"
 	"github.com/square/blip/collect"
+	sysvar "github.com/square/blip/metrics/var"
 )
+
+type Db struct {
+	DB        *sql.DB
+	MonitorId string
+}
 
 // Collector collects metrics for a single metric domain.
 type Collector interface {
@@ -22,7 +30,7 @@ type Collector interface {
 }
 
 type CollectorFactory interface {
-	Make(domain string) (Collector, error)
+	Make(domain string, monitor blip.Monitor) (Collector, error)
 }
 
 var _ CollectorFactory = collectotFactory{}
@@ -34,7 +42,12 @@ func NewCollectorFactory() collectotFactory {
 	return collectotFactory{}
 }
 
-func (f collectotFactory) Make(domain string) (Collector, error) {
+func (f collectotFactory) Make(domain string, monitor blip.Monitor) (Collector, error) {
+	switch domain {
+	case "var.global":
+		mc := sysvar.NewGlobal(monitor)
+		return mc, nil
+	}
 	return MockCollector{}, nil
 }
 

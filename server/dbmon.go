@@ -31,7 +31,7 @@ type dbmonFactory struct {
 
 func (f dbmonFactory) Make(cfg blip.ConfigMonitor) *DbMon {
 	return &DbMon{
-		MonitorId:  cfg.Id,
+		MonitorId:  dbconn.MonitorId(cfg),
 		Config:     cfg,
 		MCMaker:    f.mcMaker,
 		DBMaker:    f.dbMaker,

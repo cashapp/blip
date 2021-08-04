@@ -1,6 +1,7 @@
 package blip
 
 import (
+	"database/sql"
 	"fmt"
 	"log"
 	"os"
@@ -21,6 +22,12 @@ type Metrics struct {
 	DbId   string
 	State  string
 	Values map[string]float64
+}
+
+// Monitor provides information about a MySQL instance that Blip monitors.
+type Monitor interface {
+	MonitorId() string
+	DB() *sql.DB
 }
 
 const (

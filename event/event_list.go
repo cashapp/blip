@@ -22,6 +22,8 @@ const (
 
 	MONITOR_LOADER_LOADING = "monitor-loader-loading"
 
+	MONITOR_PREPARE_PLAN = "monitor-prepare-plan"
+
 	MONITOR_STOPPED = "monitor-stopped"
 
 	RUN      = "server-run"

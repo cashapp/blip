@@ -2,7 +2,9 @@ package dbconn
 
 import (
 	"database/sql"
+	"fmt"
 
+	//dsndriver "github.com/go-mysql/hotswap-dsn-driver"
 	_ "github.com/go-sql-driver/mysql"
 
 	"github.com/square/blip"
@@ -21,10 +23,43 @@ func NewConnFactory() connFactory {
 	return connFactory{}
 }
 
-func (f connFactory) Make(mon blip.ConfigMonitor) (*sql.DB, error) {
-	db, err := sql.Open("mysql", "root@tcp(127.0.0.1:3306)/")
-	if err != nil {
-		return nil, err
+func (f connFactory) Make(cfg blip.ConfigMonitor) (*sql.DB, error) {
+	cred := "root"
+
+	// -------------------------------------------------------------------------
+	// AWS RDS connection
+	if cfg.AWS.AuthToken {
+		// Password generated as IAM auth token (valid 15 min)
+		token := ""
+		cred = cred + ":" + token
+	} else if cfg.AWS.PasswordSecret != "" {
+		/*
+			// Password from AWS Secrets Manager
+			secret, serr = NewSecret(secretName)
+			if serr != nil {
+				log.Fatal(serr)
+			}
+			dsndriver.SetHotswapFunc(secret.SwapDSN)
+			password, err := secret.Get(context.Background)
+			if err != nil {
+				return nil, err
+			}
+			cred = cred + ":" + password
+		*/
 	}
-	return db, nil
+
+	cred = cfg.Username
+	if cfg.Password != "" {
+		cred += ":" + cfg.Password
+	}
+
+	addr := ""
+	if cfg.Socket != "" {
+		addr = fmt.Sprintf("unix(%s)", cfg.Socket)
+	} else {
+		// add :3306 if missing
+		addr = fmt.Sprintf("tcp(%s)", cfg.Hostname)
+	}
+	dsn := fmt.Sprintf("%s@%s/", cred, addr)
+	return sql.Open("mysql", dsn)
 }
