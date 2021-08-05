@@ -131,31 +131,31 @@ func (pl *PlanLoader) LoadPlans(cfg blip.Config, dbMaker dbconn.Factory) error {
 	for _, mon := range cfg.Monitors {
 		if mon.Plans.Table != "" {
 			// Monitor plans from table, but defer until monitor's LPC calls Plan()
-			blip.Debug("monitor %s plans from %s (deferred)", mon.Id, mon.Plans.Table)
-			needToLoad[mon.Id] = mon.Plans.Table
+			blip.Debug("monitor %s plans from %s (deferred)", mon.MonitorId, mon.Plans.Table)
+			needToLoad[mon.MonitorId] = mon.Plans.Table
 		}
 
 		if len(mon.Plans.Files) > 0 {
 			// Monitor plans from files, load all
-			blip.Debug("monitor %s plans from %s", mon.Id, mon.Plans.Files)
+			blip.Debug("monitor %s plans from %s", mon.MonitorId, mon.Plans.Files)
 			plans, err := ReadPlansFromFiles(mon.Plans.Files)
 			if err != nil {
 				return err
 			}
-			monitorPlans[mon.Id] = map[string]Plan{}
+			monitorPlans[mon.MonitorId] = map[string]Plan{}
 			for i, plan := range plans {
 				if i == 0 {
 					plan.firstFile = true
 				}
-				monitorPlans[mon.Id][plan.Name] = plan
+				monitorPlans[mon.MonitorId][plan.Name] = plan
 			}
 		}
 
-		if len(monitorPlans[mon.Id]) == 0 {
+		if len(monitorPlans[mon.MonitorId]) == 0 {
 			// A monitor plan must specifiy either .table or .files. They're
 			// mututally exclusive and validated in Server.Boot(). If neither
 			// specified, then the monitor uses default plans (config.plans).
-			blip.Debug("monitor %s plans from default plans", mon.Id)
+			blip.Debug("monitor %s plans from default plans", mon.MonitorId)
 		}
 	}
 

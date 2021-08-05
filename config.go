@@ -13,28 +13,43 @@ import (
 const (
 	ENV_STRICT = "BLIP_STRICT"
 	ENV_DEBUG  = "BLIP_DEBUG"
-)
 
-const (
 	DEFAULT_CONFIG_FILE = "blip.yaml"
 	DEFAULT_STRICT      = "" // disabled
 	DEFAULT_DEBUG       = "" // disabled
 	DEFAULT_DATABASE    = "blip"
+
+	INTERNAL_PLAN_NAME = "blip"
 )
 
-const INTERNAL_PLAN_NAME = "blip"
+var envvar = regexp.MustCompile(`\${([\w_.-]+)(?:(\:\-)([\w_.-]*))?}`)
+
+func interpolateEnv(v string) string {
+	if !strings.Contains(v, "${") {
+		return v
+	}
+	m := envvar.FindStringSubmatch(v)
+	if len(m) != 4 {
+		// @todo error
+	}
+	v2 := os.Getenv(m[1])
+	if v2 == "" && m[2] != "" {
+		return m[3]
+	}
+	return envvar.ReplaceAllString(v, v2)
+}
 
 // Config represents the Blip startup configuration.
 type Config struct {
 	//
-	// Server configs
+	// Blip server
 	API           ConfigAPI                    `yaml:"api,omitempty"`
 	MonitorLoader ConfigMonitorLoader          `yaml:"monitor-loader,omitempty"`
 	Sinks         map[string]map[string]string `yaml:"sinks,omitempty"`
 	Strict        bool                         `yaml:"strict"`
 
 	//
-	// Monitor default configs
+	// Defaults for monitors
 	//
 	AWS       ConfigAWS              `yaml:"aws,omitempty"`
 	Exporter  ConfigExporter         `yaml:"exporter,omitempty"`
@@ -81,7 +96,7 @@ func (c Config) Validate() error {
 	return nil
 }
 
-func (c *Config) Interpolate() {
+func (c *Config) InterpolateEnvVars() {
 	for k, v := range c.Tags {
 		c.Tags[k] = interpolateEnv(v)
 	}
@@ -92,17 +107,357 @@ func (c *Config) Interpolate() {
 		}
 		c.Sinks[sink] = kv
 	}
+	c.API.InterpolateEnvVars()
+	c.MonitorLoader.InterpolateEnvVars()
 
-	c.API.Interpolate()
-	c.MonitorLoader.Interpolate()
+	c.AWS.InterpolateEnvVars()
+	c.Exporter.InterpolateEnvVars()
+	c.HA.InterpolateEnvVars()
+	c.Heartbeat.InterpolateEnvVars()
+	c.MySQL.InterpolateEnvVars()
+	c.Plans.InterpolateEnvVars()
+	c.TLS.InterpolateEnvVars()
+}
 
-	c.AWS.Interpolate()
-	c.Exporter.Interpolate()
-	c.HA.Interpolate()
-	c.Heartbeat.Interpolate()
-	c.MySQL.Interpolate()
-	c.Plans.Interpolate()
-	c.TLS.Interpolate()
+// ///////////////////////////////////////////////////////////////////////////
+// Blip server
+// ///////////////////////////////////////////////////////////////////////////
+
+type ConfigAPI struct {
+	Bind    string `yaml:"bind"`
+	Disable bool   `yaml:"disable"`
+}
+
+const (
+	DEFAULT_API_BIND = "127.0.0.1:9070"
+)
+
+func DefaultConfigAPI() ConfigAPI {
+	return ConfigAPI{
+		Bind: DEFAULT_API_BIND,
+	}
+}
+
+func (c ConfigAPI) Validate() error {
+	return nil
+}
+
+func (c *ConfigAPI) InterpolateEnvVars() {
+}
+
+// --------------------------------------------------------------------------
+
+type ConfigMonitorLoader struct {
+	Freq     string                   `yaml:"freq,omitempty"`
+	Files    []string                 `yaml:"files,omitempty"`
+	StopLoss string                   `yaml:"stop-loss,omitempty"`
+	AWS      ConfigMonitorLoaderAWS   `yaml:"aws,omitempty"`
+	Local    ConfigMonitorLoaderLocal `yaml:"local,omitempty"`
+}
+
+type ConfigMonitorLoaderAWS struct {
+	DisableAuto bool `yaml:"disable-auto"`
+}
+
+type ConfigMonitorLoaderLocal struct {
+	DisableAuto     bool `yaml:"disable-auto"`
+	DisableAutoRoot bool `yaml:"disable-auto-root"`
+}
+
+func DefaultConfigMonitorLoader() ConfigMonitorLoader {
+	return ConfigMonitorLoader{}
+}
+
+func (c ConfigMonitorLoader) Validate() error {
+	// StopLoss match N%
+	return nil
+}
+
+func (c *ConfigMonitorLoader) InterpolateEnvVars() {
+}
+
+// ///////////////////////////////////////////////////////////////////////////
+// Monitor
+// ///////////////////////////////////////////////////////////////////////////
+
+type ConfigMonitor struct {
+	MonitorId      string `yaml:"id"`
+	MyCnf          string `yaml:"mycnf,omitempty"`
+	Socket         string `yaml:"socket,omitempty"`
+	Hostname       string `yaml:"hostname,omitempty"`
+	Username       string `yaml:"username,omitempty"`
+	Password       string `yaml:"password,omitempty"`
+	PasswordFile   string `yaml:"password-file,omitempty"`
+	TimeoutConnect string `yaml:"timeoutConnect,omitempty"`
+
+	// Tags are passed to each metric sink. Tags inherit from config.tags,
+	// but these monitor.tags take precedent (are not overwritten by config.tags).
+	Tags map[string]string `yaml:"tags,omitempty"`
+
+	AWS       ConfigAWS              `yaml:"aws,omitempty"`
+	Exporter  ConfigExporter         `yaml:"exporter,omitempty"`
+	HA        ConfigHighAvailability `yaml:"ha,omitempty"`
+	Heartbeat ConfigHeartbeat        `yaml:"heartbeat,omitempty"`
+	Plans     ConfigPlans            `yaml:"plans,omitempty"`
+	TLS       ConfigTLS              `yaml:"tls,omitempty"`
+}
+
+func DefaultConfigMonitor() ConfigMonitor {
+	return ConfigMonitor{
+		Username:       DEFAULT_MONITOR_USERNAME,
+		TimeoutConnect: DEFAULT_MONITOR_TIMEOUT_CONNECT,
+
+		Tags: map[string]string{},
+
+		AWS:       DefaultConfigAWS(),
+		Exporter:  DefaultConfigExporter(),
+		HA:        DefaultConfigHA(),
+		Heartbeat: DefaultConfigHeartbeat(),
+		Plans:     DefaultConfigPlans(),
+		TLS:       DefaultConfigTLS(),
+	}
+}
+
+func (c ConfigMonitor) Validate() error {
+	return nil
+}
+
+func (c *ConfigMonitor) ApplyDefaults(b Config) {
+	if c.MyCnf == "" && b.MySQL.MyCnf != "" {
+		c.MyCnf = b.MySQL.MyCnf
+	}
+	if c.Username == "" && b.MySQL.Username != "" {
+		c.Username = b.MySQL.Username
+	}
+	if c.Password == "" && b.MySQL.Password != "" {
+		c.Password = b.MySQL.Password
+	}
+	if c.TimeoutConnect == "" && b.MySQL.TimeoutConnect != "" {
+		c.MyCnf = b.MySQL.TimeoutConnect
+	}
+
+	for bk, bv := range b.Tags {
+		if _, ok := c.Tags[bk]; ok {
+			continue
+		}
+		c.Tags[bk] = bv
+	}
+
+	c.AWS.ApplyDefaults(b)
+	c.Exporter.ApplyDefaults(b)
+	c.HA.ApplyDefaults(b)
+	c.Heartbeat.ApplyDefaults(b)
+	c.Plans.ApplyDefaults(b)
+	c.TLS.ApplyDefaults(b)
+}
+
+func (c *ConfigMonitor) InterpolateEnvVars() {
+}
+
+func (c *ConfigMonitor) InterpolateMonitor() {
+	c.MonitorId = c.interpolateMon(c.MonitorId)
+	c.MyCnf = c.interpolateMon(c.MyCnf)
+	c.Socket = c.interpolateMon(c.Socket)
+	c.Hostname = c.interpolateMon(c.Hostname)
+	c.Username = c.interpolateMon(c.Username)
+	c.Password = c.interpolateMon(c.Password)
+	c.PasswordFile = c.interpolateMon(c.PasswordFile)
+	c.TimeoutConnect = c.interpolateMon(c.TimeoutConnect)
+
+	c.AWS.InterpolateMonitor(c)
+	c.Exporter.InterpolateMonitor(c)
+	c.HA.InterpolateMonitor(c)
+	c.Heartbeat.InterpolateMonitor(c)
+	c.Plans.InterpolateMonitor(c)
+	c.TLS.InterpolateMonitor(c)
+}
+
+var monvar = regexp.MustCompile(`%{([\w_-]+)\.([\w_-]+)}`)
+
+func (c *ConfigMonitor) interpolateMon(v string) string {
+	if !strings.Contains(v, "%{monitor.") {
+		return v
+	}
+	m := monvar.FindStringSubmatch(v)
+	if len(m) != 3 {
+		// @todo error
+	}
+	return monvar.ReplaceAllString(v, c.fieldValue(m[2]))
+}
+
+func (c *ConfigMonitor) fieldValue(f string) string {
+	switch strings.ToLower(f) {
+	case "monitorid", "monitor-id":
+		return c.MonitorId
+	case "mycnf":
+		return c.MyCnf
+	case "socket":
+		return c.Socket
+	case "hostname":
+		return c.Hostname
+	case "username":
+		return c.Username
+	case "password":
+		return c.Password
+	case "passwordfile", "password-file":
+		return c.PasswordFile
+	case "timeoutconnect", "timeout-connect":
+		return c.TimeoutConnect
+	default:
+		return ""
+	}
+}
+
+// ///////////////////////////////////////////////////////////////////////////
+// Defaults for monitors
+// ///////////////////////////////////////////////////////////////////////////
+
+type ConfigAWS struct {
+	PasswordSecret string `yaml:"password-secret"`
+	AuthToken      bool   `yaml:"auth-token"`
+	Role           string `yaml:"role"`
+}
+
+const (
+	DEFAULT_AWS_ROLE = ""
+)
+
+func DefaultConfigAWS() ConfigAWS {
+	return ConfigAWS{
+		Role: DEFAULT_AWS_ROLE,
+	}
+}
+
+func (c ConfigAWS) Validate() error {
+	return nil
+}
+
+func (c *ConfigAWS) ApplyDefaults(b Config) {
+	if c.PasswordSecret == "" && b.AWS.PasswordSecret != "" {
+		c.PasswordSecret = b.AWS.PasswordSecret
+	}
+	// @todo
+	/*
+		if c.AuthToken == "" && b.AWS.AuthToken != "" {
+			c.AuthToken = b.AWS.AuthToken
+		}
+	*/
+	if c.Role == "" && b.AWS.Role != "" {
+		c.Role = b.AWS.Role
+	}
+}
+
+func (c *ConfigAWS) InterpolateEnvVars() {
+}
+
+func (c *ConfigAWS) InterpolateMonitor(m *ConfigMonitor) {
+	c.PasswordSecret = m.interpolateMon(c.PasswordSecret)
+	c.Role = m.interpolateMon(c.Role)
+}
+
+// --------------------------------------------------------------------------
+
+type ConfigExporter struct {
+	Bind string `yaml:"bind,omitempty"`
+}
+
+const (
+	DEFAULT_EXPORTER_BIND = "" // disabled
+)
+
+func DefaultConfigExporter() ConfigExporter {
+	return ConfigExporter{
+		Bind: DEFAULT_EXPORTER_BIND,
+	}
+}
+
+func (c ConfigExporter) Validate() error {
+	return nil
+}
+
+func (c *ConfigExporter) ApplyDefaults(b Config) {
+}
+
+func (c *ConfigExporter) InterpolateEnvVars() {
+}
+
+func (c *ConfigExporter) InterpolateMonitor(m *ConfigMonitor) {
+}
+
+// --------------------------------------------------------------------------
+
+type ConfigHeartbeat struct {
+	Freq        string `yaml:"freq"`
+	Table       string `yaml:"table"`
+	CreateTable string `yaml:"createTable"`
+	Optional    bool   `yaml:"optional"`
+}
+
+const (
+	DEFAULT_HEARTBEAT_FREQ         = "500ms"
+	DEFAULT_HEARTBEAT_TABLE        = "blip.heartbeat"
+	DEFAULT_HEARTBEAT_CREATE_TABLE = "try"
+	DEFAULT_HEARTBEAT_OPTIONAL     = true
+)
+
+func DefaultConfigHeartbeat() ConfigHeartbeat {
+	return ConfigHeartbeat{
+		Freq:        DEFAULT_HEARTBEAT_FREQ,
+		Table:       DEFAULT_HEARTBEAT_TABLE,
+		CreateTable: DEFAULT_HEARTBEAT_CREATE_TABLE,
+		Optional:    DEFAULT_HEARTBEAT_OPTIONAL,
+	}
+}
+
+func (c ConfigHeartbeat) Validate() error {
+	return nil
+}
+
+func (c *ConfigHeartbeat) ApplyDefaults(b Config) {
+}
+
+func (c *ConfigHeartbeat) InterpolateEnvVars() {
+}
+
+func (c *ConfigHeartbeat) InterpolateMonitor(m *ConfigMonitor) {
+}
+
+// --------------------------------------------------------------------------
+
+type ConfigHighAvailability struct {
+	Freq        string `yaml:"freq"`
+	Role        string `yaml:"role"`
+	Table       string `yaml:"table"`
+	CreateTable string `yaml:"createTable"`
+	Optional    bool   `yaml:"optional"`
+}
+
+const (
+	DEFAULT_HA_FREQ         = "" // disabled
+	DEFAULT_HA_ROLE         = "primary"
+	DEFAULT_HA_TABLE        = "blip.ha"
+	DEFAULT_HA_CREATE_TABLE = "auto"
+)
+
+func DefaultConfigHA() ConfigHighAvailability {
+	return ConfigHighAvailability{}
+}
+
+func (c ConfigHighAvailability) Validate() error {
+	return nil
+}
+
+func (c *ConfigHighAvailability) ApplyDefaults(b Config) {
+}
+
+func (c *ConfigHighAvailability) InterpolateEnvVars() {
+	c.Freq = interpolateEnv(c.Freq)
+	c.Role = interpolateEnv(c.Role)
+	c.Table = interpolateEnv(c.Table)
+	c.CreateTable = interpolateEnv(c.CreateTable)
+}
+
+func (c *ConfigHighAvailability) InterpolateMonitor(m *ConfigMonitor) {
 }
 
 // --------------------------------------------------------------------------
@@ -130,101 +485,13 @@ func (c ConfigMySQL) Validate() error {
 	return nil
 }
 
-func (c *ConfigMySQL) Interpolate() {
+func (c *ConfigMySQL) ApplyDefaults(b Config) {
 }
 
-// --------------------------------------------------------------------------
-
-type ConfigMonitor struct {
-	Id             string `yaml:"id"`
-	MyCnf          string `yaml:"mycnf"`
-	Socket         string `yaml:"socket"`
-	Hostname       string `yaml:"hostname"`
-	Username       string `yaml:"username"`
-	Password       string `yaml:"password"`
-	PasswordFile   string `yaml:"password-file"`
-	TimeoutConnect string `yaml:"timeoutConnect"`
-
-	Tags map[string]string `yaml:"tags"`
-
-	AWS       ConfigAWS              `yaml:"aws"`
-	Exporter  ConfigExporter         `yaml:"exporter,omitempty"`
-	HA        ConfigHighAvailability `yaml:"ha"`
-	Heartbeat ConfigHeartbeat        `yaml:"heartbeat"`
-	Plans     ConfigPlans            `yaml:"plans"`
-	TLS       ConfigTLS              `yaml:"tls"`
+func (c *ConfigMySQL) InterpolateEnvVars() {
 }
 
-func DefaultConfigMonitor() ConfigMonitor {
-	return ConfigMonitor{
-		Username:       DEFAULT_MONITOR_USERNAME,
-		TimeoutConnect: DEFAULT_MONITOR_TIMEOUT_CONNECT,
-
-		Tags: map[string]string{},
-
-		AWS:       DefaultConfigAWS(),
-		Exporter:  DefaultConfigExporter(),
-		HA:        DefaultConfigHA(),
-		Heartbeat: DefaultConfigHeartbeat(),
-		Plans:     DefaultConfigPlans(),
-		TLS:       DefaultConfigTLS(),
-	}
-}
-
-func (mon ConfigMonitor) WithDefaults(cfg Config) ConfigMonitor {
-	if cfg.MySQL.Username != "" {
-		mon.Username = cfg.MySQL.Username
-	}
-	if cfg.MySQL.Password != "" {
-		mon.Password = cfg.MySQL.Password
-	}
-	if cfg.MySQL.TimeoutConnect != "" {
-		mon.TimeoutConnect = cfg.MySQL.TimeoutConnect
-	}
-
-	for k, v := range cfg.Tags {
-		mon.Tags[k] = v
-	}
-
-	return mon
-}
-
-func (c ConfigMonitor) Validate() error {
-	return nil
-}
-
-func (c *ConfigMonitor) Interpolate() {
-}
-
-// --------------------------------------------------------------------------
-
-type ConfigMonitorLoader struct {
-	Freq     string                   `yaml:"freq,omitempty"`
-	StopLoss string                   `yaml:"stop-loss,omitempty"`
-	Files    []string                 `yaml:"files,omitempty"`
-	AWS      ConfigMonitorLoaderAWS   `yaml:"aws,omitempty"`
-	Local    ConfigMonitorLoaderLocal `yaml:"local,omitempty"`
-}
-
-type ConfigMonitorLoaderAWS struct {
-	DisableAuto bool `yaml:"disable-auto"`
-}
-
-type ConfigMonitorLoaderLocal struct {
-	DisableAuto     bool `yaml:"disable-auto"`
-	DisableAutoRoot bool `yaml:"disable-auto-root"`
-}
-
-func DefaultConfigMonitorLoader() ConfigMonitorLoader {
-	return ConfigMonitorLoader{}
-}
-
-func (c ConfigMonitorLoader) Validate() error {
-	// StopLoss match N%
-	return nil
-}
-
-func (c *ConfigMonitorLoader) Interpolate() {
+func (c *ConfigMySQL) InterpolateMonitor(m *ConfigMonitor) {
 }
 
 // --------------------------------------------------------------------------
@@ -258,143 +525,13 @@ func (c ConfigPlans) Validate() error {
 	return nil
 }
 
-func (c *ConfigPlans) Interpolate() {
+func (c *ConfigPlans) ApplyDefaults(b Config) {
 }
 
-// --------------------------------------------------------------------------
-
-type ConfigAPI struct {
-	Bind    string `yaml:"bind"`
-	Disable bool   `yaml:"disable"`
+func (c *ConfigPlans) InterpolateEnvVars() {
 }
 
-const (
-	DEFAULT_API_BIND = "127.0.0.1:9070"
-)
-
-func DefaultConfigAPI() ConfigAPI {
-	return ConfigAPI{
-		Bind: DEFAULT_API_BIND,
-	}
-}
-
-func (c ConfigAPI) Validate() error {
-	return nil
-}
-
-func (c *ConfigAPI) Interpolate() {
-}
-
-// --------------------------------------------------------------------------
-
-type ConfigAWS struct {
-	PasswordSecret string `yaml:"password-secret"`
-	AuthToken      bool   `yaml:"auth-token"`
-	Role           string `yaml:"role"`
-}
-
-const (
-	DEFAULT_AWS_ROLE = ""
-)
-
-func DefaultConfigAWS() ConfigAWS {
-	return ConfigAWS{
-		Role: DEFAULT_AWS_ROLE,
-	}
-}
-
-func (c ConfigAWS) Validate() error {
-	return nil
-}
-
-func (c *ConfigAWS) Interpolate() {
-}
-
-// --------------------------------------------------------------------------
-
-type ConfigExporter struct {
-	Bind string `yaml:"bind,omitempty"`
-}
-
-const (
-	DEFAULT_EXPORTER_BIND = "" // disabled
-)
-
-func DefaultConfigExporter() ConfigExporter {
-	return ConfigExporter{
-		Bind: DEFAULT_EXPORTER_BIND,
-	}
-}
-
-func (c ConfigExporter) Validate() error {
-	return nil
-}
-
-func (c *ConfigExporter) Interpolate() {
-}
-
-// --------------------------------------------------------------------------
-
-type ConfigHeartbeat struct {
-	Freq        string `yaml:"freq"`
-	Table       string `yaml:"table"`
-	CreateTable string `yaml:"createTable"`
-	Optional    bool   `yaml:"optional"`
-}
-
-const (
-	DEFAULT_HEARTBEAT_FREQ         = "500ms"
-	DEFAULT_HEARTBEAT_TABLE        = "blip.heartbeat"
-	DEFAULT_HEARTBEAT_CREATE_TABLE = "try"
-	DEFAULT_HEARTBEAT_OPTIONAL     = true
-)
-
-func DefaultConfigHeartbeat() ConfigHeartbeat {
-	return ConfigHeartbeat{
-		Freq:        DEFAULT_HEARTBEAT_FREQ,
-		Table:       DEFAULT_HEARTBEAT_TABLE,
-		CreateTable: DEFAULT_HEARTBEAT_CREATE_TABLE,
-		Optional:    DEFAULT_HEARTBEAT_OPTIONAL,
-	}
-}
-
-func (c ConfigHeartbeat) Validate() error {
-	return nil
-}
-
-func (c *ConfigHeartbeat) Interpolate() {
-}
-
-// --------------------------------------------------------------------------
-
-type ConfigHighAvailability struct {
-	Freq        string `yaml:"freq"`
-	Role        string `yaml:"role"`
-	Table       string `yaml:"table"`
-	CreateTable string `yaml:"createTable"`
-	Optional    bool   `yaml:"optional"`
-}
-
-const (
-	DEFAULT_HA_FREQ         = "" // disabled
-	DEFAULT_HA_ROLE         = "primary"
-	DEFAULT_HA_TABLE        = "blip.ha"
-	DEFAULT_HA_CREATE_TABLE = "auto"
-)
-
-func DefaultConfigHA() ConfigHighAvailability {
-	return ConfigHighAvailability{}
-}
-
-func (c ConfigHighAvailability) Validate() error {
-	return nil
-}
-
-func (c *ConfigHighAvailability) Interpolate() {
-	c.Freq = interpolateEnv(c.Freq)
-	c.Role = interpolateEnv(c.Role)
-	c.Table = interpolateEnv(c.Table)
-	c.CreateTable = interpolateEnv(c.CreateTable)
+func (c *ConfigPlans) InterpolateMonitor(m *ConfigMonitor) {
 }
 
 // --------------------------------------------------------------------------
@@ -413,10 +550,19 @@ func (c ConfigTLS) Validate() error {
 	return nil
 }
 
-func (c *ConfigTLS) Interpolate() {
+func (c *ConfigTLS) ApplyDefaults(b Config) {
+}
+
+func (c *ConfigTLS) InterpolateEnvVars() {
 	c.Cert = interpolateEnv(c.Cert)
 	c.Key = interpolateEnv(c.Key)
 	c.CA = interpolateEnv(c.CA)
+}
+
+func (c *ConfigTLS) InterpolateMonitor(m *ConfigMonitor) {
+	c.Cert = m.interpolateMon(c.Cert)
+	c.Key = m.interpolateMon(c.Key)
+	c.CA = m.interpolateMon(c.CA)
 }
 
 func (c ConfigTLS) LoadTLS() (*tls.Config, error) {
@@ -450,23 +596,4 @@ func (c ConfigTLS) LoadTLS() (*tls.Config, error) {
 	}
 
 	return tlsConfig, nil
-}
-
-// ---------------------------------------------------------------------------
-
-var envvar = regexp.MustCompile(`^\${([\w_.-]+)(?:(\:\-)([\w_.-]*))?}`)
-
-func interpolateEnv(v string) string {
-	if !strings.HasPrefix(v, "${") {
-		return v
-	}
-	m := envvar.FindStringSubmatch(v)
-	if len(m) != 2 {
-		// @todo error
-	}
-	v2 := os.Getenv(m[1])
-	if v2 == "" && m[2] != "" {
-		return m[3]
-	}
-	return v2
 }

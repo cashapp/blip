@@ -125,7 +125,7 @@ func (s *Server) Boot(plugin Plugins, factory Factories) error {
 		return err
 	}
 
-	cfg.Interpolate()
+	cfg.InterpolateEnvVars()
 	s.cfg = cfg // final immutable config
 	event.Send(event.BOOT_CONFIG_LOADED)
 
@@ -215,7 +215,11 @@ func (s *Server) Boot(plugin Plugins, factory Factories) error {
 		return err
 	}
 
-	if !s.cmdline.Options.BootCheck && (s.cmdline.Options.PrintConfig || s.cmdline.Options.PrintPlans) {
+	if s.cmdline.Options.PrintMonitors {
+		fmt.Println(s.monitorLoader.Print())
+	}
+
+	if !s.cmdline.Options.BootCheck && (s.cmdline.Options.PrintConfig || s.cmdline.Options.PrintPlans || s.cmdline.Options.PrintMonitors) {
 		os.Exit(0)
 	}
 

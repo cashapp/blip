@@ -27,8 +27,8 @@ func SanitizeTable(table string) string {
 
 func MonitorId(cfg blip.ConfigMonitor) string {
 	switch {
-	case cfg.Id != "":
-		return cfg.Id
+	case cfg.MonitorId != "":
+		return cfg.MonitorId
 	case cfg.Hostname != "":
 		return cfg.Hostname
 	case cfg.Socket != "":

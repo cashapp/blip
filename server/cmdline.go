@@ -12,15 +12,16 @@ import (
 
 // Options represents typical command line options: --addr, --config, etc.
 type Options struct {
-	BootCheck   bool   `arg:"--boot-check"`
-	Config      string `env:"BLIP_CONFIG" default:"blip.yaml"`
-	Debug       bool   `env:"BLIP_DEBUG"`
-	Help        bool
-	Plans       string `env:"BLIP_PLANS"`
-	PrintConfig bool   `arg:"--print-config"`
-	PrintPlans  bool   `arg:"--print-plans"`
-	Strict      bool   `env:"BLIP_STRICT"`
-	Version     bool   `arg:"-v"`
+	BootCheck     bool   `arg:"--boot-check"`
+	Config        string `env:"BLIP_CONFIG" default:"blip.yaml"`
+	Debug         bool   `env:"BLIP_DEBUG"`
+	Help          bool
+	Plans         string `env:"BLIP_PLANS"`
+	PrintConfig   bool   `arg:"--print-config"`
+	PrintMonitors bool   `arg:"--print-monitors"`
+	PrintPlans    bool   `arg:"--print-plans"`
+	Strict        bool   `env:"BLIP_STRICT"`
+	Version       bool   `arg:"-v"`
 }
 
 // CommandLine represents options (--addr, etc.) and args: entity type, return
@@ -61,14 +62,15 @@ func printHelp() {
 	fmt.Printf("Usage:\n"+
 		"  blip [options]\n\n"+
 		"Options:\n"+
-		"  --boot-check    Boot then exit\n"+
-		"  --config        Config file (default: %s)\n"+
-		"  --debug         Print debug to stderr\n"+
-		"  --help          Print help\n"+
-		"  --plans         Plans files (default: %s)\n"+
-		"  --print-config  Print config and monitors\n"+
-		"  --print-plans   Print level plans\n"+
-		"  --version       Print version\n"+
+		"  --boot-check     Boot then exit\n"+
+		"  --config         Config file (default: %s)\n"+
+		"  --debug          Print debug to stderr\n"+
+		"  --help           Print help\n"+
+		"  --plans          Plans files (default: %s)\n"+
+		"  --print-config   Print config and monitors\n"+
+		"  --print-monitors Print monitors \n"+
+		"  --print-plans    Print level plans\n"+
+		"  --version        Print version\n"+
 		"\n"+
 		"blip %s\n",
 		blip.DEFAULT_CONFIG_FILE, blip.DEFAULT_PLANS_FILES, blip.VERSION,

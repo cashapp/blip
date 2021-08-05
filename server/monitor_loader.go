@@ -10,6 +10,7 @@ import (
 	"github.com/square/blip"
 	"github.com/square/blip/dbconn"
 	"github.com/square/blip/event"
+	"gopkg.in/yaml.v2"
 )
 
 type MonitorChanges struct {
@@ -149,7 +150,10 @@ func (ml *MonitorLoader) Load(ctx context.Context) (MonitorChanges, error) {
 
 func (ml *MonitorLoader) merge(monitors []blip.ConfigMonitor, moncfg map[string]blip.ConfigMonitor) {
 	for _, cfg := range monitors {
-		moncfg[cfg.Id] = cfg
+		cfg.ApplyDefaults(ml.cfg)
+		cfg.InterpolateEnvVars()
+		cfg.InterpolateMonitor()
+		moncfg[cfg.MonitorId] = cfg
 	}
 }
 
@@ -192,13 +196,17 @@ func (ml *MonitorLoader) LoadLocal(ctx context.Context) ([]blip.ConfigMonitor, e
 USERS:
 	for _, user := range users {
 
-		moncfg := blip.DefaultConfigMonitor().WithDefaults(ml.cfg)
-		moncfg.Id = "localhost"
+		cfg := blip.DefaultConfigMonitor()
+		cfg.ApplyDefaults(ml.cfg)
+		cfg.InterpolateEnvVars()
+		moncfg := cfg
+		moncfg.MonitorId = "localhost"
 		moncfg.Username = user
 
 	SOCKETS:
 		for _, socket := range sockets {
 			moncfg.Socket = socket
+			cfg.InterpolateMonitor()
 
 			if err := ml.testLocal(ctx, moncfg); err != nil {
 				// Failed to connect
@@ -215,6 +223,7 @@ USERS:
 		// TCP
 		moncfg.Socket = ""
 		moncfg.Hostname = "127.0.0.1:3306"
+		cfg.InterpolateMonitor()
 
 		if err := ml.testLocal(ctx, moncfg); err != nil {
 			blip.Debug("local auto-detect tcp %s user %s: fail: %s",
@@ -237,4 +246,24 @@ func (ml *MonitorLoader) testLocal(bg context.Context, moncfg blip.ConfigMonitor
 	ctx, cancel := context.WithTimeout(bg, 500*time.Millisecond)
 	defer cancel()
 	return db.PingContext(ctx)
+}
+
+type printMonitors struct {
+	Monitors []blip.ConfigMonitor `yaml:"monitors"`
+}
+
+func (ml *MonitorLoader) Print() string {
+	ml.Lock()
+	defer ml.Unlock()
+	m := make([]blip.ConfigMonitor, len(ml.dbmon))
+	i := 0
+	for k := range ml.dbmon {
+		m[i] = ml.dbmon[k].Config
+	}
+	p := printMonitors{Monitors: m}
+	bytes, err := yaml.Marshal(p)
+	if err != nil {
+		return "error"
+	}
+	return string(bytes)
 }
