@@ -67,8 +67,8 @@ func printHelp() {
 		"  --debug          Print debug to stderr\n"+
 		"  --help           Print help\n"+
 		"  --plans          Plans files (default: %s)\n"+
-		"  --print-config   Print config and monitors\n"+
-		"  --print-monitors Print monitors \n"+
+		"  --print-config   Print config\n"+
+		"  --print-monitors Print monitors\n"+
 		"  --print-plans    Print level plans\n"+
 		"  --version        Print version\n"+
 		"\n"+

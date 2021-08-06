@@ -1,6 +1,7 @@
 package server
 
 import (
+	"database/sql"
 	"fmt"
 	"io/ioutil"
 	"os"
@@ -9,6 +10,7 @@ import (
 	"gopkg.in/yaml.v2"
 
 	"github.com/square/blip"
+	"github.com/square/blip/aws"
 	"github.com/square/blip/collect"
 	"github.com/square/blip/dbconn"
 	"github.com/square/blip/event"
@@ -17,15 +19,15 @@ import (
 )
 
 func Defaults() (Plugins, Factories) {
-	// Plugins are optional
-	// Factories are required
-	mcMaker := metrics.NewCollectorFactory()
-	dbMaker := dbconn.NewConnFactory()
+	// Plugins are optional, but factories are required
+	awsSess := aws.NewSessionFactory()
+	dbMaker := dbconn.NewConnFactory(awsSess, nil)
 	factories := Factories{
-		MakeMetricsCollector: mcMaker,
+		MakeMetricsCollector: metrics.NewCollectorFactory(),
 		MakeDbConn:           dbMaker,
 		MakeDbMon:            nil, // deferred, created in server.Boot
 		MakeMetricSink:       sink.NewFactory(),
+		MakeAWSSession:       awsSess,
 	}
 	return Plugins{}, factories
 }
@@ -36,6 +38,7 @@ type Plugins struct {
 	LoadLevelPlans   func(blip.Config) ([]collect.Plan, error)
 	LoadMonitors     func(blip.Config) ([]blip.ConfigMonitor, error)
 	LoadMetricSinks  func(blip.Config) ([]sink.Sink, error)
+	ModifyDB         func(*sql.DB)
 	TransformMetrics func(*blip.Metrics) error
 }
 
@@ -44,6 +47,7 @@ type Factories struct {
 	MakeDbConn           dbconn.Factory
 	MakeDbMon            DbMonFactory
 	MakeMetricSink       sink.Factory
+	MakeAWSSession       aws.SessionFactory
 }
 
 func LoadConfig(filePath string, cfg blip.Config) (blip.Config, error) {

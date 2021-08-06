@@ -143,6 +143,7 @@ func (c ConfigAPI) Validate() error {
 }
 
 func (c *ConfigAPI) InterpolateEnvVars() {
+	c.Bind = interpolateEnv(c.Bind)
 }
 
 // --------------------------------------------------------------------------
@@ -174,6 +175,11 @@ func (c ConfigMonitorLoader) Validate() error {
 }
 
 func (c *ConfigMonitorLoader) InterpolateEnvVars() {
+	c.Freq = interpolateEnv(c.Freq)
+	c.StopLoss = interpolateEnv(c.StopLoss)
+	for i := range c.Files {
+		c.Files[i] = interpolateEnv(c.Files[i])
+	}
 }
 
 // ///////////////////////////////////////////////////////////////////////////
@@ -188,7 +194,7 @@ type ConfigMonitor struct {
 	Username       string `yaml:"username,omitempty"`
 	Password       string `yaml:"password,omitempty"`
 	PasswordFile   string `yaml:"password-file,omitempty"`
-	TimeoutConnect string `yaml:"timeoutConnect,omitempty"`
+	TimeoutConnect string `yaml:"timeout-connect,omitempty"`
 
 	// Tags are passed to each metric sink. Tags inherit from config.tags,
 	// but these monitor.tags take precedent (are not overwritten by config.tags).
@@ -252,6 +258,23 @@ func (c *ConfigMonitor) ApplyDefaults(b Config) {
 }
 
 func (c *ConfigMonitor) InterpolateEnvVars() {
+	c.MonitorId = interpolateEnv(c.MonitorId)
+	c.MyCnf = interpolateEnv(c.MyCnf)
+	c.Socket = interpolateEnv(c.Socket)
+	c.Hostname = interpolateEnv(c.Hostname)
+	c.Username = interpolateEnv(c.Username)
+	c.Password = interpolateEnv(c.Password)
+	c.PasswordFile = interpolateEnv(c.PasswordFile)
+	c.TimeoutConnect = interpolateEnv(c.TimeoutConnect)
+	for k, v := range c.Tags {
+		c.Tags[k] = interpolateEnv(v)
+	}
+	c.AWS.InterpolateEnvVars()
+	c.Exporter.InterpolateEnvVars()
+	c.HA.InterpolateEnvVars()
+	c.Heartbeat.InterpolateEnvVars()
+	c.Plans.InterpolateEnvVars()
+	c.TLS.InterpolateEnvVars()
 }
 
 func (c *ConfigMonitor) InterpolateMonitor() {
@@ -313,9 +336,11 @@ func (c *ConfigMonitor) fieldValue(f string) string {
 // ///////////////////////////////////////////////////////////////////////////
 
 type ConfigAWS struct {
-	PasswordSecret string `yaml:"password-secret"`
-	AuthToken      bool   `yaml:"auth-token"`
-	Role           string `yaml:"role"`
+	AuthToken         bool   `yaml:"auth-token"`
+	PasswordSecret    string `yaml:"password-secret,omitempty"`
+	Role              string `yaml:"role,omitempty"`
+	Region            string `yaml:"region,omitempty"`
+	DisableAutoRegion bool   `yaml:"disable-auto-region"`
 }
 
 const (
@@ -348,6 +373,8 @@ func (c *ConfigAWS) ApplyDefaults(b Config) {
 }
 
 func (c *ConfigAWS) InterpolateEnvVars() {
+	c.PasswordSecret = interpolateEnv(c.PasswordSecret)
+	c.Role = interpolateEnv(c.Role)
 }
 
 func (c *ConfigAWS) InterpolateMonitor(m *ConfigMonitor) {
@@ -529,6 +556,10 @@ func (c *ConfigPlans) ApplyDefaults(b Config) {
 }
 
 func (c *ConfigPlans) InterpolateEnvVars() {
+	for i := range c.Files {
+		c.Files[i] = interpolateEnv(c.Files[i])
+	}
+
 }
 
 func (c *ConfigPlans) InterpolateMonitor(m *ConfigMonitor) {
