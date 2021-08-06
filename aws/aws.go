@@ -4,56 +4,56 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"sync"
 	"time"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/ec2metadata"
-	"github.com/aws/aws-sdk-go/aws/session"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/feature/ec2/imds"
 	"github.com/go-sql-driver/mysql"
 
 	"github.com/square/blip"
 )
 
-type SessionFactory interface {
-	Make(blip.ConfigAWS) (*session.Session, error)
+type ConfigFactory interface {
+	Make(blip.ConfigAWS) (aws.Config, error)
 }
 
-type sessFactory struct {
+type cfgFactory struct {
 }
 
-var _ SessionFactory = sessFactory{}
+var _ ConfigFactory = cfgFactory{}
 
-func NewSessionFactory() sessFactory {
-	return sessFactory{}
+func NewConfigFactory() cfgFactory {
+	return cfgFactory{}
 }
 
-func (f sessFactory) Make(c blip.ConfigAWS) (*session.Session, error) {
+func (f cfgFactory) Make(c blip.ConfigAWS) (aws.Config, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	defer cancel()
 	if c.Region == "" && !c.DisableAutoRegion {
-		sess, err := session.NewSession()
-		if err != nil {
-			return nil, err
-		}
-		svc := ec2metadata.New(sess)
-		ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
-		defer cancel()
-		ec2, _ := svc.GetInstanceIdentityDocumentWithContext(ctx)
-		c.Region = ec2.Region
+		c.Region = Region(ctx)
 		blip.Debug("auto-detect region %s", c.Region)
 	}
-
-	return session.NewSession(&aws.Config{
-		Region:                  aws.String(c.Region),
-		MaxRetries:              aws.Int(2),
-		EnableEndpointDiscovery: aws.Bool(true),
-	})
+	return config.LoadDefaultConfig(ctx, config.WithRegion(c.Region))
 }
 
-func loadRDSCA() {
-	blip.Debug("loading RDS CA")
-	caCertPool := x509.NewCertPool()
-	caCertPool.AppendCertsFromPEM(rds2019rootCA)
-	tlsConfig := &tls.Config{RootCAs: caCertPool}
-	mysql.RegisterTLSConfig("rds", tlsConfig)
+func Region(ctx context.Context) string {
+	client := imds.New(imds.Options{})
+	ec2, _ := client.GetInstanceIdentityDocument(ctx, &imds.GetInstanceIdentityDocumentInput{})
+	return ec2.Region
+}
+
+var once sync.Once
+
+func RegisterRDSCA() {
+	once.Do(func() {
+		blip.Debug("loading RDS CA")
+		caCertPool := x509.NewCertPool()
+		caCertPool.AppendCertsFromPEM(rds2019rootCA)
+		tlsConfig := &tls.Config{RootCAs: caCertPool}
+		mysql.RegisterTLSConfig("rds", tlsConfig)
+	})
 }
 
 // rds-ca-2019-root.pem

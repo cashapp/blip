@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"fmt"
 	"io/ioutil"
+	"strings"
+	"time"
 
 	dsndriver "github.com/go-mysql/hotswap-dsn-driver"
 	_ "github.com/go-sql-driver/mysql"
@@ -24,7 +26,7 @@ type Factory interface {
 var _ Factory = factory{}
 
 type factory struct {
-	awsSess  aws.SessionFactory
+	awsConfg aws.ConfigFactory
 	modifyDB func(*sql.DB)
 }
 
@@ -32,21 +34,35 @@ var _ Factory = factory{}
 
 type repassFunc func() (string, error)
 
-func NewConnFactory(awsSess aws.SessionFactory, modifyDB func(*sql.DB)) factory {
+func NewConnFactory(awsConfg aws.ConfigFactory, modifyDB func(*sql.DB)) factory {
 	return factory{
-		awsSess:  awsSess,
+		awsConfg: awsConfg,
 		modifyDB: modifyDB,
 	}
 }
 
 func (f factory) Make(cfg blip.ConfigMonitor) (*sql.DB, error) {
-	reloadFunc, err := f.Password(cfg)
+	passwordFunc, err := f.Password(cfg)
 	if err != nil {
 		return nil, err
 	}
-	password, err := reloadFunc(context.Background())
+
+	net := ""
+	addr := ""
+	if cfg.Socket != "" {
+		net = "unix"
+		addr = cfg.Socket
+	} else {
+		net = "tcp"
+		addr = cfg.Hostname
+	}
+	Repo.Add(addr, passwordFunc)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel()
+	password, err := passwordFunc(ctx)
 	if err != nil {
-		// @todo
+		return nil, err
 	}
 
 	cred := cfg.Username
@@ -54,17 +70,21 @@ func (f factory) Make(cfg blip.ConfigMonitor) (*sql.DB, error) {
 		cred += ":" + password
 	}
 
-	addr := ""
-	if cfg.Socket != "" {
-		addr = fmt.Sprintf("unix(%s)", cfg.Socket)
-	} else {
-		// add :3306 if missing
-		addr = fmt.Sprintf("tcp(%s)", cfg.Hostname)
+	params := []string{}
+	if (cfg.AWS.AuthToken || cfg.AWS.PasswordSecret != "") && !cfg.AWS.DisableAutoTLS {
+		params = append(params, "tls=rds")
+	}
+	if cfg.AWS.AuthToken {
+		params = append(params, "allowCleartextPasswords=true")
+	}
+	if cfg.TLS.Cert != "" && cfg.TLS.Key != "" {
+		// @todo
 	}
 
-	// @todo TLS
-
-	dsn := fmt.Sprintf("%s@%s/", cred, addr)
+	dsn := fmt.Sprintf("%s@%s(%s)/", cred, net, addr)
+	if len(params) > 0 {
+		dsn += "?" + strings.Join(params, "&")
+	}
 
 	db, err := sql.Open("mysql-hotswap-dsn", dsn)
 	if err != nil {
@@ -84,18 +104,28 @@ func (f factory) Password(cfg blip.ConfigMonitor) (PasswordFunc, error) {
 	if cfg.AWS.AuthToken {
 		// Password generated as IAM auth token (valid 15 min)
 		blip.Debug("password from AWS IAM auth token")
-		//token := ""
-		return nil, nil
+		if !cfg.AWS.DisableAutoTLS {
+			aws.RegisterRDSCA()
+		}
+		awscfg, err := f.awsConfg.Make(cfg.AWS)
+		if err != nil {
+			return nil, err
+		}
+		token := aws.NewAuthToken(cfg.Username, cfg.Hostname, awscfg)
+		return token.Password, nil
 	}
 
 	if cfg.AWS.PasswordSecret != "" {
 		blip.Debug("password from AWS Secrets Manager")
-		sess, err := f.awsSess.Make(cfg.AWS)
+		if !cfg.AWS.DisableAutoTLS {
+			aws.RegisterRDSCA()
+		}
+		awscfg, err := f.awsConfg.Make(cfg.AWS)
 		if err != nil {
 			return nil, err
 		}
-		secret := aws.NewSecret(cfg.AWS.PasswordSecret, sess)
-		return secret.Get, nil
+		secret := aws.NewSecret(cfg.AWS.PasswordSecret, awscfg)
+		return secret.Password, nil
 	}
 
 	if cfg.PasswordFile != "" {

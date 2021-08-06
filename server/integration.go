@@ -20,14 +20,14 @@ import (
 
 func Defaults() (Plugins, Factories) {
 	// Plugins are optional, but factories are required
-	awsSess := aws.NewSessionFactory()
-	dbMaker := dbconn.NewConnFactory(awsSess, nil)
+	awsConfig := aws.NewConfigFactory()
+	dbMaker := dbconn.NewConnFactory(awsConfig, nil)
 	factories := Factories{
 		MakeMetricsCollector: metrics.NewCollectorFactory(),
 		MakeDbConn:           dbMaker,
 		MakeDbMon:            nil, // deferred, created in server.Boot
 		MakeMetricSink:       sink.NewFactory(),
-		MakeAWSSession:       awsSess,
+		MakeawsConfigion:     awsConfig,
 	}
 	return Plugins{}, factories
 }
@@ -47,7 +47,7 @@ type Factories struct {
 	MakeDbConn           dbconn.Factory
 	MakeDbMon            DbMonFactory
 	MakeMetricSink       sink.Factory
-	MakeAWSSession       aws.SessionFactory
+	MakeawsConfigion     aws.ConfigFactory
 }
 
 func LoadConfig(filePath string, cfg blip.Config) (blip.Config, error) {

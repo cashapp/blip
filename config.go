@@ -338,9 +338,9 @@ func (c *ConfigMonitor) fieldValue(f string) string {
 type ConfigAWS struct {
 	AuthToken         bool   `yaml:"auth-token"`
 	PasswordSecret    string `yaml:"password-secret,omitempty"`
-	Role              string `yaml:"role,omitempty"`
 	Region            string `yaml:"region,omitempty"`
 	DisableAutoRegion bool   `yaml:"disable-auto-region"`
+	DisableAutoTLS    bool   `yaml:"disable-auto-tls"`
 }
 
 const (
@@ -348,9 +348,7 @@ const (
 )
 
 func DefaultConfigAWS() ConfigAWS {
-	return ConfigAWS{
-		Role: DEFAULT_AWS_ROLE,
-	}
+	return ConfigAWS{}
 }
 
 func (c ConfigAWS) Validate() error {
@@ -367,19 +365,14 @@ func (c *ConfigAWS) ApplyDefaults(b Config) {
 			c.AuthToken = b.AWS.AuthToken
 		}
 	*/
-	if c.Role == "" && b.AWS.Role != "" {
-		c.Role = b.AWS.Role
-	}
 }
 
 func (c *ConfigAWS) InterpolateEnvVars() {
 	c.PasswordSecret = interpolateEnv(c.PasswordSecret)
-	c.Role = interpolateEnv(c.Role)
 }
 
 func (c *ConfigAWS) InterpolateMonitor(m *ConfigMonitor) {
 	c.PasswordSecret = m.interpolateMon(c.PasswordSecret)
-	c.Role = m.interpolateMon(c.Role)
 }
 
 // --------------------------------------------------------------------------

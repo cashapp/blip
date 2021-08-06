@@ -104,7 +104,7 @@ func (c *collector) Run(stopChan, doneChan chan struct{}) error {
 
 	n := 1          // 1=whole second tick, -1=half second (500ms) tick
 	s := float64(0) // number of whole second ticks
-	level := 0
+	level := -1
 	c.metronome.L.Lock()
 	for {
 		c.metronome.Wait() // for tick every 500ms

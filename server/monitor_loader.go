@@ -95,11 +95,13 @@ func (ml *MonitorLoader) Load(ctx context.Context) (MonitorChanges, error) {
 		ml.merge(monitors, moncfg)
 
 		// Last, local monitors auto-detected
-		monitors, err = ml.LoadLocal(ctx)
-		if err != nil {
-			return ch, err
+		if len(moncfg) == 0 {
+			monitors, err = ml.LoadLocal(ctx)
+			if err != nil {
+				return ch, err
+			}
+			ml.merge(monitors, moncfg)
 		}
-		ml.merge(monitors, moncfg)
 	}
 
 	ml.Lock()
