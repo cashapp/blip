@@ -12,25 +12,32 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"github.com/square/blip/collect"
-	blipdb "github.com/square/blip/db"
+	"github.com/square/blip/test/mock"
 )
 
 func createDomain(domainName string, metrics []string, sourceOption ...string) map[string]collect.Domain {
 	domainMap := make(map[string]collect.Domain)
 	if len(sourceOption) >= 1 {
-		domainMap[domainName] = collect.Domain{domainName, make(map[string]string), metrics}
+		domainMap[domainName] = collect.Domain{
+			Name:    domainName,
+			Options: map[string]string{},
+			Metrics: metrics,
+		}
 		domainMap[domainName].Options["source"] = sourceOption[0]
 	} else {
-		domainMap[domainName] = collect.Domain{domainName, nil, metrics}
+		domainMap[domainName] = collect.Domain{
+			Name:    domainName,
+			Metrics: metrics,
+		}
 	}
 	return domainMap
 }
 
 func createLevel(levelName string, frequency string, domain map[string]collect.Domain) *collect.Level {
 	return &collect.Level{
-		levelName,
-		frequency,
-		domain,
+		Name:    levelName,
+		Freq:    frequency,
+		Collect: domain,
 	}
 }
 
@@ -39,7 +46,11 @@ func createPlan(planName string, levelNames []string, levels []collect.Level) *c
 	for i, name := range levelNames {
 		lvls[name] = levels[i]
 	}
-	return &collect.Plan{planName, lvls}
+	return &collect.Plan{
+		MonitorId: "test",
+		Name:      planName,
+		Levels:    lvls,
+	}
 }
 
 // First Method that gets run before all tests.
@@ -68,7 +79,10 @@ func setup() {
 		log.Fatalf("Unable to ping the database dsn: %s", dsn)
 	}
 
-	globalCollector = NewGlobal(blipdb.NewInstance(dbIns, "test"))
+	mockMonitor := mock.Monitor{
+		MonitorIdFunc: func() string { return "test" },
+	}
+	globalCollector = NewGlobal(mockMonitor)
 }
 
 func TestPrepareForSingleLevelAndNoSource(t *testing.T) {
