@@ -25,17 +25,20 @@ func NewRetryBuffer(sink Sink, sendTimeout time.Duration, bufferSize int) *Retry
 	if bufferSize < 0 {
 		bufferSize = 5
 	}
-	return &RetryBuffer{
+	rb := &RetryBuffer{
 		sink: sink,
 		// --
-		sendMux: &sync.Mutex{},
-		sending: false,
+		sendMux:     &sync.Mutex{},
+		sending:     false,
+		sendTimeout: sendTimeout,
 
 		stackMux: &sync.Mutex{},
 		stack:    make([]*blip.Metrics, bufferSize),
 		max:      bufferSize - 1,
 		top:      -1,
 	}
+	blip.Debug("%s: buff %d, send timeout %s", rb.sink.MonitorId(), rb.max+1, rb.sendTimeout)
+	return rb
 }
 
 func (rb *RetryBuffer) Name() string {
@@ -44,6 +47,10 @@ func (rb *RetryBuffer) Name() string {
 
 func (rb *RetryBuffer) Status() error {
 	return nil
+}
+
+func (rb *RetryBuffer) MonitorId() string {
+	return rb.sink.MonitorId()
 }
 
 func (rb *RetryBuffer) Send(ctx context.Context, m *blip.Metrics) error {
@@ -65,6 +72,7 @@ func (rb *RetryBuffer) Send(ctx context.Context, m *blip.Metrics) error {
 
 	if err := rb.sink.Send(ctx2, m); err != nil {
 		rb.push(m) // buffer and retry on next call
+		blip.Debug("error sending: %s", err)
 		return nil
 	}
 

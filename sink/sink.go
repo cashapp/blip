@@ -15,18 +15,19 @@ type Sink interface {
 	Send(context.Context, *blip.Metrics) error
 	Status() error
 	Name() string
+	MonitorId() string
 }
 
 type Factory interface {
-	Make(name string, opts map[string]string) (Sink, error)
+	Make(name, monitorId string, opts map[string]string) (Sink, error)
 }
 
 type factory struct{}
 
-func (f factory) Make(name string, opts map[string]string) (Sink, error) {
+func (f factory) Make(name, monitorId string, opts map[string]string) (Sink, error) {
 	switch name {
 	case "signalfx":
-		sfx, err := NewSignalFxSink(opts)
+		sfx, err := NewSignalFxSink(monitorId, opts)
 		if err != nil {
 			return nil, err
 		}
@@ -43,7 +44,7 @@ func (f factory) Make(name string, opts map[string]string) (Sink, error) {
 		rb := NewRetryBuffer(sfx, sendTimeout, 5)
 		return rb, nil
 	case "log":
-		return NewLogSink()
+		return NewLogSink(monitorId)
 	}
 	return nil, fmt.Errorf("%s not registered", name)
 }
@@ -79,12 +80,12 @@ func Register(name string, f Factory) error {
 	return nil
 }
 
-func Make(name string, opts map[string]string) (Sink, error) {
+func Make(name, monitorId string, opts map[string]string) (Sink, error) {
 	sinkRepo.Lock()
 	defer sinkRepo.Unlock()
 	f, ok := sinkRepo.factory[name]
 	if !ok {
 		return nil, fmt.Errorf("%s not registered", name)
 	}
-	return f.Make(name, opts)
+	return f.Make(name, monitorId, opts)
 }

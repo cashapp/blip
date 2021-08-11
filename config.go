@@ -236,6 +236,7 @@ func DefaultConfigMonitor() ConfigMonitor {
 		HA:        DefaultConfigHA(),
 		Heartbeat: DefaultConfigHeartbeat(),
 		Plans:     DefaultConfigPlans(),
+		Sinks:     DefaultConfigSinks(),
 		TLS:       DefaultConfigTLS(),
 	}
 }
@@ -270,6 +271,7 @@ func (c *ConfigMonitor) ApplyDefaults(b Config) {
 	c.HA.ApplyDefaults(b)
 	c.Heartbeat.ApplyDefaults(b)
 	c.Plans.ApplyDefaults(b)
+	c.Sinks.ApplyDefaults(b)
 	c.TLS.ApplyDefaults(b)
 }
 
@@ -290,6 +292,7 @@ func (c *ConfigMonitor) InterpolateEnvVars() {
 	c.HA.InterpolateEnvVars()
 	c.Heartbeat.InterpolateEnvVars()
 	c.Plans.InterpolateEnvVars()
+	c.Sinks.InterpolateEnvVars()
 	c.TLS.InterpolateEnvVars()
 }
 
@@ -308,6 +311,7 @@ func (c *ConfigMonitor) InterpolateMonitor() {
 	c.HA.InterpolateMonitor(c)
 	c.Heartbeat.InterpolateMonitor(c)
 	c.Plans.InterpolateMonitor(c)
+	c.Sinks.InterpolateMonitor(c)
 	c.TLS.InterpolateMonitor(c)
 }
 
@@ -584,6 +588,15 @@ func DefaultConfigSinks() ConfigSinks {
 
 func (c ConfigSinks) Validate() error {
 	return nil
+}
+
+func (c ConfigSinks) ApplyDefaults(b Config) {
+	for bk, bv := range b.Sinks {
+		if _, ok := c[bk]; ok {
+			continue
+		}
+		c[bk] = bv
+	}
 }
 
 func (c ConfigSinks) InterpolateEnvVars() {

@@ -10,19 +10,24 @@ import (
 	"github.com/signalfx/golib/v3/sfxclient"
 
 	"github.com/square/blip"
+	"github.com/square/blip/event"
 )
 
 // Sink sends metrics to SignalFx.
 type sfxSink struct {
 	sink        *sfxclient.HTTPSink
 	sendTimeout time.Duration
+	monitorId   string
 	dim         map[string]string
+	event       event.MonitorSink
 }
 
-func NewSignalFxSink(opts map[string]string) (*sfxSink, error) {
+func NewSignalFxSink(monitorId string, opts map[string]string) (*sfxSink, error) {
 	sink := sfxclient.NewHTTPSink()
 	s := &sfxSink{
-		sink: sink,
+		sink:      sink,
+		event:     event.MonitorSink{MonitorId: monitorId},
+		monitorId: monitorId,
 	}
 
 	for k, v := range opts {
@@ -39,12 +44,6 @@ func NewSignalFxSink(opts map[string]string) (*sfxSink, error) {
 			}
 		case "auth-token":
 			sink.AuthToken = v
-		case "send-timeout":
-			d, err := time.ParseDuration(v)
-			if err != nil {
-				return nil, err // @todo
-			}
-			s.sendTimeout = d
 		default:
 			if blip.Strict {
 				return nil, fmt.Errorf("invalid option: %s", k)
@@ -57,7 +56,7 @@ func NewSignalFxSink(opts map[string]string) (*sfxSink, error) {
 
 func (s *sfxSink) Send(ctx context.Context, m *blip.Metrics) error {
 	n := 0
-	for metrics := range m.Values {
+	for _, metrics := range m.Values {
 		n += len(metrics)
 	}
 	dp := make([]*datapoint.Datapoint, n)
@@ -75,6 +74,7 @@ func (s *sfxSink) Send(ctx context.Context, m *blip.Metrics) error {
 			n++
 		}
 	}
+	blip.Debug("%s: sent %d metrics", s.monitorId, n)
 	return s.sink.AddDatapoints(ctx, dp)
 }
 
@@ -84,4 +84,8 @@ func (s *sfxSink) Status() error {
 
 func (s *sfxSink) Name() string {
 	return "signalfx"
+}
+
+func (s *sfxSink) MonitorId() string {
+	return s.monitorId
 }

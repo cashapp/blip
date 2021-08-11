@@ -5,14 +5,20 @@ import (
 	"log"
 
 	"github.com/square/blip"
+	"github.com/square/blip/event"
 )
 
 // Sink logs metrics.
 type logSink struct {
+	event     event.MonitorSink
+	monitorId string
 }
 
-func NewLogSink() (logSink, error) {
-	return logSink{}, nil
+func NewLogSink(monitorId string) (logSink, error) {
+	return logSink{
+		event:     event.MonitorSink{MonitorId: monitorId},
+		monitorId: monitorId,
+	}, nil
 }
 
 func (s logSink) Send(ctx context.Context, m *blip.Metrics) error {
@@ -26,4 +32,8 @@ func (s logSink) Status() error {
 
 func (s logSink) Name() string {
 	return "log"
+}
+
+func (s logSink) MonitorId() string {
+	return s.monitorId
 }

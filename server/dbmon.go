@@ -91,15 +91,16 @@ func (d *DbMon) Start() error {
 
 	sinks := []sink.Sink{}
 	for sinkName, opts := range d.config.Sinks {
-		sink, err := sink.Make(sinkName, opts)
+		sink, err := sink.Make(sinkName, d.monitorId, opts)
 		if err != nil {
 			return err
 		}
 		sinks = append(sinks, sink)
+		blip.Debug("%s sends to %s", d.monitorId, sinkName)
 	}
 	if len(sinks) == 0 && !blip.Strict {
 		blip.Debug("using log sink")
-		sink, _ := sink.Make("log", map[string]string{})
+		sink, _ := sink.Make("log", d.monitorId, map[string]string{})
 		sinks = append(sinks, sink)
 	}
 
