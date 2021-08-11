@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/square/blip"
 	"github.com/square/blip/collect"
 	"github.com/square/blip/event"
 	sysvar "github.com/square/blip/metrics/var"
@@ -23,7 +24,7 @@ type Collector interface {
 	Prepare(collect.Plan) error
 
 	// Collect collects metrics for the given in the previously prepared plan.
-	Collect(ctx context.Context, levelName string) (collect.Metrics, error)
+	Collect(ctx context.Context, levelName string) ([]blip.MetricValue, error)
 }
 
 type FactoryArgs struct {

@@ -11,6 +11,7 @@ import (
 
 	_ "github.com/go-sql-driver/mysql"
 
+	"github.com/square/blip"
 	"github.com/square/blip/collect"
 )
 
@@ -79,7 +80,7 @@ LEVEL:
 	return nil
 }
 
-func (c *Global) Collect(ctx context.Context, levelName string) (collect.Metrics, error) {
+func (c *Global) Collect(ctx context.Context, levelName string) ([]blip.MetricValue, error) {
 	switch c.sourceIn[levelName] {
 	case SOURCE_SELECT:
 		return c.collectSELECT(ctx, levelName)
@@ -183,19 +184,16 @@ func (c *Global) prepareSELECT(levelName string) error {
 	return err
 }
 
-func (c *Global) collectSELECT(ctx context.Context, levelName string) (collect.Metrics, error) {
+func (c *Global) collectSELECT(ctx context.Context, levelName string) ([]blip.MetricValue, error) {
 	rows, err := c.db.QueryContext(ctx, c.queryIn[levelName])
 	if err != nil {
-		return collect.Metrics{}, err
+		return nil, err
 	}
 	defer rows.Close()
 
-	var metrics = new(collect.Metrics)
-	metrics.Values = make(map[string]float64)
-	var val string
-
+	metrics := []blip.MetricValue{}
 	for rows.Next() {
-
+		var val string
 		if err := rows.Scan(&val); err != nil {
 			log.Println(err)
 			// Log error and continue to next row to retrieve next metric
@@ -210,13 +208,15 @@ func (c *Global) collectSELECT(ctx context.Context, levelName string) (collect.M
 				// Log error and continue to next row to retrieve next metric
 				continue
 			}
-			metrics.Values[name] = s
+			metrics = append(metrics, blip.MetricValue{
+				Name:  name,
+				Value: s,
+				Type:  blip.GAUGE,
+			})
 		}
-
 	}
-	// Check if there were any errors when retrieving rows and return
-	err = rows.Err()
-	return *metrics, err
+
+	return metrics, nil
 }
 
 func (c *Global) preparePFS(levelName string) error {
@@ -234,7 +234,7 @@ func (c *Global) preparePFS(levelName string) error {
 	return err
 }
 
-func (c *Global) collectPFS(ctx context.Context, levelName string) (collect.Metrics, error) {
+func (c *Global) collectPFS(ctx context.Context, levelName string) ([]blip.MetricValue, error) {
 	return c.collectSHOWorPFS(ctx, levelName)
 }
 
@@ -250,25 +250,24 @@ func (c *Global) prepareSHOW(levelName string) error {
 	return err
 }
 
-func (c *Global) collectSHOW(ctx context.Context, levelName string) (collect.Metrics, error) {
+func (c *Global) collectSHOW(ctx context.Context, levelName string) ([]blip.MetricValue, error) {
 	return c.collectSHOWorPFS(ctx, levelName)
 }
 
 // Since both `show` and `pfs` queries return results in same format (ie; 2 columns, name and value)
 // use the same logic for querying and retrieving metrics from the results
-func (c *Global) collectSHOWorPFS(ctx context.Context, levelName string) (collect.Metrics, error) {
+func (c *Global) collectSHOWorPFS(ctx context.Context, levelName string) ([]blip.MetricValue, error) {
 	rows, err := c.db.QueryContext(ctx, c.queryIn[levelName])
 	if err != nil {
-		return collect.Metrics{}, err
+		return nil, err
 	}
 	defer rows.Close()
 
-	var metrics = new(collect.Metrics)
-	metrics.Values = make(map[string]float64)
-	var name, val string
-
+	metrics := []blip.MetricValue{}
 	for rows.Next() {
-		if err := rows.Scan(&name, &val); err != nil {
+		m := blip.MetricValue{Type: blip.GAUGE}
+		var val string
+		if err := rows.Scan(&m.Name, &val); err != nil {
 			log.Printf("Error scanning row %s", err)
 			// Log error and continue to next row to retrieve next metric
 			continue
@@ -276,14 +275,13 @@ func (c *Global) collectSHOWorPFS(ctx context.Context, levelName string) (collec
 
 		s, err := strconv.ParseFloat(val, 64)
 		if err != nil {
-			log.Printf("Error parsing the metric: %s value: %s as float %s", name, val, err)
+			log.Printf("Error parsing the metric: %s value: %s as float %s", m.Name, val, err)
 			// Log error and continue to next row to retrieve next metric
 			continue
 		}
-		metrics.Values[name] = s
+		m.Value = s
+		metrics = append(metrics, m)
 	}
 
-	// Check if there were any errors when retrieving rows and return
-	err = rows.Err()
-	return *metrics, err
+	return metrics, err
 }

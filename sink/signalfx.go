@@ -16,7 +16,7 @@ import (
 type sfxSink struct {
 	sink        *sfxclient.HTTPSink
 	sendTimeout time.Duration
-	buff        *RetryBuffer
+	dim         map[string]string
 }
 
 func NewSignalFxSink(opts map[string]string) (*sfxSink, error) {
@@ -56,11 +56,26 @@ func NewSignalFxSink(opts map[string]string) (*sfxSink, error) {
 }
 
 func (s *sfxSink) Send(ctx context.Context, m *blip.Metrics) error {
-	err := s.sink.AddDatapoints(ctx, []*datapoint.Datapoint{
-		sfxclient.GaugeF("a.gauge", nil, 1.2),
-		sfxclient.Cumulative("a.counter", map[string]string{"type": "dev"}, 100),
-	})
-	return err
+	n := 0
+	for metrics := range m.Values {
+		n += len(metrics)
+	}
+	dp := make([]*datapoint.Datapoint, n)
+	n = 0
+	for domain := range m.Values {
+		metrics := m.Values[domain]
+		for i := range metrics {
+			name := domain + "." + metrics[i].Name
+			switch metrics[i].Type {
+			case blip.COUNTER:
+				dp[n] = sfxclient.CumulativeF(name, s.dim, metrics[i].Value)
+			case blip.GAUGE:
+				dp[n] = sfxclient.GaugeF(name, s.dim, metrics[i].Value)
+			}
+			n++
+		}
+	}
+	return s.sink.AddDatapoints(ctx, dp)
 }
 
 func (s *sfxSink) Status() error {

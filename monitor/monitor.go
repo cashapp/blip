@@ -178,7 +178,7 @@ func (m *Monitor) Collect(ctx context.Context, levelName string) (*blip.Metrics,
 		Plan:      m.plan.Name,
 		Level:     levelName,
 		MonitorId: m.monitorId,
-		Values:    make(map[string]map[string]float64, len(mc)),
+		Values:    make(map[string][]blip.MetricValue, len(mc)),
 	}
 	mux := &sync.Mutex{} // serialize writes to Values ^
 
@@ -190,12 +190,12 @@ func (m *Monitor) Collect(ctx context.Context, levelName string) (*blip.Metrics,
 		go func(mc metrics.Collector) {
 			defer wg.Done()
 			defer func() { m.sem <- true }()
-			res, err := mc.Collect(ctx, levelName)
+			vals, err := mc.Collect(ctx, levelName)
 			if err != nil {
 				// @todo
 			}
 			mux.Lock()
-			bm.Values[mc.Domain()] = res.Values
+			bm.Values[mc.Domain()] = vals
 			mux.Unlock()
 		}(mc[i])
 	}
