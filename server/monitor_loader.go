@@ -122,16 +122,16 @@ func (ml *MonitorLoader) Load(ctx context.Context) (MonitorChanges, error) {
 		switch {
 		case oldDbmon == nil:
 			// NEW dbmon -----------------------------------------------------
-			newDbmon := ml.factory.MakeDbMon.Make(cfg) // make new
-			ch.Added = append(ch.Added, newDbmon)      // note new
-			ml.dbmon[monitorId] = newDbmon             // save new
-		case hash(cfg) != hash(oldDbmon.Config):
+			newDbmon := ml.factory.DbMon.Make(cfg) // make new
+			ch.Added = append(ch.Added, newDbmon)  // note new
+			ml.dbmon[monitorId] = newDbmon         // save new
+		case hash(cfg) != hash(oldDbmon.Config()):
 			// CHANGED dmon --------------------------------------------------
-			go oldDbmon.Stop()                         // stop prev
-			delete(ml.dbmon, monitorId)                // remove prev
-			ch.Changed = append(ch.Changed, oldDbmon)  // note prev
-			newDbmon := ml.factory.MakeDbMon.Make(cfg) // make new
-			ml.dbmon[monitorId] = newDbmon             // save new
+			go oldDbmon.Stop()                        // stop prev
+			delete(ml.dbmon, monitorId)               // remove prev
+			ch.Changed = append(ch.Changed, oldDbmon) // note prev
+			newDbmon := ml.factory.DbMon.Make(cfg)    // make new
+			ml.dbmon[monitorId] = newDbmon            // save new
 		default:
 			// Existing dbmon, no change -------------------------------------
 		}
@@ -240,7 +240,7 @@ USERS:
 }
 
 func (ml *MonitorLoader) testLocal(bg context.Context, moncfg blip.ConfigMonitor) error {
-	db, err := ml.factory.MakeDbConn.Make(moncfg)
+	db, err := ml.factory.DbConn.Make(moncfg)
 	if err != nil {
 		return err
 	}
@@ -260,7 +260,7 @@ func (ml *MonitorLoader) Print() string {
 	m := make([]blip.ConfigMonitor, len(ml.dbmon))
 	i := 0
 	for k := range ml.dbmon {
-		m[i] = ml.dbmon[k].Config
+		m[i] = ml.dbmon[k].Config()
 	}
 	p := printMonitors{Monitors: m}
 	bytes, err := yaml.Marshal(p)

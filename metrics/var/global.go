@@ -11,7 +11,6 @@ import (
 
 	_ "github.com/go-sql-driver/mysql"
 
-	"github.com/square/blip"
 	"github.com/square/blip/collect"
 )
 
@@ -26,23 +25,21 @@ var validMetricRegex = regexp.MustCompile("^[a-zA-Z0-9_-]*$")
 
 // Global collects global system variables for the var.global domain.
 type Global struct {
-	monitorId string
-	db        *sql.DB
-	plans     collect.Plan
-	domain    string
-	workIn    map[string][]string
-	queryIn   map[string]string
-	sourceIn  map[string]string
+	db       *sql.DB
+	plans    collect.Plan
+	domain   string
+	workIn   map[string][]string
+	queryIn  map[string]string
+	sourceIn map[string]string
 }
 
-func NewGlobal(monitor blip.Monitor) *Global {
+func NewGlobal(db *sql.DB) *Global {
 	return &Global{
-		monitorId: monitor.MonitorId(),
-		db:        monitor.DB(),
-		domain:    "var.global",
-		workIn:    map[string][]string{},
-		queryIn:   make(map[string]string),
-		sourceIn:  make(map[string]string),
+		db:       db,
+		domain:   "var.global",
+		workIn:   map[string][]string{},
+		queryIn:  make(map[string]string),
+		sourceIn: make(map[string]string),
 	}
 }
 

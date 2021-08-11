@@ -12,7 +12,7 @@ import (
 	"github.com/square/blip/metrics"
 )
 
-// Monitor monitors a single MySQL instances.
+// Monitor monitors a single MySQL instances. It implments blip.Monitor.
 type Monitor struct {
 	monitorId string
 	db        *sql.DB
@@ -56,6 +56,11 @@ func (m *Monitor) MonitorId() string {
 
 func (m *Monitor) DB() *sql.DB {
 	return m.db
+}
+
+func (m *Monitor) Config() blip.ConfigMonitor {
+	// Get config from DbMon
+	return blip.ConfigMonitor{}
 }
 
 // Prepare prepares the monitor to collect metrics for the plan. The monitor
@@ -102,7 +107,13 @@ func (m *Monitor) Prepare(ctx context.Context, plan collect.Plan) error {
 			mc, ok := m.mcList[domain]
 			if !ok {
 				var err error
-				mc, err = m.mcMaker.Make(domain, m)
+				mc, err = m.mcMaker.Make(
+					domain,
+					metrics.FactoryArgs{
+						MonitorId: m.monitorId,
+						DB:        m.db,
+					},
+				)
 				if err != nil {
 					return err // @todo
 				}
@@ -136,7 +147,7 @@ func (m *Monitor) Prepare(ctx context.Context, plan collect.Plan) error {
 	return nil
 }
 
-func (m *Monitor) Collect(ctx context.Context, levelName string) (blip.Metrics, error) {
+func (m *Monitor) Collect(ctx context.Context, levelName string) (*blip.Metrics, error) {
 	// Lock while collecting so Preapre cannot change plan while using it.
 	// This func shouldn't take a lot less than 1s to exec.
 	m.RLock()
@@ -154,51 +165,42 @@ func (m *Monitor) Collect(ctx context.Context, levelName string) (blip.Metrics, 
 
 	if !m.ready {
 		blip.Debug("%s not ready", m.monitorId)
-		return blip.NoMetrics, nil
+		return nil, nil
 	}
 
 	mc := m.atLevel[levelName]
 	if mc == nil {
 		blip.Debug("%s no", m.monitorId)
-		return blip.NoMetrics, nil
+		return nil, nil
 	}
 
-	res := make([]collect.Metrics, len(mc))
-	var wg sync.WaitGroup
-	begin := time.Now()
-	for i := range mc {
-		<-m.sem
-		wg.Add(1)
-		go func(mc metrics.Collector, i int) {
-			defer wg.Done()
-			defer func() { m.sem <- true }()
-			var err error
-			res[i], err = mc.Collect(ctx, levelName)
-			if err != nil {
-				// @todo
-			}
-		}(mc[i], i)
-	}
-	wg.Wait()
-	end := time.Now()
-
-	n := 0
-	for i := range res {
-		n += len(res[i].Values)
-	}
-	bm := blip.Metrics{
-		Begin:     begin,
-		End:       end,
+	bm := &blip.Metrics{
 		Plan:      m.plan.Name,
 		Level:     levelName,
 		MonitorId: m.monitorId,
-		Values:    make(map[string]float64, n),
+		Values:    make(map[string]map[string]float64, len(mc)),
 	}
-	for i := range res {
-		for k, v := range res[i].Values {
-			bm.Values[k] = v
-		}
+	mux := &sync.Mutex{} // serialize writes to Values ^
+
+	var wg sync.WaitGroup
+	bm.Begin = time.Now()
+	for i := range mc {
+		<-m.sem
+		wg.Add(1)
+		go func(mc metrics.Collector) {
+			defer wg.Done()
+			defer func() { m.sem <- true }()
+			res, err := mc.Collect(ctx, levelName)
+			if err != nil {
+				// @todo
+			}
+			mux.Lock()
+			bm.Values[mc.Domain()] = res.Values
+			mux.Unlock()
+		}(mc[i])
 	}
+	wg.Wait()
+	bm.End = time.Now()
 
 	return bm, nil
 }

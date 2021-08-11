@@ -28,36 +28,36 @@ type dbmonFactory struct {
 	mcMaker    metrics.CollectorFactory
 	dbMaker    dbconn.Factory
 	planLoader *collect.PlanLoader
-	sinks      []sink.Sink
 }
 
 func (f dbmonFactory) Make(cfg blip.ConfigMonitor) *DbMon {
 	return &DbMon{
-		MonitorId:  dbconn.MonitorId(cfg),
-		Config:     cfg,
-		MCMaker:    f.mcMaker,
-		DBMaker:    f.dbMaker,
-		PlanLoader: f.planLoader,
-		Sinks:      f.sinks,
+		monitorId:  dbconn.MonitorId(cfg),
+		config:     cfg,
+		mcMaker:    f.mcMaker,
+		dbMaker:    f.dbMaker,
+		planLoader: f.planLoader,
 	}
 }
 
 type DbMon struct {
-	MonitorId  string
-	Config     blip.ConfigMonitor
-	DB         *sql.DB
-	MCMaker    metrics.CollectorFactory
-	DBMaker    dbconn.Factory
-	PlanLoader *collect.PlanLoader
-	Sinks      []sink.Sink
-	// --
-	Monitor *monitor.Monitor
-	LPC     level.Collector
-	LPA     level.Adjuster
-	HB      heartbeat.Monitor
-	// --
+	// Factory values
+	monitorId  string
+	config     blip.ConfigMonitor
+	mcMaker    metrics.CollectorFactory
+	dbMaker    dbconn.Factory
+	planLoader *collect.PlanLoader
+
+	// Monitor and sub-components
+	monitor   *monitor.Monitor
+	db        *sql.DB
+	lpc       level.Collector
+	lpa       level.Adjuster
+	hb        heartbeat.Monitor
+	metronome *sync.Cond
+
+	// Control chans and sync
 	*sync.Mutex
-	metronome   *sync.Cond
 	stopChan    chan struct{}
 	doneChanLPA chan struct{}
 	doneChanLPC chan struct{}
@@ -65,130 +65,162 @@ type DbMon struct {
 	stopped     bool
 }
 
-func (dbmon *DbMon) Start() error {
-	db, err := dbmon.DBMaker.Make(dbmon.Config)
+// MonitorId returns the monitor ID. This method implements blip.Monitor.
+func (d *DbMon) MonitorId() string {
+	return d.monitorId
+}
+
+// DB returns the low-level database connection. This method implements blip.Monitor.
+func (d *DbMon) DB() *sql.DB {
+	return d.db
+}
+
+// Config returns the monitor config. This method implements blip.Monitor.
+func (d *DbMon) Config() blip.ConfigMonitor {
+	return d.config
+}
+
+// Start starts monitoring the database if no error is returned.
+func (d *DbMon) Start() error {
+	var err error
+
+	d.db, err = d.dbMaker.Make(d.config)
 	if err != nil {
 		return err // @todo
 	}
-	dbmon.DB = db
-	dbmon.Mutex = &sync.Mutex{}
-	dbmon.metronome = sync.NewCond(&sync.Mutex{})
-	dbmon.stopChan = make(chan struct{})
-	dbmon.Monitor = monitor.NewMonitor(dbmon.MonitorId, dbmon.DB, dbmon.MCMaker)
-	dbmon.LPC = level.NewCollector(level.CollectorArgs{
-		Monitor:    dbmon.Monitor,
-		Metronome:  dbmon.metronome,
-		PlanLoader: dbmon.PlanLoader,
-		Sinks:      dbmon.Sinks,
+
+	sinks := []sink.Sink{}
+	for sinkName, opts := range d.config.Sinks {
+		sink, err := sink.Make(sinkName, opts)
+		if err != nil {
+			return err
+		}
+		sinks = append(sinks, sink)
+	}
+	if len(sinks) == 0 && !blip.Strict {
+		blip.Debug("using log sink")
+		sink, _ := sink.Make("log", map[string]string{})
+		sinks = append(sinks, sink)
+	}
+
+	d.Mutex = &sync.Mutex{}
+	d.metronome = sync.NewCond(&sync.Mutex{})
+	d.stopChan = make(chan struct{})
+	d.monitor = monitor.NewMonitor(d.monitorId, d.db, metrics.DefaultFactory)
+	d.lpc = level.NewCollector(level.CollectorArgs{
+		Monitor:    d.monitor,
+		Metronome:  d.metronome,
+		PlanLoader: d.planLoader,
+		Sinks:      sinks,
 	})
-	go dbmon.run()
+	go d.run()
 	return nil
 }
 
-func (dbmon *DbMon) run() {
+func (d *DbMon) run() {
 	defer func() {
 		if err := recover(); err != nil {
 			b := make([]byte, 4096)
 			n := runtime.Stack(b, false)
 			log.Printf("PANIC: %s\n%s", err, string(b[0:n]))
 		}
-		dbmon.Stop()
+		d.Stop()
 	}()
 
-	// Run level plan collector (LPC). This is the foundation of dbmon.
+	// Run level plan collector (lpc). This is the foundation of d.
 	// It's rock'n out with the metronome to invoke the Monitor at each level
 	// frequency, which is how metrics are collected according to level plan.
-	dbmon.doneChanLPC = make(chan struct{})
-	go dbmon.LPC.Run(dbmon.stopChan, dbmon.doneChanLPC)
+	d.doneChanLPC = make(chan struct{})
+	go d.lpc.Run(d.stopChan, d.doneChanLPC)
 
-	// Run option level plan adjuster (LPA). When enabled, the LPA checks the
+	// Run option level plan adjuster (lpa). When enabled, the lpa checks the
 	// state of MySQL on every metronome tick (every 500ms). If the state changes,
-	// it calls LPC.ChangePlan to change the plan as configured by
+	// it calls lpc.ChangePlan to change the plan as configured by
 	// config.monitors.M.plans.adjust.<state>.
-	if dbmon.Config.Plans.Adjust.Freq != "" {
-		dbmon.doneChanLPA = make(chan struct{})
-		dbmon.LPA = level.NewAdjuster(dbmon.Monitor, dbmon.metronome, dbmon.LPC)
-		go dbmon.LPA.Run(dbmon.stopChan, dbmon.doneChanLPA)
+	if d.config.Plans.Adjust.Freq != "" {
+		d.doneChanLPA = make(chan struct{})
+		d.lpa = level.NewAdjuster(d.monitor, d.metronome, d.lpc)
+		go d.lpa.Run(d.stopChan, d.doneChanLPA)
 	} else {
-		// When the LPA is not enabled, we need to get the party started by
-		// setting the first (and only) plan: "". When LPC.ChangePlan passes that
-		// along to PlanLoader.Plan, the plan loader will automatically find
+		// When the lpa is not enabled, we need to get the party started by
+		// setting the first (and only) plan: "". When lpc.ChangePlan passes that
+		// along to planLoader.Plan, the plan loader will automatically find
 		// and return the first plan by precedence: first plan from table, or
 		// first plan file, or internal plan--trying monitor plans first, then
 		// default plans. So it always finds something: the default internal plan,
 		// if nothing else.
 		//
-		// Also, without an LPA, monitors default to active state.
-		dbmon.LPC.ChangePlan(blip.STATE_ACTIVE, "")
+		// Also, without an lpa, monitors default to active state.
+		d.lpc.ChangePlan(blip.STATE_ACTIVE, "")
 	}
 
 	// Run optional heartbeat monitor to monitor replication lag. When enabled,
-	// the heartbeat (HB) writes a high-resolution timestamp to a row in a table
+	// the heartbeat (hb) writes a high-resolution timestamp to a row in a table
 	// at the configured frequence: config.monitors.M.heartbeat.freq.
-	if dbmon.Config.Heartbeat.Freq != "" {
-		dbmon.doneChanHB = make(chan struct{})
-		dbmon.HB = heartbeat.NewMonitor(dbmon.Config.Heartbeat, dbmon.DB) // @todo
-		go dbmon.HB.Run(dbmon.stopChan, dbmon.doneChanHB)
+	if d.config.Heartbeat.Freq != "" {
+		d.doneChanHB = make(chan struct{})
+		d.hb = heartbeat.NewMonitor(d.config.Heartbeat, d.db) // @todo
+		go d.hb.Run(d.stopChan, d.doneChanHB)
 	}
 
 	// @todo inconsequential race condition
 
 	// Run the metronome that is ithe secret force behind everything:
-	// the LPC, LPA,and HB work only when the metronome ticks.
+	// the lpc, lpa,and hb work only when the metronome ticks.
 	// In between ticks, these components contemplate 500 billion picoseconds of silence.
 	ticker := time.NewTicker(500 * time.Millisecond)
 	defer ticker.Stop()
 	for {
 		select {
 		case <-ticker.C:
-			dbmon.metronome.Broadcast()
-		case <-dbmon.stopChan:
-			blip.Debug("%s: metronome stopped", dbmon.MonitorId)
+			d.metronome.Broadcast()
+		case <-d.stopChan:
+			blip.Debug("%s: metronome stopped", d.monitorId)
 			return
 
 		}
 	}
 }
 
-func (dbmon *DbMon) Stop() {
-	dbmon.Lock()
-	defer dbmon.Unlock()
-	if dbmon.stopped {
+func (d *DbMon) Stop() {
+	d.Lock()
+	defer d.Unlock()
+	if d.stopped {
 		return
 	}
-	dbmon.stopped = true
+	d.stopped = true
 
-	defer event.Sendf(event.MONITOR_STOPPED, dbmon.MonitorId)
+	defer event.Sendf(event.MONITOR_STOPPED, d.monitorId)
 
-	close(dbmon.stopChan)
-	dbmon.DB.Close()
+	close(d.stopChan)
+	d.db.Close()
 
 	running := 0
-	if dbmon.doneChanLPC != nil {
-		running += 1 // LPC
+	if d.doneChanLPC != nil {
+		running += 1 // lpc
 	}
-	if dbmon.doneChanLPA != nil {
-		running += 1 // LPA
+	if d.doneChanLPA != nil {
+		running += 1 // lpa
 	}
-	if dbmon.doneChanHB != nil {
+	if d.doneChanHB != nil {
 		running += 1 // + Heartbeat
 	}
 
 WAIT_LOOP:
 	for running > 0 {
-		blip.Debug("%s: %d running", dbmon.MonitorId, running)
+		blip.Debug("%s: %d running", d.monitorId, running)
 		select {
-		case <-dbmon.doneChanLPA:
-			blip.Debug("%s: LPA done", dbmon.MonitorId)
-			dbmon.doneChanLPA = nil
+		case <-d.doneChanLPA:
+			blip.Debug("%s: lpa done", d.monitorId)
+			d.doneChanLPA = nil
 			running -= 1
-		case <-dbmon.doneChanLPC:
-			blip.Debug("%s: LPC done", dbmon.MonitorId)
-			dbmon.doneChanLPC = nil
+		case <-d.doneChanLPC:
+			blip.Debug("%s: lpc done", d.monitorId)
+			d.doneChanLPC = nil
 			running -= 1
-		case <-dbmon.doneChanHB:
-			blip.Debug("%s: HB done", dbmon.MonitorId)
-			dbmon.doneChanHB = nil
+		case <-d.doneChanHB:
+			blip.Debug("%s: hb done", d.monitorId)
+			d.doneChanHB = nil
 			running -= 1
 		case <-time.After(2 * time.Second):
 			// @todo

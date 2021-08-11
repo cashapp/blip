@@ -28,6 +28,9 @@ const (
 
 	RUN      = "server-run"
 	SHUTDOWN = "server-shutting-down"
+
+	REGISTER_SINK    = "register-sink"
+	REGISTER_METRICS = "register-metrics"
 )
 
 // Monitor events

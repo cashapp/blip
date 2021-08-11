@@ -16,20 +16,19 @@ var SHA = ""
 
 // Metrics are metrics collected for one plan level, from one database instance.
 type Metrics struct {
-	Begin     time.Time // when collection started
-	End       time.Time // when collection completed
-	MonitorId string    // ID of monitor (MySQL)
-	Plan      string    // plan name
-	Level     string    // level name
-	State     string    // state of monitor
-	Values    map[string]float64
+	Begin     time.Time                     // when collection started
+	End       time.Time                     // when collection completed
+	MonitorId string                        // ID of monitor (MySQL)
+	Plan      string                        // plan name
+	Level     string                        // level name
+	State     string                        // state of monitor
+	Values    map[string]map[string]float64 // keyed on domain => metric
 }
-
-var NoMetrics = Metrics{}
 
 // Monitor provides information about a MySQL instance that Blip monitors.
 type Monitor interface {
 	MonitorId() string
+	Config() ConfigMonitor
 	DB() *sql.DB
 }
 

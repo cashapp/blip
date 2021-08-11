@@ -4,6 +4,8 @@ import (
 	"database/sql"
 	"fmt"
 	"io/ioutil"
+	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 
@@ -14,8 +16,6 @@ import (
 	"github.com/square/blip/collect"
 	"github.com/square/blip/dbconn"
 	"github.com/square/blip/event"
-	"github.com/square/blip/metrics"
-	"github.com/square/blip/sink"
 )
 
 func Defaults() (Plugins, Factories) {
@@ -23,11 +23,10 @@ func Defaults() (Plugins, Factories) {
 	awsConfig := aws.NewConfigFactory()
 	dbMaker := dbconn.NewConnFactory(awsConfig, nil)
 	factories := Factories{
-		MakeMetricsCollector: metrics.NewCollectorFactory(),
-		MakeDbConn:           dbMaker,
-		MakeDbMon:            nil, // deferred, created in server.Boot
-		MakeMetricSink:       sink.NewFactory(),
-		MakeawsConfigion:     awsConfig,
+		AWSConfig:  awsConfig,
+		DbConn:     dbMaker,
+		DbMon:      nil, // deferred, created in server.Boot
+		HTTPClient: httpClientFactory{},
 	}
 	return Plugins{}, factories
 }
@@ -37,17 +36,32 @@ type Plugins struct {
 	LoadConfig       func(blip.Config) (blip.Config, error)
 	LoadLevelPlans   func(blip.Config) ([]collect.Plan, error)
 	LoadMonitors     func(blip.Config) ([]blip.ConfigMonitor, error)
-	LoadMetricSinks  func(blip.Config) ([]sink.Sink, error)
 	ModifyDB         func(*sql.DB)
 	TransformMetrics func(*blip.Metrics) error
 }
 
 type Factories struct {
-	MakeMetricsCollector metrics.CollectorFactory
-	MakeDbConn           dbconn.Factory
-	MakeDbMon            DbMonFactory
-	MakeMetricSink       sink.Factory
-	MakeawsConfigion     aws.ConfigFactory
+	AWSConfig  aws.ConfigFactory
+	DbConn     dbconn.Factory
+	DbMon      DbMonFactory
+	HTTPClient HTTPClientFactory
+}
+
+type HTTPClientFactory interface {
+	Make(cfg blip.ConfigHTTP, usedFor string) (*http.Client, error)
+}
+
+type httpClientFactory struct{}
+
+func (f httpClientFactory) Make(cfg blip.ConfigHTTP, usedFor string) (*http.Client, error) {
+	client := &http.Client{}
+	if cfg.Proxy != "" {
+		proxyFunc := func(req *http.Request) (url *url.URL, err error) {
+			return url.Parse(cfg.Proxy)
+		}
+		client.Transport = &http.Transport{Proxy: proxyFunc}
+	}
+	return client, nil
 }
 
 func LoadConfig(filePath string, cfg blip.Config) (blip.Config, error) {

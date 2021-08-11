@@ -1,5 +1,7 @@
 package collect
 
+import "database/sql"
+
 // Plan represents different levels of metrics collection.
 type Plan struct {
 	// Name is the name of the plan (required).
@@ -58,4 +60,9 @@ type Help struct {
 	Domain      string
 	Description string
 	Options     [][]string // { {"key", "Description of key", "default;val1;val2}, ... }
+}
+
+type Args struct {
+	MonitorId string
+	DB        *sql.DB
 }

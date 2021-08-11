@@ -13,6 +13,7 @@ import (
 	"github.com/square/blip"
 	"github.com/square/blip/collect"
 	"github.com/square/blip/event"
+	"github.com/square/blip/metrics"
 	"github.com/square/blip/sink"
 )
 
@@ -151,7 +152,7 @@ func (s *Server) Boot(plugin Plugins, factory Factories) error {
 		}
 		err = planLoader.SetPlans(plans)
 	} else {
-		err = planLoader.LoadPlans(cfg, factory.MakeDbConn)
+		err = planLoader.LoadPlans(cfg, factory.DbConn)
 	}
 	if err != nil {
 		event.Sendf(event.BOOT_PLANS_ERROR, err.Error())
@@ -166,47 +167,32 @@ func (s *Server) Boot(plugin Plugins, factory Factories) error {
 	// ----------------------------------------------------------------------
 	// Sinks
 
-	sinks := []sink.Sink{}
-	if plugin.LoadMetricSinks != nil {
-		blip.Debug("call plugin.LoadMetricSinks")
-		sinks, err = plugin.LoadMetricSinks(cfg)
-	} else {
-		for sinkName, opts := range cfg.Sinks {
-			sink, err := factory.MakeMetricSink.Make(sinkName, opts)
-			if err != nil {
-				// @todo
+	metrics.RegisterDefaults()
+	sink.RegisterDefaults()
+
+	/*
+		if plugin.TransformMetrics != nil {
+			allSinks := sinks
+			tf := sink.TransformMetrics{
+				Plugin: plugin.TransformMetrics,
+				Sinks:  allSinks,
 			}
-			sinks = append(sinks, sink)
+			sinks = []sink.Sink{tf}
+			blip.Debug("using plugin.TransformMetrics")
 		}
-		if len(sinks) == 0 && !blip.Strict {
-			sink, _ := factory.MakeMetricSink.Make("log", nil)
-			sinks = append(sinks, sink)
-			blip.Debug("using default log sink")
-		}
-	}
-
-	if plugin.TransformMetrics != nil {
-		allSinks := sinks
-		tf := sink.TransformMetrics{
-			Plugin: plugin.TransformMetrics,
-			Sinks:  allSinks,
-		}
-		sinks = []sink.Sink{tf}
-		blip.Debug("using plugin.TransformMetrics")
-	}
-
-	// Make deferred dbmon factory
-	if factory.MakeDbMon == nil {
-		factory.MakeDbMon = &dbmonFactory{
-			mcMaker:    factory.MakeMetricsCollector,
-			dbMaker:    factory.MakeDbConn,
-			planLoader: collect.DefaultPlanLoader(),
-			sinks:      sinks,
-		}
-	}
+	*/
 
 	// ----------------------------------------------------------------------
 	// Database monitors (dbmon)
+
+	// Make deferred dbmon factory
+	if factory.DbMon == nil {
+		factory.DbMon = &dbmonFactory{
+			dbMaker:    factory.DbConn,
+			planLoader: collect.DefaultPlanLoader(),
+			//sinks:      sinks,
+		}
+	}
 
 	// Create, but don't start, database monitors. They're started later in Run.
 	s.monitorLoader = NewMonitorLoader(cfg, plugin, factory)

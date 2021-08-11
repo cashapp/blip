@@ -12,7 +12,6 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"github.com/square/blip/collect"
-	"github.com/square/blip/test/mock"
 )
 
 func createDomain(domainName string, metrics []string, sourceOption ...string) map[string]collect.Domain {
@@ -79,10 +78,7 @@ func setup() {
 		log.Fatalf("Unable to ping the database dsn: %s", dsn)
 	}
 
-	mockMonitor := mock.Monitor{
-		MonitorIdFunc: func() string { return "test" },
-	}
-	globalCollector = NewGlobal(mockMonitor)
+	globalCollector = NewGlobal(dbIns)
 }
 
 func TestPrepareForSingleLevelAndNoSource(t *testing.T) {

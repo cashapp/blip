@@ -43,10 +43,11 @@ func interpolateEnv(v string) string {
 type Config struct {
 	//
 	// Blip server
-	API           ConfigAPI                    `yaml:"api,omitempty"`
-	MonitorLoader ConfigMonitorLoader          `yaml:"monitor-loader,omitempty"`
-	Sinks         map[string]map[string]string `yaml:"sinks,omitempty"`
-	Strict        bool                         `yaml:"strict"`
+	API           ConfigAPI           `yaml:"api,omitempty"`
+	HTTP          ConfigHTTP          `yaml:"http,omitempty"`
+	MonitorLoader ConfigMonitorLoader `yaml:"monitor-loader,omitempty"`
+	Sinks         ConfigSinks         `yaml:"sinks,omitempty"`
+	Strict        bool                `yaml:"strict"`
 
 	//
 	// Defaults for monitors
@@ -75,7 +76,7 @@ func DefaultConfig(strict bool) Config {
 	return Config{
 		API:           DefaultConfigAPI(),
 		MonitorLoader: DefaultConfigMonitorLoader(),
-		Sinks:         map[string]map[string]string{},
+		Sinks:         DefaultConfigSinks(),
 
 		AWS:       DefaultConfigAWS(),
 		Exporter:  DefaultConfigExporter(),
@@ -101,13 +102,9 @@ func (c *Config) InterpolateEnvVars() {
 		c.Tags[k] = interpolateEnv(v)
 	}
 
-	for sink, kv := range c.Sinks {
-		for k, v := range kv {
-			kv[k] = interpolateEnv(v)
-		}
-		c.Sinks[sink] = kv
-	}
 	c.API.InterpolateEnvVars()
+	c.HTTP.InterpolateEnvVars()
+	c.Sinks.InterpolateEnvVars()
 	c.MonitorLoader.InterpolateEnvVars()
 
 	c.AWS.InterpolateEnvVars()
@@ -144,6 +141,24 @@ func (c ConfigAPI) Validate() error {
 
 func (c *ConfigAPI) InterpolateEnvVars() {
 	c.Bind = interpolateEnv(c.Bind)
+}
+
+// --------------------------------------------------------------------------
+
+type ConfigHTTP struct {
+	Proxy string `yaml:"proxy,omityempty"`
+}
+
+func DefaultConfigHTTP() ConfigHTTP {
+	return ConfigHTTP{}
+}
+
+func (c ConfigHTTP) Validate() error {
+	return nil
+}
+
+func (c *ConfigHTTP) InterpolateEnvVars() {
+	c.Proxy = interpolateEnv(c.Proxy)
 }
 
 // --------------------------------------------------------------------------
@@ -205,6 +220,7 @@ type ConfigMonitor struct {
 	HA        ConfigHighAvailability `yaml:"ha,omitempty"`
 	Heartbeat ConfigHeartbeat        `yaml:"heartbeat,omitempty"`
 	Plans     ConfigPlans            `yaml:"plans,omitempty"`
+	Sinks     ConfigSinks            `yaml:"sinks,omitempty"`
 	TLS       ConfigTLS              `yaml:"tls,omitempty"`
 }
 
@@ -556,6 +572,34 @@ func (c *ConfigPlans) InterpolateEnvVars() {
 }
 
 func (c *ConfigPlans) InterpolateMonitor(m *ConfigMonitor) {
+}
+
+// --------------------------------------------------------------------------
+
+type ConfigSinks map[string]map[string]string
+
+func DefaultConfigSinks() ConfigSinks {
+	return ConfigSinks{}
+}
+
+func (c ConfigSinks) Validate() error {
+	return nil
+}
+
+func (c ConfigSinks) InterpolateEnvVars() {
+	for _, opts := range c {
+		for k, v := range opts {
+			opts[k] = interpolateEnv(v)
+		}
+	}
+}
+
+func (c ConfigSinks) InterpolateMonitor(m *ConfigMonitor) {
+	for _, opts := range c {
+		for k, v := range opts {
+			opts[k] = m.interpolateMon(v)
+		}
+	}
 }
 
 // --------------------------------------------------------------------------

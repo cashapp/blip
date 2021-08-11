@@ -2,15 +2,18 @@ package metrics
 
 import (
 	"context"
+	"database/sql"
+	"fmt"
+	"sync"
 
-	"github.com/square/blip"
 	"github.com/square/blip/collect"
+	"github.com/square/blip/event"
 	sysvar "github.com/square/blip/metrics/var"
 )
 
 // Collector collects metrics for a single metric domain.
 type Collector interface {
-	// Domain returns the collector's metric domain name, like "var.global".
+	// Domain returns the collector's metric domain domain, like "var.global".
 	Domain() string
 
 	// Help returns information about using the collector.
@@ -23,47 +26,64 @@ type Collector interface {
 	Collect(ctx context.Context, levelName string) (collect.Metrics, error)
 }
 
+type FactoryArgs struct {
+	MonitorId string
+	DB        *sql.DB
+}
+
 type CollectorFactory interface {
-	Make(domain string, monitor blip.Monitor) (Collector, error)
+	Make(domain string, args FactoryArgs) (Collector, error)
 }
 
-var _ CollectorFactory = collectotFactory{}
-
-type collectotFactory struct {
+type factory struct {
 }
 
-func NewCollectorFactory() collectotFactory {
-	return collectotFactory{}
-}
-
-func (f collectotFactory) Make(domain string, monitor blip.Monitor) (Collector, error) {
+func (f factory) Make(domain string, args FactoryArgs) (Collector, error) {
 	switch domain {
 	case "var.global":
-		mc := sysvar.NewGlobal(monitor)
+		mc := sysvar.NewGlobal(args.DB)
 		return mc, nil
 	}
-	return MockCollector{}, nil
+	return nil, fmt.Errorf("invalid domain")
+}
+
+var DefaultFactory = factory{}
+
+func RegisterDefaults() {
+	Register("var.global", DefaultFactory)
+	Register("status.global", DefaultFactory)
 }
 
 // --------------------------------------------------------------------------
 
-type MockCollector struct {
+type repo struct {
+	*sync.Mutex
+	factory map[string]CollectorFactory
 }
 
-var _ Collector = MockCollector{}
-
-func (c MockCollector) Domain() string {
-	return "mock"
+var collectorRepo = &repo{
+	Mutex:   &sync.Mutex{},
+	factory: map[string]CollectorFactory{},
 }
 
-func (c MockCollector) Help() collect.Help {
-	return collect.Help{}
-}
-
-func (c MockCollector) Prepare(collect.Plan) error {
+func Register(domain string, f CollectorFactory) error {
+	collectorRepo.Lock()
+	defer collectorRepo.Unlock()
+	_, ok := collectorRepo.factory[domain]
+	if ok {
+		return fmt.Errorf("%s already registered", domain)
+	}
+	collectorRepo.factory[domain] = f
+	event.Sendf(event.REGISTER_METRICS, domain)
 	return nil
 }
 
-func (c MockCollector) Collect(ctx context.Context, levelName string) (collect.Metrics, error) {
-	return collect.Metrics{}, nil
+func Make(domain string, args FactoryArgs) (Collector, error) {
+	collectorRepo.Lock()
+	defer collectorRepo.Unlock()
+	f, ok := collectorRepo.factory[domain]
+	if !ok {
+		return nil, fmt.Errorf("%s not registeres", domain)
+	}
+	return f.Make(domain, args)
 }

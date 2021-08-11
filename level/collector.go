@@ -38,10 +38,11 @@ func (a byFreq) Less(i, j int) bool { return a[i].freq < a[j].freq }
 
 // collector is the implementation of Collector.
 type collector struct {
-	monitor    *monitor.Monitor
-	metronome  *sync.Cond
-	planLoader *collect.PlanLoader
-	sinks      []sink.Sink
+	monitor          *monitor.Monitor
+	metronome        *sync.Cond
+	planLoader       *collect.PlanLoader
+	sinks            []sink.Sink
+	transformMetrics func(*blip.Metrics) error
 	// --
 	state                string
 	plan                 collect.Plan
@@ -55,10 +56,11 @@ type collector struct {
 }
 
 type CollectorArgs struct {
-	Monitor    *monitor.Monitor
-	Metronome  *sync.Cond
-	PlanLoader *collect.PlanLoader
-	Sinks      []sink.Sink
+	Monitor          *monitor.Monitor
+	Metronome        *sync.Cond
+	PlanLoader       *collect.PlanLoader
+	Sinks            []sink.Sink
+	TransformMetrics func(*blip.Metrics) error
 }
 
 func NewCollector(args CollectorArgs) *collector {
@@ -160,8 +162,13 @@ func (c *collector) collector(n int, col chan string, stopChan chan struct{}) {
 		if err != nil {
 			// @todo
 		}
+
+		if c.transformMetrics != nil {
+			c.transformMetrics(metrics)
+		}
+
 		for i := range c.sinks {
-			c.sinks[i].Send(metrics)
+			c.sinks[i].Send(context.Background(), metrics)
 			// @todo error
 		}
 	}
