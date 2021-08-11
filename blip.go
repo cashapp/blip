@@ -1,7 +1,6 @@
 package blip
 
 import (
-	"database/sql"
 	"fmt"
 	"log"
 	"os"
@@ -37,13 +36,6 @@ const (
 	BOOL
 	EVENT
 )
-
-// Monitor provides information about a MySQL instance that Blip monitors.
-type Monitor interface {
-	MonitorId() string
-	Config() ConfigMonitor
-	DB() *sql.DB
-}
 
 const (
 	STATE_NONE      = ""
