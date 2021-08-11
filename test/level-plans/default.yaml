@@ -3,10 +3,12 @@ kpi:
   freq: 5s
   timeout: 1s
   collect:
+    var.global:
+      metrics:
+        - read_only
     status.global:
       options:
         source: auto
       metrics:
       - queries
       - threads_running
-

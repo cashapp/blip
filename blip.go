@@ -1,39 +1,65 @@
 package blip
 
 import (
+	"fmt"
+	"log"
+	"os"
+	"path"
+	"runtime"
 	"time"
-
-	"github.com/square/blip/collect"
-	"github.com/square/blip/db"
 )
 
 const VERSION = "0.0.0"
 
 var SHA = ""
 
-// Config represents the Blip startup configuration.
-type Config struct {
-}
-
-func DefaultConfig() Config {
-	return Config{
-		// Default values
-	}
-}
-
 // Metrics are metrics collected for one plan level, from one database instance.
 type Metrics struct {
-	Ts     time.Time
-	Plan   string
-	Level  string
-	DbId   string
-	State  string
-	Values map[string]float64
+	Begin     time.Time                // when collection started
+	End       time.Time                // when collection completed
+	MonitorId string                   // ID of monitor (MySQL)
+	Plan      string                   // plan name
+	Level     string                   // level name
+	State     string                   // state of monitor
+	Values    map[string][]MetricValue // keyed on domain
 }
 
-type Plugins struct {
-	LoadConfig       func(Config) (Config, error)
-	LoadLevelPlan    func(Config) (collect.Plan, error)
-	LoadDbInstances  func(Config) ([]db.Instance, error)
-	TransformMetrics func(*Metrics) error
+type MetricValue struct {
+	Name  string
+	Value float64
+	Type  byte
+}
+
+const (
+	COUNTER byte = iota
+	GAUGE
+	BOOL
+	EVENT
+)
+
+const (
+	STATE_NONE      = ""
+	STATE_OFFLINE   = "offline"
+	STATE_STANDBY   = "standby"
+	STATE_READ_ONLY = "read-only"
+	STATE_ACTIVE    = "active"
+)
+
+var (
+	Strict    = false
+	Debugging = false
+	debugLog  = log.New(os.Stderr, "DEBUG ", log.LstdFlags|log.Lmicroseconds)
+)
+
+func init() {
+	log.SetFlags(log.LstdFlags | log.Lmicroseconds)
+}
+
+func Debug(msg string, v ...interface{}) {
+	if !Debugging {
+		return
+	}
+	_, file, line, _ := runtime.Caller(1)
+	msg = fmt.Sprintf("%s:%d %s", path.Base(file), line, msg)
+	debugLog.Printf(msg, v...)
 }
