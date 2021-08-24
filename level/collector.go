@@ -2,6 +2,7 @@ package level
 
 import (
 	"context"
+	"fmt"
 	"math"
 	"sort"
 	"sync"
@@ -12,6 +13,7 @@ import (
 	"github.com/square/blip/event"
 	"github.com/square/blip/monitor"
 	"github.com/square/blip/sink"
+	"github.com/square/blip/status"
 )
 
 // Collector calls a monitor to collect metrics according to a plan.
@@ -38,6 +40,7 @@ func (a byFreq) Less(i, j int) bool { return a[i].freq < a[j].freq }
 
 // collector is the implementation of Collector.
 type collector struct {
+	monitorId        string
 	monitor          *monitor.Monitor
 	metronome        *sync.Cond
 	planLoader       *collect.PlanLoader
@@ -65,6 +68,7 @@ type CollectorArgs struct {
 
 func NewCollector(args CollectorArgs) *collector {
 	return &collector{
+		monitorId:  args.Monitor.MonitorId(),
 		monitor:    args.Monitor,
 		metronome:  args.Metronome,
 		planLoader: args.PlanLoader,
@@ -151,13 +155,18 @@ func (c *collector) Run(stopChan, doneChan chan struct{}) error {
 }
 
 func (c *collector) collector(n int, col chan string, stopChan chan struct{}) {
+	lpc := fmt.Sprintf("lpc-%d", n)
 	var level string
 	for {
+		status.Monitor(c.monitorId, lpc, "idle")
+
 		select {
 		case level = <-col: // signal
 		case <-stopChan:
 			return
 		}
+
+		status.Monitor(c.monitorId, lpc, "collecting level %s", level)
 		metrics, err := c.monitor.Collect(context.Background(), level)
 		if err != nil {
 			// @todo
@@ -167,6 +176,7 @@ func (c *collector) collector(n int, col chan string, stopChan chan struct{}) {
 			c.transformMetrics(metrics)
 		}
 
+		status.Monitor(c.monitorId, lpc, "sending metrics for level %s", level)
 		for i := range c.sinks {
 			c.sinks[i].Send(context.Background(), metrics)
 			// @todo error

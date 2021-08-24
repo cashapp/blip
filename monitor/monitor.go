@@ -10,6 +10,7 @@ import (
 	"github.com/square/blip/collect"
 	"github.com/square/blip/event"
 	"github.com/square/blip/metrics"
+	"github.com/square/blip/status"
 )
 
 // Monitor monitors a single MySQL instances. It implments blip.Monitor.
@@ -75,6 +76,7 @@ func (m *Monitor) Config() blip.ConfigMonitor {
 // from the monitor's LPC.
 func (m *Monitor) Prepare(ctx context.Context, plan collect.Plan) error {
 	m.event.Sendf(event.MONITOR_PREPARE_PLAN, plan.Name)
+	status.Monitor(m.monitorId, "monitor", "preparing plan %s", plan.Name)
 
 	// Try forever to make a successful connection
 	if !m.connected {
@@ -144,6 +146,7 @@ func (m *Monitor) Prepare(ctx context.Context, plan collect.Plan) error {
 	m.ready = true
 	m.Unlock()
 
+	status.Monitor(m.monitorId, "monitor", "ready to collect plan %s", plan.Name)
 	return nil
 }
 
@@ -173,6 +176,9 @@ func (m *Monitor) Collect(ctx context.Context, levelName string) (*blip.Metrics,
 		blip.Debug("%s no", m.monitorId)
 		return nil, nil
 	}
+
+	status.Monitor(m.monitorId, "monitor", "collect level in plan %s", levelName, m.plan.Name)
+	defer status.Monitor(m.monitorId, "monitor", "waiting to collect plan %s", m.plan.Name)
 
 	bm := &blip.Metrics{
 		Plan:      m.plan.Name,
