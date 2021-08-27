@@ -70,7 +70,7 @@ func (f factory) Make(cfg blip.ConfigMonitor) (*sql.DB, error) {
 		cred += ":" + password
 	}
 
-	params := []string{}
+	params := []string{"parseTime=true"}
 	if (cfg.AWS.AuthToken || cfg.AWS.PasswordSecret != "") && !cfg.AWS.DisableAutoTLS {
 		params = append(params, "tls=rds")
 	}

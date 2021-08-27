@@ -160,8 +160,16 @@ func (d *DbMon) run() {
 	// at the configured frequence: config.monitors.M.heartbeat.freq.
 	if d.config.Heartbeat.Freq != "" {
 		d.doneChanHB = make(chan struct{})
-		d.hb = heartbeat.NewMonitor(d.config.Heartbeat, d.db) // @todo
-		go d.hb.Run(d.stopChan, d.doneChanHB)
+		d.hb = heartbeat.NewMonitor(
+			d.monitorId,
+			d.config.Heartbeat,
+			d.db,
+			d.metronome,
+		) // @todo
+		go d.hb.Write(d.stopChan, d.doneChanHB)
+
+		go d.hb.Read(d.stopChan, d.doneChanHB)
+
 	}
 
 	// @todo inconsequential race condition
