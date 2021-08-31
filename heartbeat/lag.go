@@ -7,7 +7,7 @@ import (
 )
 
 type LagWaiter interface {
-	Wait(now, then time.Time, f int) time.Duration
+	Wait(now, then time.Time, f int) (int64, time.Duration)
 }
 
 type SlowFastWaiter struct {
@@ -24,7 +24,7 @@ func NewSlowFastWaiter() *SlowFastWaiter {
 	}
 }
 
-func (w *SlowFastWaiter) Wait(now, then time.Time, freq int) time.Duration {
+func (w *SlowFastWaiter) Wait(now, then time.Time, freq int) (int64, time.Duration) {
 	next := then.Add(time.Duration(freq) * time.Millisecond)
 	blip.Debug("then=%s  now=%s  next=%s", then, now, next)
 
@@ -37,7 +37,7 @@ func (w *SlowFastWaiter) Wait(now, then time.Time, freq int) time.Duration {
 			d = offset
 		}
 		blip.Debug("CURRENT: %s after, - wait %s", now.Sub(then), d)
-		return d
+		return 0, d
 	}
 
 	var waitTime time.Duration
@@ -58,5 +58,5 @@ func (w *SlowFastWaiter) Wait(now, then time.Time, freq int) time.Duration {
 
 	// Next hb is late (lagging)
 	blip.Debug("lagging: %s past ETA, wait %s (%d)", now.Sub(next), waitTime, w.waits)
-	return waitTime
+	return now.Sub(next).Milliseconds(), waitTime
 }
