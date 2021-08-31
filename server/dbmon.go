@@ -53,7 +53,8 @@ type DbMon struct {
 	db        *sql.DB
 	lpc       level.Collector
 	lpa       level.Adjuster
-	hb        heartbeat.Monitor
+	hbw       heartbeat.Writer
+	hbr       heartbeat.Reader
 	metronome *sync.Cond
 
 	// Control chans and sync
@@ -61,7 +62,8 @@ type DbMon struct {
 	stopChan    chan struct{}
 	doneChanLPA chan struct{}
 	doneChanLPC chan struct{}
-	doneChanHB  chan struct{}
+	doneChanHBW chan struct{}
+	doneChanHBR chan struct{}
 	stopped     bool
 }
 
@@ -158,18 +160,34 @@ func (d *DbMon) run() {
 	// Run optional heartbeat monitor to monitor replication lag. When enabled,
 	// the heartbeat (hb) writes a high-resolution timestamp to a row in a table
 	// at the configured frequence: config.monitors.M.heartbeat.freq.
-	if d.config.Heartbeat.Freq != "" {
-		d.doneChanHB = make(chan struct{})
-		d.hb = heartbeat.NewMonitor(
-			d.monitorId,
-			d.config.Heartbeat,
-			d.db,
-			d.metronome,
-		) // @todo
-		go d.hb.Write(d.stopChan, d.doneChanHB)
+	if !d.config.Heartbeat.Disable {
 
-		go d.hb.Read(d.stopChan, d.doneChanHB)
+		if !d.config.Heartbeat.DisableAutoWrite {
+			d.hbw = heartbeat.NewWriter(d.monitorId, d.db, d.metronome)
+			d.doneChanHBW = make(chan struct{})
+			go d.hbw.Write(d.stopChan, d.doneChanHBW)
+		}
 
+		if len(d.config.Heartbeat.Source) > 0 || !d.config.Heartbeat.DisableAutoSource {
+			var sf heartbeat.SourceFinder
+			if len(d.config.Heartbeat.Source) > 0 {
+				sf = heartbeat.NewStaticSourceList(d.config.Heartbeat.Source, d.db)
+			} else if !d.config.Heartbeat.DisableAutoSource {
+				sf = heartbeat.NewAutoSourceFinder() // @todo
+			} else {
+				panic("no repl sources and auto-source disable")
+			}
+			d.hbr = heartbeat.NewReader(
+				d.config,
+				d.db,
+				heartbeat.NewSlowFastWaiter(),
+				sf,
+			)
+			d.doneChanHBR = make(chan struct{})
+			go d.hbr.Read(d.stopChan, d.doneChanHBR)
+		} else {
+			blip.Debug("heartbeat read disabled: no sources, aut-source dissabled")
+		}
 	}
 
 	// @todo inconsequential race condition
@@ -211,8 +229,11 @@ func (d *DbMon) Stop() {
 	if d.doneChanLPA != nil {
 		running += 1 // lpa
 	}
-	if d.doneChanHB != nil {
-		running += 1 // + Heartbeat
+	if d.doneChanHBW != nil {
+		running += 1 // + Heartbeat writer
+	}
+	if d.doneChanHBR != nil {
+		running += 1 // + Heartbeat reader
 	}
 
 WAIT_LOOP:
@@ -227,9 +248,13 @@ WAIT_LOOP:
 			blip.Debug("%s: lpc done", d.monitorId)
 			d.doneChanLPC = nil
 			running -= 1
-		case <-d.doneChanHB:
-			blip.Debug("%s: hb done", d.monitorId)
-			d.doneChanHB = nil
+		case <-d.doneChanHBW:
+			blip.Debug("%s: hb writer done", d.monitorId)
+			d.doneChanHBW = nil
+			running -= 1
+		case <-d.doneChanHBR:
+			blip.Debug("%s: hb reader done", d.monitorId)
+			d.doneChanHBR = nil
 			running -= 1
 		case <-time.After(2 * time.Second):
 			// @todo

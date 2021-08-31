@@ -427,25 +427,21 @@ func (c *ConfigExporter) InterpolateMonitor(m *ConfigMonitor) {
 // --------------------------------------------------------------------------
 
 type ConfigHeartbeat struct {
-	Freq        string `yaml:"freq"`
-	Table       string `yaml:"table"`
-	CreateTable string `yaml:"createTable"`
-	Optional    bool   `yaml:"optional"`
+	Table                  string   `yaml:"table"`
+	Source                 []string `yaml:"source"`
+	Disable                bool     `yaml:"disable`
+	DisableAutoSource      bool     `yaml:"disable-auto-source"`
+	DisableAutoWrite       bool     `yaml:"disable-auto-write"`
+	DisableAutoCreateTable bool     `yaml:"disable-auto-create-table"`
 }
 
 const (
-	DEFAULT_HEARTBEAT_FREQ         = "500ms"
-	DEFAULT_HEARTBEAT_TABLE        = "blip.heartbeat"
-	DEFAULT_HEARTBEAT_CREATE_TABLE = "try"
-	DEFAULT_HEARTBEAT_OPTIONAL     = true
+	DEFAULT_HEARTBEAT_TABLE = "blip.heartbeat"
 )
 
 func DefaultConfigHeartbeat() ConfigHeartbeat {
 	return ConfigHeartbeat{
-		Freq:        DEFAULT_HEARTBEAT_FREQ,
-		Table:       DEFAULT_HEARTBEAT_TABLE,
-		CreateTable: DEFAULT_HEARTBEAT_CREATE_TABLE,
-		Optional:    DEFAULT_HEARTBEAT_OPTIONAL,
+		Table: DEFAULT_HEARTBEAT_TABLE,
 	}
 }
 
