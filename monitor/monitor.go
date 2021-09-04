@@ -125,7 +125,8 @@ func (m *Monitor) Prepare(ctx context.Context, plan collect.Plan) error {
 			// @todo pass ctx
 
 			if err := mc.Prepare(plan); err != nil {
-				// @todo
+				blip.Debug("%s: mc.Prepare error: %s", m.monitorId, err)
+				return err // @todo
 			}
 
 			// At this level, collect from this domain
@@ -173,10 +174,11 @@ func (m *Monitor) Collect(ctx context.Context, levelName string) (*blip.Metrics,
 
 	mc := m.atLevel[levelName]
 	if mc == nil {
-		blip.Debug("%s no", m.monitorId)
+		blip.Debug("%s no mc at level '%s'", m.monitorId, levelName)
 		return nil, nil
 	}
 
+	blip.Debug("%s: collect level in plan %s", m.monitorId, m.plan.Name)
 	status.Monitor(m.monitorId, "monitor", "collect level in plan %s", levelName, m.plan.Name)
 	defer status.Monitor(m.monitorId, "monitor", "waiting to collect plan %s", m.plan.Name)
 

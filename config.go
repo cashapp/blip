@@ -540,9 +540,22 @@ type ConfigPlans struct {
 }
 
 type ConfigPlanAdjuster struct {
-	Freq     string `yaml:"freq"`
-	ReadOnly string `yaml:"readonlyPlan"`
-	Active   string `yaml:"activePlan"`
+	Offline  ConfigStatePlan `yaml:"offline,omitempty"`
+	Standby  ConfigStatePlan `yaml:"standby,omitempty"`
+	ReadOnly ConfigStatePlan `yaml:"read-only,omitempty"`
+	Active   ConfigStatePlan `yaml:"active,omitempty"`
+}
+
+func (c ConfigPlanAdjuster) Enabled() bool {
+	return c.Offline.Plan != "" ||
+		c.Standby.Plan != "" ||
+		c.ReadOnly.Plan != "" ||
+		c.Active.Plan != ""
+}
+
+type ConfigStatePlan struct {
+	After string `yaml:"after,omitempty"`
+	Plan  string `yaml:"plan,omitempty"`
 }
 
 const (
@@ -551,10 +564,7 @@ const (
 )
 
 func DefaultConfigPlans() ConfigPlans {
-	return ConfigPlans{
-		Table: DEFAULT_PLANS_TABLE,
-		Files: []string{DEFAULT_PLANS_FILES},
-	}
+	return ConfigPlans{}
 }
 
 func (c ConfigPlans) Validate() error {
@@ -562,13 +572,44 @@ func (c ConfigPlans) Validate() error {
 }
 
 func (c *ConfigPlans) ApplyDefaults(b Config) {
+	if len(c.Files) == 0 && len(b.Plans.Files) > 0 {
+		c.Files = make([]string, len(b.Plans.Files))
+		copy(c.Files, b.Plans.Files)
+	}
+	if c.Adjust.Offline.After == "" {
+		c.Adjust.Offline.After = b.Plans.Adjust.Offline.After
+	}
+	if c.Adjust.Offline.Plan == "" {
+		c.Adjust.Offline.Plan = b.Plans.Adjust.Offline.Plan
+	}
+
+	if c.Adjust.Standby.After == "" {
+		c.Adjust.Standby.After = b.Plans.Adjust.Standby.After
+	}
+	if c.Adjust.Standby.Plan == "" {
+		c.Adjust.Standby.Plan = b.Plans.Adjust.Standby.Plan
+	}
+
+	if c.Adjust.ReadOnly.After == "" {
+		c.Adjust.ReadOnly.After = b.Plans.Adjust.ReadOnly.After
+	}
+	if c.Adjust.ReadOnly.Plan == "" {
+		c.Adjust.ReadOnly.Plan = b.Plans.Adjust.ReadOnly.Plan
+	}
+
+	if c.Adjust.Active.After == "" {
+		c.Adjust.Active.After = b.Plans.Adjust.Active.After
+	}
+	if c.Adjust.Active.Plan == "" {
+		c.Adjust.Active.Plan = b.Plans.Adjust.Active.Plan
+	}
+
 }
 
 func (c *ConfigPlans) InterpolateEnvVars() {
 	for i := range c.Files {
 		c.Files[i] = interpolateEnv(c.Files[i])
 	}
-
 }
 
 func (c *ConfigPlans) InterpolateMonitor(m *ConfigMonitor) {
@@ -628,6 +669,9 @@ func (c ConfigTLS) Validate() error {
 }
 
 func (c *ConfigTLS) ApplyDefaults(b Config) {
+	c.Cert = c.Cert
+	c.Key = c.Key
+	c.CA = c.CA
 }
 
 func (c *ConfigTLS) InterpolateEnvVars() {

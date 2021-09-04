@@ -11,6 +11,7 @@ import (
 	"github.com/square/blip/collect"
 	"github.com/square/blip/dbconn"
 	"github.com/square/blip/event"
+	"github.com/square/blip/ha"
 	"github.com/square/blip/heartbeat"
 	"github.com/square/blip/level"
 	"github.com/square/blip/metrics"
@@ -140,9 +141,16 @@ func (d *DbMon) run() {
 	// state of MySQL on every metronome tick (every 500ms). If the state changes,
 	// it calls lpc.ChangePlan to change the plan as configured by
 	// config.monitors.M.plans.adjust.<state>.
-	if d.config.Plans.Adjust.Freq != "" {
+	if d.config.Plans.Adjust.Enabled() {
 		d.doneChanLPA = make(chan struct{})
-		d.lpa = level.NewAdjuster(d.monitor, d.metronome, d.lpc)
+		d.lpa = level.NewAdjuster(level.AdjusterArgs{
+			MonitorId: d.monitorId,
+			Config:    d.config.Plans.Adjust,
+			DB:        d.db,
+			Metronome: d.metronome,
+			LPC:       d.lpc,
+			HA:        ha.Disabled,
+		})
 		go d.lpa.Run(d.stopChan, d.doneChanLPA)
 	} else {
 		// When the lpa is not enabled, we need to get the party started by
@@ -154,7 +162,9 @@ func (d *DbMon) run() {
 		// if nothing else.
 		//
 		// Also, without an lpa, monitors default to active state.
-		d.lpc.ChangePlan(blip.STATE_ACTIVE, "")
+		if err := d.lpc.ChangePlan(blip.STATE_ACTIVE, ""); err != nil {
+			// @todo
+		}
 	}
 
 	// Run optional heartbeat monitor to monitor replication lag. When enabled,

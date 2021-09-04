@@ -36,7 +36,6 @@ func (w *SlowFastWaiter) Wait(now, then time.Time, freq int) (int64, time.Durati
 		if d < 0 {
 			d = offset
 		}
-		blip.Debug("CURRENT: %s after, - wait %s", now.Sub(then), d)
 		return 0, d
 	}
 

@@ -23,6 +23,9 @@ type Collector interface {
 
 	// ChangePlan changes the plan; it's called by an Adjuster.
 	ChangePlan(newState, newPlanName string) error
+
+	// Pause pauses metrics collection until ChangePlan is called.
+	Pause() error
 }
 
 var _ Collector = &collector{}
@@ -56,6 +59,7 @@ type collector struct {
 	stateMux             *sync.Mutex
 	event                event.MonitorSink
 	levels               []level
+	paused               bool
 }
 
 type CollectorArgs struct {
@@ -132,6 +136,10 @@ func (c *collector) Run(stopChan, doneChan chan struct{}) error {
 
 		// Determine lowest level to collect
 		c.stateMux.Lock()
+		if c.paused {
+			c.stateMux.Unlock()
+			continue
+		}
 		for i := range c.levels {
 			if math.Mod(s, c.levels[i].freq) == 0 {
 				level = i
@@ -166,7 +174,7 @@ func (c *collector) collector(n int, col chan string, stopChan chan struct{}) {
 			return
 		}
 
-		status.Monitor(c.monitorId, lpc, "collecting level %s", level)
+		status.Monitor(c.monitorId, lpc, "collecting plan %s level %s", c.plan.Name, level)
 		metrics, err := c.monitor.Collect(context.Background(), level)
 		if err != nil {
 			// @todo
@@ -176,7 +184,7 @@ func (c *collector) collector(n int, col chan string, stopChan chan struct{}) {
 			c.transformMetrics(metrics)
 		}
 
-		status.Monitor(c.monitorId, lpc, "sending metrics for level %s", level)
+		status.Monitor(c.monitorId, lpc, "sending metrics for plan %s level %s", c.plan.Name, level)
 		for i := range c.sinks {
 			c.sinks[i].Send(context.Background(), metrics)
 			// @todo error
@@ -290,4 +298,11 @@ func LevelUp(plan *collect.Plan) []level {
 	}
 
 	return levels
+}
+
+func (c *collector) Pause() error {
+	c.stateMux.Lock()
+	c.paused = true
+	c.stateMux.Unlock()
+	return nil
 }
