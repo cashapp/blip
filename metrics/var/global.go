@@ -176,7 +176,7 @@ func (c *Global) prepareSELECT(levelName string) error {
 	}
 	globalMetricString := strings.Join(globalMetrics, ", ")
 
-	c.queryIn[levelName] = fmt.Sprintf("SELECT CONCAT_WS(',', %s) AS globalvalue;", globalMetricString)
+	c.queryIn[levelName] = fmt.Sprintf("SELECT CONCAT_WS(',', %s) v;", globalMetricString)
 	c.sourceIn[levelName] = SOURCE_SELECT
 
 	// Try collecting, discard metrics

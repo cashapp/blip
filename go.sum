@@ -94,6 +94,8 @@ github.com/go-logfmt/logfmt v0.3.0/go.mod h1:Qt1PoO58o5twSAckw1HlFXLmHsOX5/0LbT9
 github.com/go-logfmt/logfmt v0.4.0/go.mod h1:3RMwSq7FuexP4Kalkev3ejPJsZTpXXBr9+V4qmtdjCk=
 github.com/go-logfmt/logfmt v0.5.0 h1:TrB8swr/68K7m9CcGut2g3UOihhbcbiMAYiuTXdEih4=
 github.com/go-logfmt/logfmt v0.5.0/go.mod h1:wCYkCAKZfumFQihp8CzCvQ3paCTfi41vtzG1KdI/P7A=
+github.com/go-mysql/errors v0.0.0-20180603193453-03314bea68e0 h1:meiLwrW6ukHHehydhoDxVHdQKQe7TFgEpH0A0hHBAWs=
+github.com/go-mysql/errors v0.0.0-20180603193453-03314bea68e0/go.mod h1:ZH8V0509n2OSZLMYTMHzcy4hqUB+rG8ghK1zsP4i5gE=
 github.com/go-mysql/hotswap-dsn-driver v1.0.0 h1:fheFuy9+vG868ZBRwHggOtioyetx+u4avrjnOgueSuw=
 github.com/go-mysql/hotswap-dsn-driver v1.0.0/go.mod h1:/MXbwSfNZ3AiqLBb0jIGE/AkWNMcxETKSwlIK9e4JDU=
 github.com/go-ole/go-ole v1.2.4/go.mod h1:XCwSNxSkXRo4vlyPy93sltvi/qJq0jqQhjqQNIwKuxM=

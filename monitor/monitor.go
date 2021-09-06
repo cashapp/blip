@@ -10,6 +10,7 @@ import (
 	"github.com/square/blip/collect"
 	"github.com/square/blip/event"
 	"github.com/square/blip/metrics"
+	"github.com/square/blip/status"
 )
 
 // Monitor monitors a single MySQL instances. It implments blip.Monitor.
@@ -75,6 +76,7 @@ func (m *Monitor) Config() blip.ConfigMonitor {
 // from the monitor's LPC.
 func (m *Monitor) Prepare(ctx context.Context, plan collect.Plan) error {
 	m.event.Sendf(event.MONITOR_PREPARE_PLAN, plan.Name)
+	status.Monitor(m.monitorId, "monitor", "preparing plan %s", plan.Name)
 
 	// Try forever to make a successful connection
 	if !m.connected {
@@ -123,7 +125,8 @@ func (m *Monitor) Prepare(ctx context.Context, plan collect.Plan) error {
 			// @todo pass ctx
 
 			if err := mc.Prepare(plan); err != nil {
-				// @todo
+				blip.Debug("%s: mc.Prepare error: %s", m.monitorId, err)
+				return err // @todo
 			}
 
 			// At this level, collect from this domain
@@ -144,6 +147,7 @@ func (m *Monitor) Prepare(ctx context.Context, plan collect.Plan) error {
 	m.ready = true
 	m.Unlock()
 
+	status.Monitor(m.monitorId, "monitor", "ready to collect plan %s", plan.Name)
 	return nil
 }
 
@@ -170,9 +174,13 @@ func (m *Monitor) Collect(ctx context.Context, levelName string) (*blip.Metrics,
 
 	mc := m.atLevel[levelName]
 	if mc == nil {
-		blip.Debug("%s no", m.monitorId)
+		blip.Debug("%s no mc at level '%s'", m.monitorId, levelName)
 		return nil, nil
 	}
+
+	blip.Debug("%s: collect level in plan %s", m.monitorId, m.plan.Name)
+	status.Monitor(m.monitorId, "monitor", "collect level in plan %s", levelName, m.plan.Name)
+	defer status.Monitor(m.monitorId, "monitor", "waiting to collect plan %s", m.plan.Name)
 
 	bm := &blip.Metrics{
 		Plan:      m.plan.Name,
