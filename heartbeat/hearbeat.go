@@ -7,6 +7,8 @@ import (
 	"sync"
 	"time"
 
+	my "github.com/go-mysql/errors"
+
 	"github.com/square/blip"
 	"github.com/square/blip/status"
 )
@@ -27,14 +29,12 @@ type Writer interface {
 type hbw struct {
 	monitorId string
 	db        *sql.DB
-	metronome *sync.Cond
 }
 
-func NewWriter(monitorId string, db *sql.DB, metronome *sync.Cond) *hbw {
+func NewWriter(monitorId string, db *sql.DB) *hbw {
 	return &hbw{
 		monitorId: monitorId,
 		db:        db,
-		metronome: metronome,
 	}
 }
 
@@ -45,29 +45,21 @@ func (w *hbw) Write(stopChan, doneChan chan struct{}) error {
 	status.Monitor(w.monitorId, "writer", "first insert")
 	ping := fmt.Sprintf("INSERT INTO blip.heartbeat (monitor_id, ts, freq) VALUES ('%s', NOW(3), 500) ON DUPLICATE KEY UPDATE ts=NOW(3), freq=500", w.monitorId)
 	blip.Debug("hb writing: %s", ping)
-	w.metronome.L.Lock()
 	for {
-		w.metronome.Wait() // for tick every 500ms
 		ctx, cancel := context.WithTimeout(context.Background(), 450*time.Millisecond)
 		_, err := w.db.ExecContext(ctx, ping)
 		cancel()
-		if err == nil {
+		if err == nil { // success
 			break
 		}
 
 		status.Monitor(w.monitorId, "writer", "first insert, failed: %s", err)
-		select {
-		case <-time.After(2 * time.Second):
-		case <-doneChan:
-			return err
+		blip.Debug("%s: first insert, failed: %s", w.monitorId, err)
+		if ok, myerr := my.Error(err); ok && myerr == my.ErrReadOnly {
+			time.Sleep(5 * time.Second)
+		} else {
+			time.Sleep(2 * time.Second)
 		}
-	}
-
-	status.Monitor(w.monitorId, "writer", "running")
-	ping = fmt.Sprintf("UPDATE blip.heartbeat SET ts=NOW(3) WHERE monitor_id='%s'", w.monitorId)
-	blip.Debug(ping)
-	for {
-		w.metronome.Wait() // for tick every 500ms
 
 		// Was Stop called?
 		select {
@@ -75,8 +67,16 @@ func (w *hbw) Write(stopChan, doneChan chan struct{}) error {
 			return nil
 		default: // no
 		}
+	}
 
-		ctx, cancel := context.WithTimeout(context.Background(), 450*time.Millisecond)
+	status.Monitor(w.monitorId, "writer", "running")
+	ping = fmt.Sprintf("UPDATE blip.heartbeat SET ts=NOW(3) WHERE monitor_id='%s'", w.monitorId)
+	blip.Debug(ping)
+
+	ticker := time.NewTicker(500 * time.Millisecond)
+	defer ticker.Stop()
+	for range ticker.C {
+		ctx, cancel := context.WithTimeout(context.Background(), 400*time.Millisecond)
 		_, err := w.db.ExecContext(ctx, ping)
 		cancel()
 		if err != nil {
@@ -84,7 +84,16 @@ func (w *hbw) Write(stopChan, doneChan chan struct{}) error {
 			blip.Debug(err.Error())
 			status.Monitor(w.monitorId, "writer-error", err.Error())
 		}
+
+		// Was Stop called?
+		select {
+		case <-stopChan: // yes, return immediately
+			return nil
+		default: // no
+		}
 	}
+
+	return nil
 }
 
 // --------------------------------------------------------------------------

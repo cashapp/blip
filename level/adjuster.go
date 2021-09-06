@@ -3,10 +3,10 @@ package level
 import (
 	"context"
 	"database/sql"
-	"sync"
 	"time"
 
 	"github.com/square/blip"
+	"github.com/square/blip/event"
 	"github.com/square/blip/ha"
 	"github.com/square/blip/status"
 )
@@ -22,7 +22,6 @@ type AdjusterArgs struct {
 	MonitorId string
 	Config    blip.ConfigPlanAdjuster
 	DB        *sql.DB
-	Metronome *sync.Cond
 	LPC       Collector
 	HA        ha.Manager
 }
@@ -45,7 +44,6 @@ type adjuster struct {
 	cfg       blip.ConfigPlanAdjuster
 	monitorId string
 	db        *sql.DB
-	metronome *sync.Cond
 	lpc       Collector
 	ha        ha.Manager
 	// --
@@ -54,6 +52,7 @@ type adjuster struct {
 	curr    state
 	pending state
 	first   bool
+	event   event.MonitorSink
 }
 
 func NewAdjuster(args AdjusterArgs) *adjuster {
@@ -83,7 +82,6 @@ func NewAdjuster(args AdjusterArgs) *adjuster {
 		monitorId: args.MonitorId,
 		cfg:       args.Config,
 		db:        args.DB,
-		metronome: args.Metronome,
 		lpc:       args.LPC,
 		ha:        args.HA,
 		// --
@@ -92,6 +90,7 @@ func NewAdjuster(args AdjusterArgs) *adjuster {
 		curr:    state{state: blip.STATE_OFFLINE},
 		pending: state{},
 		first:   true,
+		event:   event.MonitorSink{MonitorId: args.MonitorId},
 	}
 }
 
@@ -103,25 +102,14 @@ func (a *adjuster) Run(stopChan, doneChan chan struct{}) error {
 
 	status.Monitor(a.monitorId, "lpa", "running")
 
-	n := 1 // 1=whole second tick, -1=half second (500ms) tick
-
-	a.metronome.L.Lock()
 	for {
 		select {
 		case <-stopChan:
 			return nil
 		default:
 		}
-
-		// Multiple n by -1 to flip-flop between 1 and -1 to determine
-		// if this is a half- or whole-second tick
-		a.metronome.Wait() // for tick every 500ms
-		n = n * -1
-		if n == 1 {
-			continue // ignore whole-second ticks
-		}
-
 		a.CheckState()
+		time.Sleep(1 * time.Second)
 	}
 }
 
@@ -133,6 +121,7 @@ func (a *adjuster) CheckState() {
 			// changed back to current state
 			a.pending.ts = time.Time{}
 			a.pending.state = blip.STATE_NONE
+			a.event.Sendf(event.STATE_CHANGE_ABORT, "%s", obsv)
 		}
 	} else if obsv == a.pending.state {
 		// Still in the pending state; is it time to change?
@@ -153,6 +142,7 @@ func (a *adjuster) CheckState() {
 		a.pending.ts = time.Time{}
 		a.pending.state = blip.STATE_NONE
 		blip.Debug("%s: LPA state changed to %s", a.monitorId, obsv)
+		a.event.Sendf(event.STATE_CHANGE_END, "%s", obsv)
 	} else if a.first && a.curr.state == blip.STATE_OFFLINE {
 		a.first = false
 		if err := a.changePlan(obsv, a.states[obsv].plan); err != nil {
@@ -165,12 +155,14 @@ func (a *adjuster) CheckState() {
 			ts:    now,
 		}
 		blip.Debug("%s: LPA start in state %s", a.monitorId, obsv)
+		a.event.Sendf(event.STATE_CHANGE_END, "%s", obsv)
 	} else {
 		// State change
 		a.pending.state = obsv
 		a.pending.ts = now
 		a.pending.plan = a.states[obsv].plan
 		blip.Debug("%s: LPA state changed to %s, waiting %s", a.monitorId, obsv, a.states[obsv].after)
+		a.event.Sendf(event.STATE_CHANGE_BEGIN, "%s", obsv)
 	}
 }
 
@@ -201,7 +193,7 @@ func (a *adjuster) state() string {
 	}
 	status.Monitor(a.monitorId, "lpa-error", "")
 
-	blip.Debug("ro=%d, sro=%d", ro, sro)
+	//blip.Debug("ro=%d, sro=%d", ro, sro)
 	status.Monitor(a.monitorId, "lpa", "ro=%d, sro=%d", ro, sro)
 
 	if ro == 1 {

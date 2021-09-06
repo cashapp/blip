@@ -430,8 +430,9 @@ type ConfigHeartbeat struct {
 	Table                  string   `yaml:"table"`
 	Source                 []string `yaml:"source"`
 	Disable                bool     `yaml:"disable`
+	DisableRead            bool     `yaml:"disable-read"`
+	DisableWrite           bool     `yaml:"disable-write"`
 	DisableAutoSource      bool     `yaml:"disable-auto-source"`
-	DisableAutoWrite       bool     `yaml:"disable-auto-write"`
 	DisableAutoCreateTable bool     `yaml:"disable-auto-create-table"`
 }
 
@@ -450,6 +451,11 @@ func (c ConfigHeartbeat) Validate() error {
 }
 
 func (c *ConfigHeartbeat) ApplyDefaults(b Config) {
+	c.Disable = b.Heartbeat.Disable
+	c.DisableRead = b.Heartbeat.DisableRead
+	c.DisableWrite = b.Heartbeat.DisableWrite
+	c.DisableAutoSource = b.Heartbeat.DisableAutoSource
+	c.DisableAutoCreateTable = b.Heartbeat.DisableAutoCreateTable
 }
 
 func (c *ConfigHeartbeat) InterpolateEnvVars() {
@@ -559,8 +565,9 @@ type ConfigStatePlan struct {
 }
 
 const (
-	DEFAULT_PLANS_FILES = "plan.yaml"
-	DEFAULT_PLANS_TABLE = "blip.plans"
+	DEFAULT_PLANS_FILES  = "plan.yaml"
+	DEFAULT_PLANS_TABLE  = "blip.plans"
+	DEFAULT_ADJUST_AFTER = "2s"
 )
 
 func DefaultConfigPlans() ConfigPlans {

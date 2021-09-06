@@ -26,7 +26,7 @@ func NewSlowFastWaiter() *SlowFastWaiter {
 
 func (w *SlowFastWaiter) Wait(now, then time.Time, freq int) (int64, time.Duration) {
 	next := then.Add(time.Duration(freq) * time.Millisecond)
-	blip.Debug("then=%s  now=%s  next=%s", then, now, next)
+	//blip.Debug("then=%s  now=%s  next=%s", then, now, next)
 
 	if now.Before(next) {
 		w.waits = 0

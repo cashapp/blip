@@ -50,13 +50,12 @@ type DbMon struct {
 	planLoader *collect.PlanLoader
 
 	// Monitor and sub-components
-	monitor   *monitor.Monitor
-	db        *sql.DB
-	lpc       level.Collector
-	lpa       level.Adjuster
-	hbw       heartbeat.Writer
-	hbr       heartbeat.Reader
-	metronome *sync.Cond
+	monitor *monitor.Monitor
+	db      *sql.DB
+	lpc     level.Collector
+	lpa     level.Adjuster
+	hbw     heartbeat.Writer
+	hbr     heartbeat.Reader
 
 	// Control chans and sync
 	*sync.Mutex
@@ -108,12 +107,10 @@ func (d *DbMon) Start() error {
 	}
 
 	d.Mutex = &sync.Mutex{}
-	d.metronome = sync.NewCond(&sync.Mutex{})
 	d.stopChan = make(chan struct{})
 	d.monitor = monitor.NewMonitor(d.monitorId, d.db, metrics.DefaultFactory)
 	d.lpc = level.NewCollector(level.CollectorArgs{
 		Monitor:    d.monitor,
-		Metronome:  d.metronome,
 		PlanLoader: d.planLoader,
 		Sinks:      sinks,
 	})
@@ -131,14 +128,8 @@ func (d *DbMon) run() {
 		d.Stop()
 	}()
 
-	// Run level plan collector (lpc). This is the foundation of d.
-	// It's rock'n out with the metronome to invoke the Monitor at each level
-	// frequency, which is how metrics are collected according to level plan.
-	d.doneChanLPC = make(chan struct{})
-	go d.lpc.Run(d.stopChan, d.doneChanLPC)
-
 	// Run option level plan adjuster (lpa). When enabled, the lpa checks the
-	// state of MySQL on every metronome tick (every 500ms). If the state changes,
+	// state of MySQL . If the state changes,
 	// it calls lpc.ChangePlan to change the plan as configured by
 	// config.monitors.M.plans.adjust.<state>.
 	if d.config.Plans.Adjust.Enabled() {
@@ -147,7 +138,6 @@ func (d *DbMon) run() {
 			MonitorId: d.monitorId,
 			Config:    d.config.Plans.Adjust,
 			DB:        d.db,
-			Metronome: d.metronome,
 			LPC:       d.lpc,
 			HA:        ha.Disabled,
 		})
@@ -172,13 +162,14 @@ func (d *DbMon) run() {
 	// at the configured frequence: config.monitors.M.heartbeat.freq.
 	if !d.config.Heartbeat.Disable {
 
-		if !d.config.Heartbeat.DisableAutoWrite {
-			d.hbw = heartbeat.NewWriter(d.monitorId, d.db, d.metronome)
+		if !d.config.Heartbeat.DisableWrite {
+			d.hbw = heartbeat.NewWriter(d.monitorId, d.db)
 			d.doneChanHBW = make(chan struct{})
 			go d.hbw.Write(d.stopChan, d.doneChanHBW)
 		}
 
-		if len(d.config.Heartbeat.Source) > 0 || !d.config.Heartbeat.DisableAutoSource {
+		if !d.config.Heartbeat.DisableRead &&
+			(len(d.config.Heartbeat.Source) > 0 || !d.config.Heartbeat.DisableAutoSource) {
 			var sf heartbeat.SourceFinder
 			if len(d.config.Heartbeat.Source) > 0 {
 				sf = heartbeat.NewStaticSourceList(d.config.Heartbeat.Source, d.db)
@@ -202,20 +193,11 @@ func (d *DbMon) run() {
 
 	// @todo inconsequential race condition
 
-	// Run the metronome that is ithe secret force behind everything:
-	// the lpc, lpa,and hb work only when the metronome ticks.
-	// In between ticks, these components contemplate 500 billion picoseconds of silence.
-	ticker := time.NewTicker(500 * time.Millisecond)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ticker.C:
-			d.metronome.Broadcast()
-		case <-d.stopChan:
-			blip.Debug("%s: metronome stopped", d.monitorId)
-			return
-
-		}
+	// Run level plan collector (lpc). This is the foundation of d.
+	d.doneChanLPC = make(chan struct{})
+	if err := d.lpc.Run(d.stopChan, d.doneChanLPC); err != nil {
+		blip.Debug(err.Error())
+		// @todo
 	}
 }
 

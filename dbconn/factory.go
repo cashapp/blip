@@ -90,8 +90,8 @@ func (f factory) Make(cfg blip.ConfigMonitor) (*sql.DB, error) {
 	if err != nil {
 		return nil, err
 	}
-	db.SetMaxOpenConns(2)
-	db.SetMaxIdleConns(2)
+	db.SetMaxOpenConns(3)
+	db.SetMaxIdleConns(3)
 
 	if f.modifyDB != nil {
 		f.modifyDB(db)

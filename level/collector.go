@@ -45,7 +45,6 @@ func (a byFreq) Less(i, j int) bool { return a[i].freq < a[j].freq }
 type collector struct {
 	monitorId        string
 	monitor          *monitor.Monitor
-	metronome        *sync.Cond
 	planLoader       *collect.PlanLoader
 	sinks            []sink.Sink
 	transformMetrics func(*blip.Metrics) error
@@ -64,7 +63,6 @@ type collector struct {
 
 type CollectorArgs struct {
 	Monitor          *monitor.Monitor
-	Metronome        *sync.Cond
 	PlanLoader       *collect.PlanLoader
 	Sinks            []sink.Sink
 	TransformMetrics func(*blip.Metrics) error
@@ -74,13 +72,13 @@ func NewCollector(args CollectorArgs) *collector {
 	return &collector{
 		monitorId:  args.Monitor.MonitorId(),
 		monitor:    args.Monitor,
-		metronome:  args.Metronome,
 		planLoader: args.PlanLoader,
 		sinks:      args.Sinks,
 		// --
 		changeMux: &sync.Mutex{},
 		stateMux:  &sync.Mutex{},
 		event:     event.MonitorSink{MonitorId: args.Monitor.MonitorId()},
+		paused:    true,
 	}
 }
 
@@ -112,12 +110,14 @@ func (c *collector) Run(stopChan, doneChan chan struct{}) error {
 	// -----------------------------------------------------------------------
 	// LPC main loop: collect metrics on whole second ticks
 
-	n := 1          // 1=whole second tick, -1=half second (500ms) tick
 	s := float64(0) // number of whole second ticks
 	level := -1
-	c.metronome.L.Lock()
-	for {
-		c.metronome.Wait() // for tick every 500ms
+	levelName := ""
+
+	ticker := time.NewTicker(1 * time.Second)
+	defer ticker.Stop()
+	for range ticker.C {
+		s = s + 1 // count seconds
 
 		// Was Stop called?
 		select {
@@ -126,40 +126,36 @@ func (c *collector) Run(stopChan, doneChan chan struct{}) error {
 		default: // no
 		}
 
-		// Multiple n by -1 to flip-flop between 1 and -1 to determine
-		// if this is a half- or whole-second tick
-		n = n * -1
-		if n == -1 {
-			continue // ignore half-second ticks (500ms, 1.5s, etc.)
-		}
-		s = s + 1
-
-		// Determine lowest level to collect
-		c.stateMux.Lock()
+		c.stateMux.Lock() // -- LOCK --
 		if c.paused {
-			c.stateMux.Unlock()
+			c.stateMux.Unlock() // -- Unlock
 			continue
 		}
+
+		// Determine lowest level to collect
 		for i := range c.levels {
 			if math.Mod(s, c.levels[i].freq) == 0 {
 				level = i
 			}
 		}
 		if level == -1 {
-			c.stateMux.Unlock()
-			continue // no metrics to collect at this frequency
+			c.stateMux.Unlock() // -- Unlock
+			continue            // no metrics to collect at this frequency
 		}
 
 		// Collect metrics at this level, unlock, and reset
+		levelName = c.levels[level].name
+		level = -1
+		c.stateMux.Unlock() // -- UNLOCK --
+
 		select {
-		case collectLevelChan <- c.levels[level].name:
+		case collectLevelChan <- levelName:
 		default:
 			// all collectors blocked
 			blip.Debug("all mon chan blocked")
 		}
-		c.stateMux.Unlock()
-		level = -1
 	}
+	return nil
 }
 
 func (c *collector) collector(n int, col chan string, stopChan chan struct{}) {
@@ -254,6 +250,7 @@ func (c *collector) changePlan(ctx context.Context, newState, newPlanName string
 	c.state = newState
 	c.plan = newPlan
 	c.levels = newLevels
+	c.paused = false
 	c.stateMux.Unlock() // -- X unlock
 
 	c.event.Sendf(event.CHANGE_PLAN, "state:%s plan:%s -> state:%s plan:%s", oldState, oldPlanName, newState, newPlan.Name)
