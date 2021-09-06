@@ -9,6 +9,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/feature/ec2/imds v1.4.0
 	github.com/aws/aws-sdk-go-v2/feature/rds/auth v1.1.4
 	github.com/aws/aws-sdk-go-v2/service/secretsmanager v1.5.0
+	github.com/go-mysql/errors v0.0.0-20180603193453-03314bea68e0 // indirect
 	github.com/go-mysql/hotswap-dsn-driver v1.0.0
 	github.com/go-sql-driver/mysql v1.6.0
 	github.com/signalfx/golib/v3 v3.3.36

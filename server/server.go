@@ -15,6 +15,7 @@ import (
 	"github.com/square/blip/event"
 	"github.com/square/blip/metrics"
 	"github.com/square/blip/sink"
+	"github.com/square/blip/status"
 )
 
 // ControlChans is a convenience function to return arguments for Run.
@@ -31,6 +32,7 @@ type Server struct {
 	cfg           blip.Config
 	cmdline       CommandLine
 	monitorLoader *MonitorLoader
+	api           *API
 	stopChan      chan struct{}
 	doneChan      chan struct{}
 }
@@ -42,6 +44,8 @@ type Server struct {
 //
 // Boot must be called once before Run.
 func (s *Server) Boot(plugin Plugins, factory Factories) error {
+	status.Blip("server", "booting")
+
 	// ----------------------------------------------------------------------
 	// Parse commad line options
 
@@ -211,6 +215,7 @@ func (s *Server) Boot(plugin Plugins, factory Factories) error {
 
 	// ----------------------------------------------------------------------
 	// API
+	s.api = NewAPI(cfg.API)
 
 	// Exit if boot check, else return and caller should call Run
 	if s.cmdline.Options.BootCheck {
@@ -220,6 +225,8 @@ func (s *Server) Boot(plugin Plugins, factory Factories) error {
 }
 
 func (s *Server) Run(stopChan, doneChan chan struct{}) error {
+	status.Blip("server", "running")
+
 	defer close(doneChan)
 
 	s.stopChan = stopChan
@@ -249,6 +256,8 @@ func (s *Server) Run(stopChan, doneChan chan struct{}) error {
 		}
 	}
 
+	go s.api.Run()
+
 	event.Send(event.SERVER_RUN_WAIT)
 
 	signalChan := make(chan os.Signal)
@@ -266,6 +275,7 @@ func (s *Server) Shutdown() {
 	case <-s.stopChan:
 		// Already stopped
 	default:
+		status.Blip("server", "shutting down")
 		close(s.stopChan)
 		select {
 		case <-s.doneChan:

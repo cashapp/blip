@@ -11,6 +11,7 @@ import (
 	"github.com/square/blip/collect"
 	"github.com/square/blip/dbconn"
 	"github.com/square/blip/event"
+	"github.com/square/blip/ha"
 	"github.com/square/blip/heartbeat"
 	"github.com/square/blip/level"
 	"github.com/square/blip/metrics"
@@ -49,19 +50,20 @@ type DbMon struct {
 	planLoader *collect.PlanLoader
 
 	// Monitor and sub-components
-	monitor   *monitor.Monitor
-	db        *sql.DB
-	lpc       level.Collector
-	lpa       level.Adjuster
-	hb        heartbeat.Monitor
-	metronome *sync.Cond
+	monitor *monitor.Monitor
+	db      *sql.DB
+	lpc     level.Collector
+	lpa     level.Adjuster
+	hbw     heartbeat.Writer
+	hbr     heartbeat.Reader
 
 	// Control chans and sync
 	*sync.Mutex
 	stopChan    chan struct{}
 	doneChanLPA chan struct{}
 	doneChanLPC chan struct{}
-	doneChanHB  chan struct{}
+	doneChanHBW chan struct{}
+	doneChanHBR chan struct{}
 	stopped     bool
 }
 
@@ -105,12 +107,10 @@ func (d *DbMon) Start() error {
 	}
 
 	d.Mutex = &sync.Mutex{}
-	d.metronome = sync.NewCond(&sync.Mutex{})
 	d.stopChan = make(chan struct{})
 	d.monitor = monitor.NewMonitor(d.monitorId, d.db, metrics.DefaultFactory)
 	d.lpc = level.NewCollector(level.CollectorArgs{
 		Monitor:    d.monitor,
-		Metronome:  d.metronome,
 		PlanLoader: d.planLoader,
 		Sinks:      sinks,
 	})
@@ -128,19 +128,19 @@ func (d *DbMon) run() {
 		d.Stop()
 	}()
 
-	// Run level plan collector (lpc). This is the foundation of d.
-	// It's rock'n out with the metronome to invoke the Monitor at each level
-	// frequency, which is how metrics are collected according to level plan.
-	d.doneChanLPC = make(chan struct{})
-	go d.lpc.Run(d.stopChan, d.doneChanLPC)
-
 	// Run option level plan adjuster (lpa). When enabled, the lpa checks the
-	// state of MySQL on every metronome tick (every 500ms). If the state changes,
+	// state of MySQL . If the state changes,
 	// it calls lpc.ChangePlan to change the plan as configured by
 	// config.monitors.M.plans.adjust.<state>.
-	if d.config.Plans.Adjust.Freq != "" {
+	if d.config.Plans.Adjust.Enabled() {
 		d.doneChanLPA = make(chan struct{})
-		d.lpa = level.NewAdjuster(d.monitor, d.metronome, d.lpc)
+		d.lpa = level.NewAdjuster(level.AdjusterArgs{
+			MonitorId: d.monitorId,
+			Config:    d.config.Plans.Adjust,
+			DB:        d.db,
+			LPC:       d.lpc,
+			HA:        ha.Disabled,
+		})
 		go d.lpa.Run(d.stopChan, d.doneChanLPA)
 	} else {
 		// When the lpa is not enabled, we need to get the party started by
@@ -152,34 +152,52 @@ func (d *DbMon) run() {
 		// if nothing else.
 		//
 		// Also, without an lpa, monitors default to active state.
-		d.lpc.ChangePlan(blip.STATE_ACTIVE, "")
+		if err := d.lpc.ChangePlan(blip.STATE_ACTIVE, ""); err != nil {
+			// @todo
+		}
 	}
 
 	// Run optional heartbeat monitor to monitor replication lag. When enabled,
 	// the heartbeat (hb) writes a high-resolution timestamp to a row in a table
 	// at the configured frequence: config.monitors.M.heartbeat.freq.
-	if d.config.Heartbeat.Freq != "" {
-		d.doneChanHB = make(chan struct{})
-		d.hb = heartbeat.NewMonitor(d.config.Heartbeat, d.db) // @todo
-		go d.hb.Run(d.stopChan, d.doneChanHB)
+	if !d.config.Heartbeat.Disable {
+
+		if !d.config.Heartbeat.DisableWrite {
+			d.hbw = heartbeat.NewWriter(d.monitorId, d.db)
+			d.doneChanHBW = make(chan struct{})
+			go d.hbw.Write(d.stopChan, d.doneChanHBW)
+		}
+
+		if !d.config.Heartbeat.DisableRead &&
+			(len(d.config.Heartbeat.Source) > 0 || !d.config.Heartbeat.DisableAutoSource) {
+			var sf heartbeat.SourceFinder
+			if len(d.config.Heartbeat.Source) > 0 {
+				sf = heartbeat.NewStaticSourceList(d.config.Heartbeat.Source, d.db)
+			} else if !d.config.Heartbeat.DisableAutoSource {
+				sf = heartbeat.NewAutoSourceFinder() // @todo
+			} else {
+				panic("no repl sources and auto-source disable")
+			}
+			d.hbr = heartbeat.NewReader(
+				d.config,
+				d.db,
+				heartbeat.NewSlowFastWaiter(),
+				sf,
+			)
+			d.doneChanHBR = make(chan struct{})
+			go d.hbr.Read(d.stopChan, d.doneChanHBR)
+		} else {
+			blip.Debug("heartbeat read disabled: no sources, aut-source dissabled")
+		}
 	}
 
 	// @todo inconsequential race condition
 
-	// Run the metronome that is ithe secret force behind everything:
-	// the lpc, lpa,and hb work only when the metronome ticks.
-	// In between ticks, these components contemplate 500 billion picoseconds of silence.
-	ticker := time.NewTicker(500 * time.Millisecond)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ticker.C:
-			d.metronome.Broadcast()
-		case <-d.stopChan:
-			blip.Debug("%s: metronome stopped", d.monitorId)
-			return
-
-		}
+	// Run level plan collector (lpc). This is the foundation of d.
+	d.doneChanLPC = make(chan struct{})
+	if err := d.lpc.Run(d.stopChan, d.doneChanLPC); err != nil {
+		blip.Debug(err.Error())
+		// @todo
 	}
 }
 
@@ -203,8 +221,11 @@ func (d *DbMon) Stop() {
 	if d.doneChanLPA != nil {
 		running += 1 // lpa
 	}
-	if d.doneChanHB != nil {
-		running += 1 // + Heartbeat
+	if d.doneChanHBW != nil {
+		running += 1 // + Heartbeat writer
+	}
+	if d.doneChanHBR != nil {
+		running += 1 // + Heartbeat reader
 	}
 
 WAIT_LOOP:
@@ -219,9 +240,13 @@ WAIT_LOOP:
 			blip.Debug("%s: lpc done", d.monitorId)
 			d.doneChanLPC = nil
 			running -= 1
-		case <-d.doneChanHB:
-			blip.Debug("%s: hb done", d.monitorId)
-			d.doneChanHB = nil
+		case <-d.doneChanHBW:
+			blip.Debug("%s: hb writer done", d.monitorId)
+			d.doneChanHBW = nil
+			running -= 1
+		case <-d.doneChanHBR:
+			blip.Debug("%s: hb reader done", d.monitorId)
+			d.doneChanHBR = nil
 			running -= 1
 		case <-time.After(2 * time.Second):
 			// @todo

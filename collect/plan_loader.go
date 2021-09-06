@@ -265,7 +265,7 @@ func (pl *PlanLoader) Print() {
 
 // //////////////////////////////////////////////////////////////////////////
 
-type planFile map[string]Level
+type planFile map[string]*Level
 
 func ReadPlansFromFiles(filePaths []string) ([]Plan, error) {
 	plans := []Plan{}
@@ -312,9 +312,18 @@ PATHS:
 				return nil, fmt.Errorf("cannot decode YAML in %s: %s", file, err)
 			}
 
+			levels := make(map[string]Level, len(pf))
+			for k := range pf {
+				levels[k] = Level{
+					Name:    k, // must have, levels are collected by name
+					Freq:    pf[k].Freq,
+					Collect: pf[k].Collect,
+				}
+			}
+
 			plan := Plan{
 				Name:   file,
-				Levels: pf,
+				Levels: levels,
 			}
 			plans = append(plans, plan)
 		}

@@ -2,6 +2,7 @@ package level
 
 import (
 	"context"
+	"fmt"
 	"math"
 	"sort"
 	"sync"
@@ -12,6 +13,7 @@ import (
 	"github.com/square/blip/event"
 	"github.com/square/blip/monitor"
 	"github.com/square/blip/sink"
+	"github.com/square/blip/status"
 )
 
 // Collector calls a monitor to collect metrics according to a plan.
@@ -21,6 +23,9 @@ type Collector interface {
 
 	// ChangePlan changes the plan; it's called by an Adjuster.
 	ChangePlan(newState, newPlanName string) error
+
+	// Pause pauses metrics collection until ChangePlan is called.
+	Pause() error
 }
 
 var _ Collector = &collector{}
@@ -38,8 +43,8 @@ func (a byFreq) Less(i, j int) bool { return a[i].freq < a[j].freq }
 
 // collector is the implementation of Collector.
 type collector struct {
+	monitorId        string
 	monitor          *monitor.Monitor
-	metronome        *sync.Cond
 	planLoader       *collect.PlanLoader
 	sinks            []sink.Sink
 	transformMetrics func(*blip.Metrics) error
@@ -53,11 +58,11 @@ type collector struct {
 	stateMux             *sync.Mutex
 	event                event.MonitorSink
 	levels               []level
+	paused               bool
 }
 
 type CollectorArgs struct {
 	Monitor          *monitor.Monitor
-	Metronome        *sync.Cond
 	PlanLoader       *collect.PlanLoader
 	Sinks            []sink.Sink
 	TransformMetrics func(*blip.Metrics) error
@@ -65,14 +70,15 @@ type CollectorArgs struct {
 
 func NewCollector(args CollectorArgs) *collector {
 	return &collector{
+		monitorId:  args.Monitor.MonitorId(),
 		monitor:    args.Monitor,
-		metronome:  args.Metronome,
 		planLoader: args.PlanLoader,
 		sinks:      args.Sinks,
 		// --
 		changeMux: &sync.Mutex{},
 		stateMux:  &sync.Mutex{},
 		event:     event.MonitorSink{MonitorId: args.Monitor.MonitorId()},
+		paused:    true,
 	}
 }
 
@@ -104,12 +110,14 @@ func (c *collector) Run(stopChan, doneChan chan struct{}) error {
 	// -----------------------------------------------------------------------
 	// LPC main loop: collect metrics on whole second ticks
 
-	n := 1          // 1=whole second tick, -1=half second (500ms) tick
 	s := float64(0) // number of whole second ticks
 	level := -1
-	c.metronome.L.Lock()
-	for {
-		c.metronome.Wait() // for tick every 500ms
+	levelName := ""
+
+	ticker := time.NewTicker(1 * time.Second)
+	defer ticker.Stop()
+	for range ticker.C {
+		s = s + 1 // count seconds
 
 		// Was Stop called?
 		select {
@@ -118,46 +126,51 @@ func (c *collector) Run(stopChan, doneChan chan struct{}) error {
 		default: // no
 		}
 
-		// Multiple n by -1 to flip-flop between 1 and -1 to determine
-		// if this is a half- or whole-second tick
-		n = n * -1
-		if n == -1 {
-			continue // ignore half-second ticks (500ms, 1.5s, etc.)
+		c.stateMux.Lock() // -- LOCK --
+		if c.paused {
+			c.stateMux.Unlock() // -- Unlock
+			continue
 		}
-		s = s + 1
 
 		// Determine lowest level to collect
-		c.stateMux.Lock()
 		for i := range c.levels {
 			if math.Mod(s, c.levels[i].freq) == 0 {
 				level = i
 			}
 		}
 		if level == -1 {
-			c.stateMux.Unlock()
-			continue // no metrics to collect at this frequency
+			c.stateMux.Unlock() // -- Unlock
+			continue            // no metrics to collect at this frequency
 		}
 
 		// Collect metrics at this level, unlock, and reset
+		levelName = c.levels[level].name
+		level = -1
+		c.stateMux.Unlock() // -- UNLOCK --
+
 		select {
-		case collectLevelChan <- c.levels[level].name:
+		case collectLevelChan <- levelName:
 		default:
 			// all collectors blocked
 			blip.Debug("all mon chan blocked")
 		}
-		c.stateMux.Unlock()
-		level = -1
 	}
+	return nil
 }
 
 func (c *collector) collector(n int, col chan string, stopChan chan struct{}) {
+	lpc := fmt.Sprintf("lpc-%d", n)
 	var level string
 	for {
+		status.Monitor(c.monitorId, lpc, "idle")
+
 		select {
 		case level = <-col: // signal
 		case <-stopChan:
 			return
 		}
+
+		status.Monitor(c.monitorId, lpc, "collecting plan %s level %s", c.plan.Name, level)
 		metrics, err := c.monitor.Collect(context.Background(), level)
 		if err != nil {
 			// @todo
@@ -167,6 +180,7 @@ func (c *collector) collector(n int, col chan string, stopChan chan struct{}) {
 			c.transformMetrics(metrics)
 		}
 
+		status.Monitor(c.monitorId, lpc, "sending metrics for plan %s level %s", c.plan.Name, level)
 		for i := range c.sinks {
 			c.sinks[i].Send(context.Background(), metrics)
 			// @todo error
@@ -236,6 +250,7 @@ func (c *collector) changePlan(ctx context.Context, newState, newPlanName string
 	c.state = newState
 	c.plan = newPlan
 	c.levels = newLevels
+	c.paused = false
 	c.stateMux.Unlock() // -- X unlock
 
 	c.event.Sendf(event.CHANGE_PLAN, "state:%s plan:%s -> state:%s plan:%s", oldState, oldPlanName, newState, newPlan.Name)
@@ -280,4 +295,11 @@ func LevelUp(plan *collect.Plan) []level {
 	}
 
 	return levels
+}
+
+func (c *collector) Pause() error {
+	c.stateMux.Lock()
+	c.paused = true
+	c.stateMux.Unlock()
+	return nil
 }
