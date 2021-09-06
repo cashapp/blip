@@ -185,9 +185,9 @@ func TestCollectWithSingleLevelPlanAndNoSource(t *testing.T) {
 		assert.Fail(t, fmt.Sprint("Unable to prepare the collector for metric collection", globalCollector, err))
 	}
 	metrics, _ := globalCollector.Collect(context.TODO(), "vars")
-	metricKeys := make([]string, 0, len(metrics.Values))
-	for k, _ := range metrics.Values {
-		metricKeys = append(metricKeys, k)
+	metricKeys := make([]string, 0, len(metrics))
+	for _, m := range metrics {
+		metricKeys = append(metricKeys, m.Name)
 	}
 	assert.ElementsMatch(t, metricKeys, []string{"max_connections", "max_prepared_stmt_count", "innodb_log_file_size", "innodb_max_dirty_pages_pct"})
 }
@@ -211,9 +211,9 @@ func TestCollectWithAllSources(t *testing.T) {
 			assert.Fail(t, fmt.Sprintf("Unable to prepare the collector for metric collection for source: %s", src), err)
 		}
 		metrics, _ := globalCollector.Collect(context.TODO(), "vars")
-		metricKeys := make([]string, 0, len(metrics.Values))
-		for k, _ := range metrics.Values {
-			metricKeys = append(metricKeys, k)
+		metricKeys := make([]string, 0, len(metrics))
+		for _, m := range metrics {
+			metricKeys = append(metricKeys, m.Name)
 		}
 		assert.ElementsMatch(t, metricKeys, []string{"max_connections", "max_prepared_stmt_count", "innodb_log_file_size", "innodb_max_dirty_pages_pct"})
 	}
@@ -235,16 +235,16 @@ func TestCollectWithMultipleLevels(t *testing.T) {
 		assert.Fail(t, fmt.Sprint("Unable to prepare the collector for metric collection", globalCollector, err))
 	}
 	metrics, _ := globalCollector.Collect(context.TODO(), "vars1")
-	metricKeys := make([]string, 0, len(metrics.Values))
-	for k, _ := range metrics.Values {
-		metricKeys = append(metricKeys, k)
+	metricKeys := make([]string, 0, len(metrics))
+	for _, m := range metrics {
+		metricKeys = append(metricKeys, m.Name)
 	}
 	assert.ElementsMatch(t, metricKeys, []string{"max_connections", "max_prepared_stmt_count"})
 
 	metrics, _ = globalCollector.Collect(context.TODO(), "vars2")
-	metricKeys = make([]string, 0, len(metrics.Values))
-	for k, _ := range metrics.Values {
-		metricKeys = append(metricKeys, k)
+	metricKeys = make([]string, 0, len(metrics))
+	for _, m := range metrics {
+		metricKeys = append(metricKeys, m.Name)
 	}
 	assert.ElementsMatch(t, metricKeys, []string{"innodb_log_file_size", "innodb_max_dirty_pages_pct"})
 }
@@ -263,9 +263,9 @@ func TestCollectWithOneNonExistentMetric(t *testing.T) {
 		assert.Fail(t, fmt.Sprintf("Unable to prepare the collector for metric collection"))
 	}
 	metrics, _ := globalCollector.Collect(context.TODO(), "vars")
-	metricKeys := make([]string, 0, len(metrics.Values))
-	for k, _ := range metrics.Values {
-		metricKeys = append(metricKeys, k)
+	metricKeys := make([]string, 0, len(metrics))
+	for _, m := range metrics {
+		metricKeys = append(metricKeys, m.Name)
 	}
 	assert.ElementsMatch(t, metricKeys, []string{"max_connections", "max_prepared_stmt_count", "innodb_max_dirty_pages_pct"})
 }
