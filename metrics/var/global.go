@@ -37,7 +37,6 @@ type Global struct {
 
 const (
 	blip_domain = "var.global"
-	prom_domain = "global_variables"
 )
 
 func NewGlobal(db *sql.DB) *Global {
@@ -49,8 +48,8 @@ func NewGlobal(db *sql.DB) *Global {
 	}
 }
 
-func (c *Global) Domain() (string, string) {
-	return blip_domain, prom_domain
+func (c *Global) Domain() string {
+	return blip_domain
 }
 
 func (c *Global) Help() collect.Help {

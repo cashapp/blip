@@ -16,7 +16,7 @@ import (
 // Collector collects metrics for a single metric domain.
 type Collector interface {
 	// Domain returns Blip and Prometheus domain prefix.
-	Domain() (string, string)
+	Domain() string
 
 	// Help returns information about using the collector.
 	Help() collect.Help

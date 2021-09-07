@@ -32,11 +32,10 @@ func NewGlobal(db *sql.DB) *Global {
 
 const (
 	blip_domain = "status.global"
-	prom_domain = "global_status"
 )
 
-func (c *Global) Domain() (string, string) {
-	return blip_domain, prom_domain
+func (c *Global) Domain() string {
+	return blip_domain
 }
 
 func (c *Global) Help() collect.Help {

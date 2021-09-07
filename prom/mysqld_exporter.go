@@ -5,7 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"log"
+	"regexp"
 	"strings"
 
 	prom "github.com/prometheus/client_golang/prometheus"
@@ -110,43 +110,22 @@ func (e *Exporter) Collect(ch chan<- prom.Metric) {
 			blip.Debug(err.Error())
 			// @todo
 		}
-		_, domain := e.mcList[i].Domain()
-		blip.Debug("collecting %s.......................", domain)
-		for i := range values {
-			switch values[i].Type {
-			case blip.COUNTER:
-				promMetric, err := prom.NewConstMetric(
-					desc(domain, validPrometheusName(values[i].Name), "Generic counter metric"),
-					prom.CounterValue,
-					values[i].Value,
-				)
-				if err != nil {
-					log.Printf("Error converting blip metric to prom metric. metricname:%s, type:%b: %s", values[i].Name, values[i].Type, err)
-					continue
-				}
-				ch <- promMetric
-			case blip.GAUGE:
-				promMetric, err := prom.NewConstMetric(
-					desc(domain, validPrometheusName(values[i].Name), "Generic gauge metric"),
-					prom.GaugeValue,
-					values[i].Value,
-				)
-				if err != nil {
-					log.Printf("Error converting blip metric to prom metric. metricname:%s, type:%b: %s", values[i].Name, values[i].Type, err)
-					continue
-				}
-				ch <- promMetric
-			default:
-				log.Printf("Unknown metric type found. metricname: %s, type: %b: %s", values[i].Name, values[i].Type, err)
-			}
+		domain := e.mcList[i].Domain()
+		tr := Translator(domain)
+		if tr == nil {
+			blip.Debug("cannot translate %s into prom", domain)
+			continue
 		}
+		tr.Translate(values, ch)
 	}
 }
 
-func desc(subsystem, name, help string) *prom.Desc {
-	return prom.NewDesc(prom.BuildFQName("mysql", subsystem, name), help, nil, nil)
-}
+// --------------------------------------------------------------------------
+// Copied from /percona/mysqld_exporter/collector/global_status.go
+var nameRe = regexp.MustCompile("([^a-zA-Z0-9_])")
 
 func validPrometheusName(s string) string {
-	return strings.ToLower(s)
+	s = nameRe.ReplaceAllString(s, "_")
+	s = strings.ToLower(s)
+	return s
 }

@@ -202,9 +202,8 @@ func (m *Monitor) Collect(ctx context.Context, levelName string) (*blip.Metrics,
 			if err != nil {
 				// @todo
 			}
-			domain, _ := mc.Domain()
 			mux.Lock()
-			bm.Values[domain] = vals
+			bm.Values[mc.Domain()] = vals
 			mux.Unlock()
 		}(mc[i])
 	}
