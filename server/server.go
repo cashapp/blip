@@ -192,9 +192,9 @@ func (s *Server) Boot(plugin Plugins, factory Factories) error {
 	// Make deferred dbmon factory
 	if factory.DbMon == nil {
 		factory.DbMon = &dbmonFactory{
+			mcMaker:    metrics.DefaultFactory,
 			dbMaker:    factory.DbConn,
 			planLoader: collect.DefaultPlanLoader(),
-			//sinks:      sinks,
 		}
 	}
 

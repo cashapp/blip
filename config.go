@@ -398,7 +398,8 @@ func (c *ConfigAWS) InterpolateMonitor(m *ConfigMonitor) {
 // --------------------------------------------------------------------------
 
 type ConfigExporter struct {
-	Bind string `yaml:"bind,omitempty"`
+	Bind   string `yaml:"bind,omitempty"`
+	Legacy bool   `yaml:"legacy"`
 }
 
 const (
@@ -416,6 +417,10 @@ func (c ConfigExporter) Validate() error {
 }
 
 func (c *ConfigExporter) ApplyDefaults(b Config) {
+	c.Legacy = b.Exporter.Legacy
+	if c.Bind == "" {
+		c.Bind = b.Exporter.Bind
+	}
 }
 
 func (c *ConfigExporter) InterpolateEnvVars() {

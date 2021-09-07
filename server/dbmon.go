@@ -16,6 +16,7 @@ import (
 	"github.com/square/blip/level"
 	"github.com/square/blip/metrics"
 	"github.com/square/blip/monitor"
+	"github.com/square/blip/prom"
 	"github.com/square/blip/sink"
 )
 
@@ -127,6 +128,26 @@ func (d *DbMon) run() {
 		}
 		d.Stop()
 	}()
+
+	if d.config.Exporter.Bind != "" {
+		exp := prom.NewExporter(
+			d.monitorId,
+			d.db,
+			d.mcMaker,
+		)
+		if err := exp.Prepare(collect.PromPlan()); err != nil {
+			// @todo move to Boot
+			blip.Debug(err.Error())
+			return
+		}
+		api := prom.NewAPI(d.config.Exporter.Bind, d.monitorId, exp)
+		go api.Run()
+		if d.config.Exporter.Legacy {
+			blip.Debug("legacy mode")
+			<-d.stopChan
+			return
+		}
+	}
 
 	// Run option level plan adjuster (lpa). When enabled, the lpa checks the
 	// state of MySQL . If the state changes,

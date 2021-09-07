@@ -32,3 +32,30 @@ func InternalLevelPlan() Plan {
 		},
 	}
 }
+
+func PromPlan() Plan {
+	return Plan{
+		internal: true,
+		Name:     "mysqld_exporter",
+		Levels: map[string]Level{
+			"all": Level{
+				Name: "all",
+				Freq: "", // none, pulled/scaped on demand
+				Collect: map[string]Domain{
+					"status.global": {
+						Name: "status.global",
+						Options: map[string]string{
+							"all": "yes",
+						},
+					},
+					"var.global": {
+						Name: "var.global",
+						Options: map[string]string{
+							"all": "yes",
+						},
+					},
+				},
+			},
+		},
+	}
+}

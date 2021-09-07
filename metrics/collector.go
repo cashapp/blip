@@ -9,13 +9,14 @@ import (
 	"github.com/square/blip"
 	"github.com/square/blip/collect"
 	"github.com/square/blip/event"
+	"github.com/square/blip/metrics/status"
 	sysvar "github.com/square/blip/metrics/var"
 )
 
 // Collector collects metrics for a single metric domain.
 type Collector interface {
-	// Domain returns the collector's metric domain domain, like "var.global".
-	Domain() string
+	// Domain returns Blip and Prometheus domain prefix.
+	Domain() (string, string)
 
 	// Help returns information about using the collector.
 	Help() collect.Help
@@ -36,23 +37,25 @@ type CollectorFactory interface {
 	Make(domain string, args FactoryArgs) (Collector, error)
 }
 
-type factory struct {
-}
+type factory struct{}
+
+var DefaultFactory = factory{}
 
 func (f factory) Make(domain string, args FactoryArgs) (Collector, error) {
 	switch domain {
+	case "status.global":
+		mc := status.NewGlobal(args.DB)
+		return mc, nil
 	case "var.global":
 		mc := sysvar.NewGlobal(args.DB)
 		return mc, nil
 	}
-	return nil, fmt.Errorf("invalid domain")
+	return nil, fmt.Errorf("collector for domain %s not registered", domain)
 }
 
-var DefaultFactory = factory{}
-
 func RegisterDefaults() {
-	Register("var.global", DefaultFactory)
 	Register("status.global", DefaultFactory)
+	Register("var.global", DefaultFactory)
 }
 
 // --------------------------------------------------------------------------
