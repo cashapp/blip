@@ -2,6 +2,7 @@ package prom
 
 import (
 	"regexp"
+	"sync"
 
 	prom "github.com/prometheus/client_golang/prometheus"
 
@@ -12,13 +13,24 @@ type DomainTranslator interface {
 	Translate(values []blip.MetricValue, ch chan<- prom.Metric)
 }
 
-var tr = map[string]DomainTranslator{
-	"status.global": StatusGlobalTr{Domain: "global_status"},
-	"var.global":    GenericTr{Domain: "global_variables"},
+func Register(blipDomain string, tr DomainTranslator) error {
+	trMux.Lock()
+	defer trMux.Unlock()
+	trRepo[blipDomain] = tr
+	return nil
 }
 
 func Translator(domain string) DomainTranslator {
-	return tr[domain]
+	trMux.Lock()
+	defer trMux.Unlock()
+	return trRepo[domain]
+}
+
+var trMux = &sync.Mutex{}
+
+var trRepo = map[string]DomainTranslator{
+	"status.global": StatusGlobalTr{Domain: "global_status"},
+	"var.global":    GenericTr{Domain: "global_variables"},
 }
 
 // --------------------------------------------------------------------------
