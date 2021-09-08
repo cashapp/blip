@@ -2,6 +2,7 @@ package collect
 
 import (
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -29,4 +30,15 @@ func Float64(s string) (float64, bool) {
 	}
 
 	return 0, false // failed
+}
+
+func ObjectList(csv string, quoteChar string) []string {
+	objs := strings.Split(csv, ",")
+	for i := range objs {
+		o := strings.ReplaceAll(objs[i], ";", "")
+		o = strings.ReplaceAll(o, "`", "")
+		o = strings.TrimSpace(o) // must be last in case Replace make space
+		objs[i] = quoteChar + o + quoteChar
+	}
+	return objs
 }

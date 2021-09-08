@@ -117,6 +117,7 @@ func (m *Monitor) Prepare(ctx context.Context, plan collect.Plan) error {
 					},
 				)
 				if err != nil {
+					blip.Debug(err.Error())
 					return err // @todo
 				}
 				m.mcList[domain] = mc

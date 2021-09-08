@@ -9,6 +9,7 @@ import (
 	"github.com/square/blip"
 	"github.com/square/blip/collect"
 	"github.com/square/blip/event"
+	"github.com/square/blip/metrics/size"
 	"github.com/square/blip/metrics/status"
 	sysvar "github.com/square/blip/metrics/var"
 )
@@ -49,13 +50,27 @@ func (f factory) Make(domain string, args FactoryArgs) (Collector, error) {
 	case "var.global":
 		mc := sysvar.NewGlobal(args.DB)
 		return mc, nil
+	case "size.data":
+		mc := size.NewData(args.DB)
+		return mc, nil
+	case "size.binlogs":
+		mc := size.NewBinlogs(args.DB)
+		return mc, nil
 	}
 	return nil, fmt.Errorf("collector for domain %s not registered", domain)
 }
 
+var defaultCollectors = []string{
+	"status.global",
+	"var.global",
+	"size.data",
+	"size.binlogs",
+}
+
 func RegisterDefaults() {
-	Register("status.global", DefaultFactory)
-	Register("var.global", DefaultFactory)
+	for _, mc := range defaultCollectors {
+		Register(mc, DefaultFactory)
+	}
 }
 
 // --------------------------------------------------------------------------

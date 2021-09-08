@@ -42,11 +42,14 @@ func (c *Global) Help() collect.Help {
 	return collect.Help{
 		Domain:      blip_domain,
 		Description: "Collect global status variables (sysvars)",
-		Options: [][]string{
-			{
-				OPT_ALL,
-				"Collect all sysvars",
-				"no;yes",
+		Options: map[string]collect.HelpOption{
+			OPT_ALL: {
+				Name: OPT_ALL,
+				Desc: "Collect all sysvars",
+				Values: map[string]string{
+					"yes": "Enable",
+					"no":  "Disable",
+				},
 			},
 		},
 	}

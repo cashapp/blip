@@ -28,6 +28,7 @@ type MetricValue struct {
 	Name  string
 	Value float64
 	Type  byte
+	Tags  map[string]string
 }
 
 const (

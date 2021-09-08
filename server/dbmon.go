@@ -174,6 +174,7 @@ func (d *DbMon) run() {
 		//
 		// Also, without an lpa, monitors default to active state.
 		if err := d.lpc.ChangePlan(blip.STATE_ACTIVE, ""); err != nil {
+			blip.Debug(err.Error())
 			// @todo
 		}
 	}

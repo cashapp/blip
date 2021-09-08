@@ -56,16 +56,25 @@ func (c *Global) Help() collect.Help {
 	return collect.Help{
 		Domain:      blip_domain,
 		Description: "Collect global status variables (sysvars)",
-		Options: [][]string{
-			{
-				OPT_SOURCE,
-				"Where to collect sysvars from",
-				"auto (auto-determine best source); select (@@GLOBAL.metric_name); pfs (performance_schema.global_variables); show (SHOW GLOBAL STATUS)",
+		Options: map[string]collect.HelpOption{
+			OPT_SOURCE: {
+				Name:    OPT_SOURCE,
+				Desc:    "Where to collect sysvars from",
+				Default: "auto",
+				Values: map[string]string{
+					"auto":   "Auto-determine best source",
+					"select": "@@GLOBAL.metric_name",
+					"pfs":    "performance_schema.global_variables",
+					"show":   "SHOW GLOBAL STATUS",
+				},
 			},
-			{
-				OPT_ALL,
-				"Collect all sysvars",
-				"no;yes",
+			OPT_ALL: {
+				Name: OPT_ALL,
+				Desc: "Collect all sysvars",
+				Values: map[string]string{
+					"yes": "Enable",
+					"no":  "Disable",
+				},
 			},
 		},
 	}

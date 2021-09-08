@@ -52,5 +52,12 @@ type Domain struct {
 type Help struct {
 	Domain      string
 	Description string
-	Options     [][]string // { {"key", "Description of key", "default;val1;val2}, ... }
+	Options     map[string]HelpOption
+}
+
+type HelpOption struct {
+	Name    string
+	Desc    string            // describes Name
+	Default string            // key in Values
+	Values  map[string]string // value => description
 }
