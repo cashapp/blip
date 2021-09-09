@@ -12,6 +12,7 @@ require (
 	github.com/go-mysql/errors v0.0.0-20180603193453-03314bea68e0
 	github.com/go-mysql/hotswap-dsn-driver v1.0.0
 	github.com/go-sql-driver/mysql v1.6.0
+	github.com/hashicorp/go-version v1.3.0
 	github.com/prometheus/client_golang v1.11.0
 	github.com/prometheus/common v0.26.0
 	github.com/signalfx/golib/v3 v3.3.36

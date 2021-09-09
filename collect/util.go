@@ -32,13 +32,27 @@ func Float64(s string) (float64, bool) {
 	return 0, false // failed
 }
 
+func CleanObjectName(o string) string {
+	o = strings.ReplaceAll(o, ";", "")
+	o = strings.ReplaceAll(o, "`", "")
+	return strings.TrimSpace(o) // must be last in case Replace make space
+}
+
 func ObjectList(csv string, quoteChar string) []string {
 	objs := strings.Split(csv, ",")
 	for i := range objs {
-		o := strings.ReplaceAll(objs[i], ";", "")
-		o = strings.ReplaceAll(o, "`", "")
-		o = strings.TrimSpace(o) // must be last in case Replace make space
-		objs[i] = quoteChar + o + quoteChar
+		objs[i] = quoteChar + CleanObjectName(objs[i]) + quoteChar
 	}
 	return objs
+}
+
+func INList(objs []string, quoteChar string) string {
+	if len(objs) == 0 {
+		return ""
+	}
+	in := quoteChar + CleanObjectName(objs[0]) + quoteChar
+	for i := range objs[1:] {
+		in += "," + quoteChar + CleanObjectName(objs[i]) + quoteChar
+	}
+	return in
 }

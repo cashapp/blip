@@ -1,72 +1,14 @@
-package prom
+package tr
 
 import (
 	"regexp"
-	"sync"
 
 	prom "github.com/prometheus/client_golang/prometheus"
 
 	"github.com/square/blip"
 )
 
-type DomainTranslator interface {
-	Translate(values []blip.MetricValue, ch chan<- prom.Metric)
-}
-
-func Register(blipDomain string, tr DomainTranslator) error {
-	trMux.Lock()
-	defer trMux.Unlock()
-	trRepo[blipDomain] = tr
-	return nil
-}
-
-func Translator(domain string) DomainTranslator {
-	trMux.Lock()
-	defer trMux.Unlock()
-	return trRepo[domain]
-}
-
-var trMux = &sync.Mutex{}
-
-var trRepo = map[string]DomainTranslator{
-	"status.global": StatusGlobalTr{Domain: "global_status"},
-	"var.global":    GenericTr{Domain: "global_variables"},
-}
-
-// --------------------------------------------------------------------------
-
-type GenericTr struct {
-	Domain string
-}
-
-func (tr GenericTr) Translate(values []blip.MetricValue, ch chan<- prom.Metric) {
-	for i := range values {
-		var promType prom.ValueType
-		var help string
-		switch values[i].Type {
-		case blip.COUNTER:
-			promType = prom.CounterValue
-			help = "Generic counter metric."
-		case blip.GAUGE:
-			promType = prom.GaugeValue
-			help = "Generic gauge metric."
-		}
-
-		ch <- prom.MustNewConstMetric(
-			prom.NewDesc(
-				prom.BuildFQName("mysql", tr.Domain, validPrometheusName(values[i].Name)),
-				help,
-				nil, nil,
-			),
-			promType,
-			values[i].Value,
-		)
-	}
-}
-
-// --------------------------------------------------------------------------
-
-type StatusGlobalTr struct {
+type StatusGlobal struct {
 	Domain string
 }
 
@@ -75,7 +17,7 @@ type StatusGlobalTr struct {
 // Regexp to match various groups of status vars.
 var globalStatusRE = regexp.MustCompile(`^(com|handler|connection_errors|innodb_buffer_pool_pages|innodb_rows|performance_schema)_(.*)$`)
 
-func (tr StatusGlobalTr) Translate(values []blip.MetricValue, ch chan<- prom.Metric) {
+func (tr StatusGlobal) Translate(values []blip.MetricValue, ch chan<- prom.Metric) {
 	for i := range values {
 
 		var promType prom.ValueType

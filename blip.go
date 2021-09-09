@@ -32,7 +32,8 @@ type MetricValue struct {
 }
 
 const (
-	COUNTER byte = iota
+	UNKNOWN byte = iota
+	COUNTER
 	GAUGE
 	BOOL
 	EVENT

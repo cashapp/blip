@@ -5,8 +5,6 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"regexp"
-	"strings"
 
 	prom "github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/common/expfmt"
@@ -14,7 +12,7 @@ import (
 	"github.com/square/blip"
 	"github.com/square/blip/collect"
 	"github.com/square/blip/metrics"
-	//"github.com/square/blip/status"
+	"github.com/square/blip/prom/tr"
 )
 
 // Exporter is a pseudo-sink that emulates mysqld_exporter.
@@ -111,21 +109,11 @@ func (e *Exporter) Collect(ch chan<- prom.Metric) {
 			// @todo
 		}
 		domain := e.mcList[i].Domain()
-		tr := Translator(domain)
+		tr := tr.Translator(domain)
 		if tr == nil {
-			blip.Debug("cannot translate %s into prom", domain)
+			blip.Debug("no translator registered for %s", domain)
 			continue
 		}
 		tr.Translate(values, ch)
 	}
-}
-
-// --------------------------------------------------------------------------
-// Copied from /percona/mysqld_exporter/collector/global_status.go
-var nameRe = regexp.MustCompile("([^a-zA-Z0-9_])")
-
-func validPrometheusName(s string) string {
-	s = nameRe.ReplaceAllString(s, "_")
-	s = strings.ToLower(s)
-	return s
 }

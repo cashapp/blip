@@ -54,6 +54,12 @@ func PromPlan() Plan {
 							"all": "yes",
 						},
 					},
+					"innodb": {
+						Name: "innodb",
+						Options: map[string]string{
+							"all": "enabled",
+						},
+					},
 				},
 			},
 		},

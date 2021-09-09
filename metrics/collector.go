@@ -9,6 +9,7 @@ import (
 	"github.com/square/blip"
 	"github.com/square/blip/collect"
 	"github.com/square/blip/event"
+	"github.com/square/blip/metrics/innodb"
 	"github.com/square/blip/metrics/size"
 	"github.com/square/blip/metrics/status"
 	sysvar "github.com/square/blip/metrics/var"
@@ -56,6 +57,9 @@ func (f factory) Make(domain string, args FactoryArgs) (Collector, error) {
 	case "size.binlogs":
 		mc := size.NewBinlogs(args.DB)
 		return mc, nil
+	case "innodb":
+		mc := innodb.NewMetrics(args.DB)
+		return mc, nil
 	}
 	return nil, fmt.Errorf("collector for domain %s not registered", domain)
 }
@@ -65,6 +69,7 @@ var defaultCollectors = []string{
 	"var.global",
 	"size.data",
 	"size.binlogs",
+	"innodb",
 }
 
 func RegisterDefaults() {
