@@ -9,12 +9,15 @@ import (
 	"github.com/square/blip"
 	"github.com/square/blip/collect"
 	"github.com/square/blip/event"
+	"github.com/square/blip/metrics/innodb"
+	"github.com/square/blip/metrics/size"
+	"github.com/square/blip/metrics/status"
 	sysvar "github.com/square/blip/metrics/var"
 )
 
 // Collector collects metrics for a single metric domain.
 type Collector interface {
-	// Domain returns the collector's metric domain domain, like "var.global".
+	// Domain returns Blip and Prometheus domain prefix.
 	Domain() string
 
 	// Help returns information about using the collector.
@@ -36,23 +39,43 @@ type CollectorFactory interface {
 	Make(domain string, args FactoryArgs) (Collector, error)
 }
 
-type factory struct {
-}
-
-func (f factory) Make(domain string, args FactoryArgs) (Collector, error) {
-	switch domain {
-	case "var.global":
-		mc := sysvar.NewGlobal(args.DB)
-		return mc, nil
-	}
-	return nil, fmt.Errorf("invalid domain")
-}
+type factory struct{}
 
 var DefaultFactory = factory{}
 
+func (f factory) Make(domain string, args FactoryArgs) (Collector, error) {
+	switch domain {
+	case "status.global":
+		mc := status.NewGlobal(args.DB)
+		return mc, nil
+	case "var.global":
+		mc := sysvar.NewGlobal(args.DB)
+		return mc, nil
+	case "size.data":
+		mc := size.NewData(args.DB)
+		return mc, nil
+	case "size.binlogs":
+		mc := size.NewBinlogs(args.DB)
+		return mc, nil
+	case "innodb":
+		mc := innodb.NewMetrics(args.DB)
+		return mc, nil
+	}
+	return nil, fmt.Errorf("collector for domain %s not registered", domain)
+}
+
+var defaultCollectors = []string{
+	"status.global",
+	"var.global",
+	"size.data",
+	"size.binlogs",
+	"innodb",
+}
+
 func RegisterDefaults() {
-	Register("var.global", DefaultFactory)
-	Register("status.global", DefaultFactory)
+	for _, mc := range defaultCollectors {
+		Register(mc, DefaultFactory)
+	}
 }
 
 // --------------------------------------------------------------------------

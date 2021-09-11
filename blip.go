@@ -28,10 +28,12 @@ type MetricValue struct {
 	Name  string
 	Value float64
 	Type  byte
+	Tags  map[string]string
 }
 
 const (
-	COUNTER byte = iota
+	UNKNOWN byte = iota
+	COUNTER
 	GAUGE
 	BOOL
 	EVENT
@@ -62,4 +64,17 @@ func Debug(msg string, v ...interface{}) {
 	_, file, line, _ := runtime.Caller(1)
 	msg = fmt.Sprintf("%s:%d %s", path.Base(file), line, msg)
 	debugLog.Printf(msg, v...)
+}
+
+// True returns true if b is non-nil and true.
+// This is convenience function related to *bool files in config structs,
+// which is required for knowing when a bool config is explicitily set
+// or not. If set, it's not changed; if not, it's set to the default value.
+// That makes a good config experience but a less than ideal code experience
+// because !*b will panic if b is nil, hence the need for this func.
+func True(b *bool) bool {
+	if b == nil {
+		return false
+	}
+	return *b
 }

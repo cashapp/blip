@@ -71,10 +71,10 @@ func (f factory) Make(cfg blip.ConfigMonitor) (*sql.DB, error) {
 	}
 
 	params := []string{"parseTime=true"}
-	if (cfg.AWS.AuthToken || cfg.AWS.PasswordSecret != "") && !cfg.AWS.DisableAutoTLS {
+	if (blip.True(cfg.AWS.AuthToken) || cfg.AWS.PasswordSecret != "") && !blip.True(cfg.AWS.DisableAutoTLS) {
 		params = append(params, "tls=rds")
 	}
-	if cfg.AWS.AuthToken {
+	if blip.True(cfg.AWS.AuthToken) {
 		params = append(params, "allowCleartextPasswords=true")
 	}
 	if cfg.TLS.Cert != "" && cfg.TLS.Key != "" {
@@ -101,10 +101,10 @@ func (f factory) Make(cfg blip.ConfigMonitor) (*sql.DB, error) {
 }
 
 func (f factory) Password(cfg blip.ConfigMonitor) (PasswordFunc, error) {
-	if cfg.AWS.AuthToken {
+	if blip.True(cfg.AWS.AuthToken) {
 		// Password generated as IAM auth token (valid 15 min)
 		blip.Debug("password from AWS IAM auth token")
-		if !cfg.AWS.DisableAutoTLS {
+		if !blip.True(cfg.AWS.DisableAutoTLS) {
 			aws.RegisterRDSCA()
 		}
 		awscfg, err := f.awsConfg.Make(cfg.AWS)
@@ -117,7 +117,7 @@ func (f factory) Password(cfg blip.ConfigMonitor) (PasswordFunc, error) {
 
 	if cfg.AWS.PasswordSecret != "" {
 		blip.Debug("password from AWS Secrets Manager")
-		if !cfg.AWS.DisableAutoTLS {
+		if !blip.True(cfg.AWS.DisableAutoTLS) {
 			aws.RegisterRDSCA()
 		}
 		awscfg, err := f.awsConfg.Make(cfg.AWS)

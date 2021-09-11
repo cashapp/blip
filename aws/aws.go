@@ -31,7 +31,7 @@ func NewConfigFactory() cfgFactory {
 func (f cfgFactory) Make(c blip.ConfigAWS) (aws.Config, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
 	defer cancel()
-	if c.Region == "" && !c.DisableAutoRegion {
+	if c.Region == "" && !blip.True(c.DisableAutoRegion) {
 		c.Region = Region(ctx)
 		blip.Debug("auto-detect region %s", c.Region)
 	}

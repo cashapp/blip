@@ -15,8 +15,6 @@ const (
 	ENV_DEBUG  = "BLIP_DEBUG"
 
 	DEFAULT_CONFIG_FILE = "blip.yaml"
-	DEFAULT_STRICT      = "" // disabled
-	DEFAULT_DEBUG       = "" // disabled
 	DEFAULT_DATABASE    = "blip"
 
 	INTERNAL_PLAN_NAME = "blip"
@@ -122,7 +120,7 @@ func (c *Config) InterpolateEnvVars() {
 
 type ConfigAPI struct {
 	Bind    string `yaml:"bind"`
-	Disable bool   `yaml:"disable"`
+	Disable bool   `yaml:"disable,omitempty"`
 }
 
 const (
@@ -202,10 +200,11 @@ func (c *ConfigMonitorLoader) InterpolateEnvVars() {
 // ///////////////////////////////////////////////////////////////////////////
 
 type ConfigMonitor struct {
-	MonitorId      string `yaml:"id"`
+	MonitorId string `yaml:"id"`
+	Socket    string `yaml:"socket,omitempty"`
+	Hostname  string `yaml:"hostname,omitempty"`
+	// ConfigMySQL:
 	MyCnf          string `yaml:"mycnf,omitempty"`
-	Socket         string `yaml:"socket,omitempty"`
-	Hostname       string `yaml:"hostname,omitempty"`
 	Username       string `yaml:"username,omitempty"`
 	Password       string `yaml:"password,omitempty"`
 	PasswordFile   string `yaml:"password-file,omitempty"`
@@ -355,17 +354,21 @@ func (c *ConfigMonitor) fieldValue(f string) string {
 // Defaults for monitors
 // ///////////////////////////////////////////////////////////////////////////
 
-type ConfigAWS struct {
-	AuthToken         bool   `yaml:"auth-token"`
-	PasswordSecret    string `yaml:"password-secret,omitempty"`
-	Region            string `yaml:"region,omitempty"`
-	DisableAutoRegion bool   `yaml:"disable-auto-region"`
-	DisableAutoTLS    bool   `yaml:"disable-auto-tls"`
+func setBool(c *bool, b *bool) *bool {
+	if c == nil && b != nil {
+		c = new(bool)
+		*c = *b
+	}
+	return c
 }
 
-const (
-	DEFAULT_AWS_ROLE = ""
-)
+type ConfigAWS struct {
+	AuthToken         *bool  `yaml:"auth-token,omitempty"`
+	PasswordSecret    string `yaml:"password-secret,omitempty"`
+	Region            string `yaml:"region,omitempty"`
+	DisableAutoRegion *bool  `yaml:"disable-auto-region,omitempty"`
+	DisableAutoTLS    *bool  `yaml:"disable-auto-tls,omitempty"`
+}
 
 func DefaultConfigAWS() ConfigAWS {
 	return ConfigAWS{}
@@ -376,39 +379,38 @@ func (c ConfigAWS) Validate() error {
 }
 
 func (c *ConfigAWS) ApplyDefaults(b Config) {
-	if c.PasswordSecret == "" && b.AWS.PasswordSecret != "" {
+	if c.PasswordSecret == "" {
 		c.PasswordSecret = b.AWS.PasswordSecret
 	}
-	// @todo
-	/*
-		if c.AuthToken == "" && b.AWS.AuthToken != "" {
-			c.AuthToken = b.AWS.AuthToken
-		}
-	*/
+	if c.Region == "" {
+		c.Region = b.AWS.Region
+	}
+
+	c.AuthToken = setBool(c.AuthToken, b.AWS.AuthToken)
+	c.DisableAutoRegion = setBool(c.DisableAutoRegion, b.AWS.DisableAutoRegion)
+	c.DisableAutoTLS = setBool(c.DisableAutoTLS, b.AWS.DisableAutoTLS)
+
 }
 
 func (c *ConfigAWS) InterpolateEnvVars() {
 	c.PasswordSecret = interpolateEnv(c.PasswordSecret)
+	c.Region = interpolateEnv(c.Region)
 }
 
 func (c *ConfigAWS) InterpolateMonitor(m *ConfigMonitor) {
 	c.PasswordSecret = m.interpolateMon(c.PasswordSecret)
+	c.Region = m.interpolateMon(c.Region)
 }
 
 // --------------------------------------------------------------------------
 
 type ConfigExporter struct {
-	Bind string `yaml:"bind,omitempty"`
+	Bind   string `yaml:"bind,omitempty"`
+	Legacy *bool  `yaml:"legacy,omitempty"`
 }
 
-const (
-	DEFAULT_EXPORTER_BIND = "" // disabled
-)
-
 func DefaultConfigExporter() ConfigExporter {
-	return ConfigExporter{
-		Bind: DEFAULT_EXPORTER_BIND,
-	}
+	return ConfigExporter{}
 }
 
 func (c ConfigExporter) Validate() error {
@@ -416,24 +418,29 @@ func (c ConfigExporter) Validate() error {
 }
 
 func (c *ConfigExporter) ApplyDefaults(b Config) {
+	if c.Bind == "" {
+		c.Bind = b.Exporter.Bind
+	}
+	c.Legacy = setBool(c.Legacy, b.Exporter.Legacy)
 }
 
 func (c *ConfigExporter) InterpolateEnvVars() {
+	c.Bind = interpolateEnv(c.Bind)
 }
 
 func (c *ConfigExporter) InterpolateMonitor(m *ConfigMonitor) {
+	c.Bind = m.interpolateMon(c.Bind)
 }
 
 // --------------------------------------------------------------------------
 
 type ConfigHeartbeat struct {
-	Table                  string   `yaml:"table"`
-	Source                 []string `yaml:"source"`
-	Disable                bool     `yaml:"disable`
-	DisableRead            bool     `yaml:"disable-read"`
-	DisableWrite           bool     `yaml:"disable-write"`
-	DisableAutoSource      bool     `yaml:"disable-auto-source"`
-	DisableAutoCreateTable bool     `yaml:"disable-auto-create-table"`
+	Table             string   `yaml:"table,omitempty"`
+	Source            []string `yaml:"source,omitempty"`
+	Disable           *bool    `yaml:"disable,omitempty"`
+	DisableRead       *bool    `yaml:"disable-read,omitempty"`
+	DisableWrite      *bool    `yaml:"disable-write,omitempty"`
+	DisableAutoSource *bool    `yaml:"disable-auto-source,omitempty"`
 }
 
 const (
@@ -451,35 +458,38 @@ func (c ConfigHeartbeat) Validate() error {
 }
 
 func (c *ConfigHeartbeat) ApplyDefaults(b Config) {
-	c.Disable = b.Heartbeat.Disable
-	c.DisableRead = b.Heartbeat.DisableRead
-	c.DisableWrite = b.Heartbeat.DisableWrite
-	c.DisableAutoSource = b.Heartbeat.DisableAutoSource
-	c.DisableAutoCreateTable = b.Heartbeat.DisableAutoCreateTable
+	if c.Table == "" {
+		c.Table = b.Heartbeat.Table
+	}
+	if len(c.Source) == 0 && len(b.Heartbeat.Source) > 0 {
+		c.Source = make([]string, len(b.Heartbeat.Source))
+		copy(c.Source, b.Heartbeat.Source)
+	}
+	c.Disable = setBool(c.Disable, b.Heartbeat.Disable)
+	c.DisableRead = setBool(c.DisableRead, b.Heartbeat.DisableRead)
+	c.DisableWrite = setBool(c.DisableWrite, b.Heartbeat.DisableWrite)
+	c.DisableAutoSource = setBool(c.DisableAutoSource, b.Heartbeat.DisableAutoSource)
 }
 
 func (c *ConfigHeartbeat) InterpolateEnvVars() {
+	c.Table = interpolateEnv(c.Table)
+	for i := range c.Source {
+		c.Source[i] = interpolateEnv(c.Source[i])
+	}
 }
 
 func (c *ConfigHeartbeat) InterpolateMonitor(m *ConfigMonitor) {
+	c.Table = m.interpolateMon(c.Table)
+	for i := range c.Source {
+		c.Source[i] = m.interpolateMon(c.Source[i])
+	}
 }
 
 // --------------------------------------------------------------------------
 
-type ConfigHighAvailability struct {
-	Freq        string `yaml:"freq"`
-	Role        string `yaml:"role"`
-	Table       string `yaml:"table"`
-	CreateTable string `yaml:"createTable"`
-	Optional    bool   `yaml:"optional"`
-}
+// Not implemented yet; placeholders
 
-const (
-	DEFAULT_HA_FREQ         = "" // disabled
-	DEFAULT_HA_ROLE         = "primary"
-	DEFAULT_HA_TABLE        = "blip.ha"
-	DEFAULT_HA_CREATE_TABLE = "auto"
-)
+type ConfigHighAvailability struct{}
 
 func DefaultConfigHA() ConfigHighAvailability {
 	return ConfigHighAvailability{}
@@ -493,10 +503,6 @@ func (c *ConfigHighAvailability) ApplyDefaults(b Config) {
 }
 
 func (c *ConfigHighAvailability) InterpolateEnvVars() {
-	c.Freq = interpolateEnv(c.Freq)
-	c.Role = interpolateEnv(c.Role)
-	c.Table = interpolateEnv(c.Table)
-	c.CreateTable = interpolateEnv(c.CreateTable)
 }
 
 func (c *ConfigHighAvailability) InterpolateMonitor(m *ConfigMonitor) {
@@ -508,7 +514,8 @@ type ConfigMySQL struct {
 	MyCnf          string `yaml:"mycnf,omitempty"`
 	Username       string `yaml:"username,omitempty"`
 	Password       string `yaml:"password,omitempty"`
-	TimeoutConnect string `yaml:"timeoutConnect"`
+	PasswordFile   string `yaml:"password-file,omitempty"`
+	TimeoutConnect string `yaml:"timeout-connect,omitempty"`
 }
 
 const (
@@ -528,12 +535,37 @@ func (c ConfigMySQL) Validate() error {
 }
 
 func (c *ConfigMySQL) ApplyDefaults(b Config) {
+	if c.MyCnf == "" {
+		c.MyCnf = b.MySQL.MyCnf
+	}
+	if c.Username == "" {
+		c.Username = b.MySQL.Username
+	}
+	if c.Password == "" {
+		c.Password = b.MySQL.Password
+	}
+	if c.PasswordFile == "" {
+		c.PasswordFile = b.MySQL.Password
+	}
+	if c.TimeoutConnect == "" {
+		c.TimeoutConnect = b.MySQL.TimeoutConnect
+	}
 }
 
 func (c *ConfigMySQL) InterpolateEnvVars() {
+	c.MyCnf = interpolateEnv(c.MyCnf)
+	c.Username = interpolateEnv(c.Username)
+	c.Password = interpolateEnv(c.Password)
+	c.PasswordFile = interpolateEnv(c.PasswordFile)
+	c.TimeoutConnect = interpolateEnv(c.TimeoutConnect)
 }
 
 func (c *ConfigMySQL) InterpolateMonitor(m *ConfigMonitor) {
+	c.MyCnf = m.interpolateMon(c.MyCnf)
+	c.Username = m.interpolateMon(c.Username)
+	c.Password = m.interpolateMon(c.Password)
+	c.PasswordFile = m.interpolateMon(c.PasswordFile)
+	c.TimeoutConnect = m.interpolateMon(c.TimeoutConnect)
 }
 
 // --------------------------------------------------------------------------
@@ -543,25 +575,6 @@ type ConfigPlans struct {
 	Table   string             `yaml:"table,omitempty"`
 	Monitor *ConfigMonitor     `yaml:"monitor,omitempty"`
 	Adjust  ConfigPlanAdjuster `yaml:"adjust,omitempty"`
-}
-
-type ConfigPlanAdjuster struct {
-	Offline  ConfigStatePlan `yaml:"offline,omitempty"`
-	Standby  ConfigStatePlan `yaml:"standby,omitempty"`
-	ReadOnly ConfigStatePlan `yaml:"read-only,omitempty"`
-	Active   ConfigStatePlan `yaml:"active,omitempty"`
-}
-
-func (c ConfigPlanAdjuster) Enabled() bool {
-	return c.Offline.Plan != "" ||
-		c.Standby.Plan != "" ||
-		c.ReadOnly.Plan != "" ||
-		c.Active.Plan != ""
-}
-
-type ConfigStatePlan struct {
-	After string `yaml:"after,omitempty"`
-	Plan  string `yaml:"plan,omitempty"`
 }
 
 const (
@@ -583,43 +596,95 @@ func (c *ConfigPlans) ApplyDefaults(b Config) {
 		c.Files = make([]string, len(b.Plans.Files))
 		copy(c.Files, b.Plans.Files)
 	}
-	if c.Adjust.Offline.After == "" {
-		c.Adjust.Offline.After = b.Plans.Adjust.Offline.After
-	}
-	if c.Adjust.Offline.Plan == "" {
-		c.Adjust.Offline.Plan = b.Plans.Adjust.Offline.Plan
-	}
-
-	if c.Adjust.Standby.After == "" {
-		c.Adjust.Standby.After = b.Plans.Adjust.Standby.After
-	}
-	if c.Adjust.Standby.Plan == "" {
-		c.Adjust.Standby.Plan = b.Plans.Adjust.Standby.Plan
-	}
-
-	if c.Adjust.ReadOnly.After == "" {
-		c.Adjust.ReadOnly.After = b.Plans.Adjust.ReadOnly.After
-	}
-	if c.Adjust.ReadOnly.Plan == "" {
-		c.Adjust.ReadOnly.Plan = b.Plans.Adjust.ReadOnly.Plan
-	}
-
-	if c.Adjust.Active.After == "" {
-		c.Adjust.Active.After = b.Plans.Adjust.Active.After
-	}
-	if c.Adjust.Active.Plan == "" {
-		c.Adjust.Active.Plan = b.Plans.Adjust.Active.Plan
-	}
-
+	c.Adjust.ApplyDefaults(b)
 }
 
 func (c *ConfigPlans) InterpolateEnvVars() {
 	for i := range c.Files {
 		c.Files[i] = interpolateEnv(c.Files[i])
 	}
+	c.Table = interpolateEnv(c.Table)
+
+	c.Adjust.InterpolateEnvVars()
 }
 
 func (c *ConfigPlans) InterpolateMonitor(m *ConfigMonitor) {
+	for i := range c.Files {
+		c.Files[i] = m.interpolateMon(c.Files[i])
+	}
+	c.Table = m.interpolateMon(c.Table)
+
+	c.Adjust.InterpolateMonitor(m)
+}
+
+type ConfigPlanAdjuster struct {
+	Offline  ConfigStatePlan `yaml:"offline,omitempty"`
+	Standby  ConfigStatePlan `yaml:"standby,omitempty"`
+	ReadOnly ConfigStatePlan `yaml:"read-only,omitempty"`
+	Active   ConfigStatePlan `yaml:"active,omitempty"`
+}
+
+type ConfigStatePlan struct {
+	After string `yaml:"after,omitempty"`
+	Plan  string `yaml:"plan,omitempty"`
+}
+
+func (c *ConfigPlanAdjuster) ApplyDefaults(b Config) {
+	if c.Offline.After == "" {
+		c.Offline.After = b.Plans.Adjust.Offline.After
+	}
+	if c.Offline.Plan == "" {
+		c.Offline.Plan = b.Plans.Adjust.Offline.Plan
+	}
+
+	if c.Standby.After == "" {
+		c.Standby.After = b.Plans.Adjust.Standby.After
+	}
+	if c.Standby.Plan == "" {
+		c.Standby.Plan = b.Plans.Adjust.Standby.Plan
+	}
+
+	if c.ReadOnly.After == "" {
+		c.ReadOnly.After = b.Plans.Adjust.ReadOnly.After
+	}
+	if c.ReadOnly.Plan == "" {
+		c.ReadOnly.Plan = b.Plans.Adjust.ReadOnly.Plan
+	}
+
+	if c.Active.After == "" {
+		c.Active.After = b.Plans.Adjust.Active.After
+	}
+	if c.Active.Plan == "" {
+		c.Active.Plan = b.Plans.Adjust.Active.Plan
+	}
+}
+
+func (c *ConfigPlanAdjuster) InterpolateEnvVars() {
+	c.Offline.After = interpolateEnv(c.Offline.After)
+	c.Offline.Plan = interpolateEnv(c.Offline.Plan)
+
+	c.Standby.After = interpolateEnv(c.Standby.After)
+	c.Standby.Plan = interpolateEnv(c.Standby.Plan)
+
+	c.ReadOnly.After = interpolateEnv(c.ReadOnly.After)
+	c.ReadOnly.Plan = interpolateEnv(c.ReadOnly.Plan)
+
+	c.Active.After = interpolateEnv(c.Active.After)
+	c.Active.Plan = interpolateEnv(c.Active.Plan)
+}
+
+func (c *ConfigPlanAdjuster) InterpolateMonitor(m *ConfigMonitor) {
+	c.Offline.Plan = m.interpolateMon(c.Offline.Plan)
+	c.Standby.Plan = m.interpolateMon(c.Standby.Plan)
+	c.ReadOnly.Plan = m.interpolateMon(c.ReadOnly.Plan)
+	c.Active.Plan = m.interpolateMon(c.Active.Plan)
+}
+
+func (c ConfigPlanAdjuster) Enabled() bool {
+	return c.Offline.Plan != "" ||
+		c.Standby.Plan != "" ||
+		c.ReadOnly.Plan != "" ||
+		c.Active.Plan != ""
 }
 
 // --------------------------------------------------------------------------
@@ -676,9 +741,15 @@ func (c ConfigTLS) Validate() error {
 }
 
 func (c *ConfigTLS) ApplyDefaults(b Config) {
-	c.Cert = c.Cert
-	c.Key = c.Key
-	c.CA = c.CA
+	if c.Cert == "" {
+		c.Cert = b.TLS.Cert
+	}
+	if c.Key == "" {
+		c.Key = b.TLS.Key
+	}
+	if c.CA == "" {
+		c.CA = b.TLS.CA
+	}
 }
 
 func (c *ConfigTLS) InterpolateEnvVars() {

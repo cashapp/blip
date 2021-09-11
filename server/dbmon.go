@@ -16,6 +16,7 @@ import (
 	"github.com/square/blip/level"
 	"github.com/square/blip/metrics"
 	"github.com/square/blip/monitor"
+	"github.com/square/blip/prom"
 	"github.com/square/blip/sink"
 )
 
@@ -128,6 +129,26 @@ func (d *DbMon) run() {
 		d.Stop()
 	}()
 
+	if d.config.Exporter.Bind != "" {
+		exp := prom.NewExporter(
+			d.monitorId,
+			d.db,
+			d.mcMaker,
+		)
+		if err := exp.Prepare(collect.PromPlan()); err != nil {
+			// @todo move to Boot
+			blip.Debug(err.Error())
+			return
+		}
+		api := prom.NewAPI(d.config.Exporter.Bind, d.monitorId, exp)
+		go api.Run()
+		if blip.True(d.config.Exporter.Legacy) {
+			blip.Debug("legacy mode")
+			<-d.stopChan
+			return
+		}
+	}
+
 	// Run option level plan adjuster (lpa). When enabled, the lpa checks the
 	// state of MySQL . If the state changes,
 	// it calls lpc.ChangePlan to change the plan as configured by
@@ -153,6 +174,7 @@ func (d *DbMon) run() {
 		//
 		// Also, without an lpa, monitors default to active state.
 		if err := d.lpc.ChangePlan(blip.STATE_ACTIVE, ""); err != nil {
+			blip.Debug(err.Error())
 			// @todo
 		}
 	}
@@ -160,20 +182,20 @@ func (d *DbMon) run() {
 	// Run optional heartbeat monitor to monitor replication lag. When enabled,
 	// the heartbeat (hb) writes a high-resolution timestamp to a row in a table
 	// at the configured frequence: config.monitors.M.heartbeat.freq.
-	if !d.config.Heartbeat.Disable {
+	if !blip.True(d.config.Heartbeat.Disable) {
 
-		if !d.config.Heartbeat.DisableWrite {
+		if !blip.True(d.config.Heartbeat.DisableWrite) {
 			d.hbw = heartbeat.NewWriter(d.monitorId, d.db)
 			d.doneChanHBW = make(chan struct{})
 			go d.hbw.Write(d.stopChan, d.doneChanHBW)
 		}
 
-		if !d.config.Heartbeat.DisableRead &&
-			(len(d.config.Heartbeat.Source) > 0 || !d.config.Heartbeat.DisableAutoSource) {
+		if !!blip.True(d.config.Heartbeat.DisableRead) &&
+			(len(d.config.Heartbeat.Source) > 0 || !blip.True(d.config.Heartbeat.DisableAutoSource)) {
 			var sf heartbeat.SourceFinder
 			if len(d.config.Heartbeat.Source) > 0 {
 				sf = heartbeat.NewStaticSourceList(d.config.Heartbeat.Source, d.db)
-			} else if !d.config.Heartbeat.DisableAutoSource {
+			} else if !blip.True(d.config.Heartbeat.DisableAutoSource) {
 				sf = heartbeat.NewAutoSourceFinder() // @todo
 			} else {
 				panic("no repl sources and auto-source disable")
