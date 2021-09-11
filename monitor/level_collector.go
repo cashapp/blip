@@ -1,4 +1,4 @@
-package level
+package monitor
 
 import (
 	"context"
@@ -11,13 +11,12 @@ import (
 	"github.com/square/blip"
 	"github.com/square/blip/collect"
 	"github.com/square/blip/event"
-	"github.com/square/blip/monitor"
 	"github.com/square/blip/sink"
 	"github.com/square/blip/status"
 )
 
-// Collector calls a monitor to collect metrics according to a plan.
-type Collector interface {
+// LevelCollector calls a monitor to collect metrics according to a plan.
+type LevelCollector interface {
 	// Run runs the collector to collect metrics; it's a blocking call.
 	Run(stopChan, doneChan chan struct{}) error
 
@@ -28,7 +27,7 @@ type Collector interface {
 	Pause() error
 }
 
-var _ Collector = &collector{}
+var _ LevelCollector = &collector{}
 
 type level struct {
 	freq float64
@@ -41,10 +40,10 @@ func (a byFreq) Len() int           { return len(a) }
 func (a byFreq) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
 func (a byFreq) Less(i, j int) bool { return a[i].freq < a[j].freq }
 
-// collector is the implementation of Collector.
+// collector is the implementation of LevelCollector.
 type collector struct {
 	monitorId        string
-	monitor          *monitor.Monitor
+	engine           *Engine
 	planLoader       *collect.PlanLoader
 	sinks            []sink.Sink
 	transformMetrics func(*blip.Metrics) error
@@ -61,23 +60,24 @@ type collector struct {
 	paused               bool
 }
 
-type CollectorArgs struct {
-	Monitor          *monitor.Monitor
+type LevelCollectorArgs struct {
+	MonitorId        string
+	Engine           *Engine
 	PlanLoader       *collect.PlanLoader
 	Sinks            []sink.Sink
 	TransformMetrics func(*blip.Metrics) error
 }
 
-func NewCollector(args CollectorArgs) *collector {
+func NewLevelCollector(args LevelCollectorArgs) *collector {
 	return &collector{
-		monitorId:  args.Monitor.MonitorId(),
-		monitor:    args.Monitor,
+		monitorId:  args.MonitorId,
+		engine:     args.Engine,
 		planLoader: args.PlanLoader,
 		sinks:      args.Sinks,
 		// --
 		changeMux: &sync.Mutex{},
 		stateMux:  &sync.Mutex{},
-		event:     event.MonitorSink{MonitorId: args.Monitor.MonitorId()},
+		event:     event.MonitorSink{MonitorId: args.MonitorId},
 		paused:    true,
 	}
 }
@@ -171,7 +171,7 @@ func (c *collector) collector(n int, col chan string, stopChan chan struct{}) {
 		}
 
 		status.Monitor(c.monitorId, lpc, "collecting plan %s level %s", c.plan.Name, level)
-		metrics, err := c.monitor.Collect(context.Background(), level)
+		metrics, err := c.engine.Collect(context.Background(), level)
 		if err != nil {
 			// @todo
 		}
@@ -233,14 +233,14 @@ func (c *collector) changePlan(ctx context.Context, newState, newPlanName string
 		c.stateMux.Unlock()
 	}()
 
-	newPlan, err := c.planLoader.Plan(c.monitor.MonitorId(), newPlanName, c.monitor.DB())
+	newPlan, err := c.planLoader.Plan(c.engine.MonitorId(), newPlanName, c.engine.DB())
 	if err != nil {
 		return err
 	}
 
 	newLevels := LevelUp(&newPlan)
 
-	if err := c.monitor.Prepare(ctx, newPlan); err != nil {
+	if err := c.engine.Prepare(ctx, newPlan); err != nil {
 		return err
 	}
 

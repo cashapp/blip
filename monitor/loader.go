@@ -1,4 +1,4 @@
-package server
+package monitor
 
 import (
 	"context"
@@ -7,43 +7,49 @@ import (
 	"sync"
 	"time"
 
+	"gopkg.in/yaml.v2"
+
 	"github.com/square/blip"
 	"github.com/square/blip/dbconn"
 	"github.com/square/blip/event"
-	"gopkg.in/yaml.v2"
 )
 
-type MonitorChanges struct {
-	Added   []*DbMon
-	Removed []*DbMon
-	Changed []*DbMon
+type LoadFunc func(blip.Config) ([]blip.ConfigMonitor, error)
+
+type Changes struct {
+	Added   []Monitor
+	Removed []Monitor
+	Changed []Monitor
 }
 
-type MonitorLoader struct {
+type Loader struct {
 	cfg      blip.Config
-	plugin   func(blip.Config) ([]blip.ConfigMonitor, error)
-	factory  Factories
-	dbmon    map[string]*DbMon // keyed on monitorId
+	loadFunc LoadFunc
+	monMaker Factory
+	dbMaker  dbconn.Factory
+	// --
+	dbmon    map[string]Monitor // keyed on monitorId
 	source   string
 	stopLoss float64
 	*sync.Mutex
 }
 
-func NewMonitorLoader(cfg blip.Config, plugins Plugins, factory Factories) *MonitorLoader {
-	return &MonitorLoader{
-		cfg:     cfg,
-		plugin:  plugins.LoadMonitors,
-		factory: factory,
+func NewLoader(cfg blip.Config, loadFunc LoadFunc, monMaker Factory, dbMaker dbconn.Factory) *Loader {
+	return &Loader{
+		cfg:      cfg,
+		loadFunc: loadFunc,
+		monMaker: monMaker,
+		dbMaker:  dbMaker,
 		// --
-		dbmon: map[string]*DbMon{},
+		dbmon: map[string]Monitor{},
 		Mutex: &sync.Mutex{},
 	}
 }
 
-func (ml *MonitorLoader) Monitors() []*DbMon {
+func (ml *Loader) Monitors() []Monitor {
 	ml.Lock()
 	defer ml.Unlock()
-	monitors := make([]*DbMon, len(ml.dbmon))
+	monitors := make([]Monitor, len(ml.dbmon))
 	i := 0
 	for _, dbmon := range ml.dbmon {
 		monitors[i] = dbmon
@@ -52,13 +58,13 @@ func (ml *MonitorLoader) Monitors() []*DbMon {
 	return monitors
 }
 
-func (ml *MonitorLoader) Load(ctx context.Context) (MonitorChanges, error) {
+func (ml *Loader) Load(ctx context.Context) (Changes, error) {
 	event.Send(event.MONITOR_LOADER_LOADING)
 
-	ch := MonitorChanges{
-		Added:   []*DbMon{},
-		Removed: []*DbMon{},
-		Changed: []*DbMon{},
+	ch := Changes{
+		Added:   []Monitor{},
+		Removed: []Monitor{},
+		Changed: []Monitor{},
 	}
 	defer func() {
 		event.Sendf(event.BOOT_MONITORS_LOADED, "added: %d removed: %d changed: %d",
@@ -67,9 +73,9 @@ func (ml *MonitorLoader) Load(ctx context.Context) (MonitorChanges, error) {
 
 	moncfg := map[string]blip.ConfigMonitor{}
 
-	if ml.plugin != nil {
+	if ml.loadFunc != nil {
 		blip.Debug("call plugin.LoadMonitors")
-		monitors, err := ml.plugin(ml.cfg)
+		monitors, err := ml.loadFunc(ml.cfg)
 		if err != nil {
 			return ch, err
 		}
@@ -122,15 +128,15 @@ func (ml *MonitorLoader) Load(ctx context.Context) (MonitorChanges, error) {
 		switch {
 		case oldDbmon == nil:
 			// NEW dbmon -----------------------------------------------------
-			newDbmon := ml.factory.DbMon.Make(cfg) // make new
-			ch.Added = append(ch.Added, newDbmon)  // note new
-			ml.dbmon[monitorId] = newDbmon         // save new
+			newDbmon := ml.monMaker.Make(cfg)     // make new
+			ch.Added = append(ch.Added, newDbmon) // note new
+			ml.dbmon[monitorId] = newDbmon        // save new
 		case hash(cfg) != hash(oldDbmon.Config()):
 			// CHANGED dmon --------------------------------------------------
 			go oldDbmon.Stop()                        // stop prev
 			delete(ml.dbmon, monitorId)               // remove prev
 			ch.Changed = append(ch.Changed, oldDbmon) // note prev
-			newDbmon := ml.factory.DbMon.Make(cfg)    // make new
+			newDbmon := ml.monMaker.Make(cfg)         // make new
 			ml.dbmon[monitorId] = newDbmon            // save new
 		default:
 			// Existing dbmon, no change -------------------------------------
@@ -150,7 +156,7 @@ func (ml *MonitorLoader) Load(ctx context.Context) (MonitorChanges, error) {
 	return ch, nil
 }
 
-func (ml *MonitorLoader) merge(monitors []blip.ConfigMonitor, moncfg map[string]blip.ConfigMonitor) {
+func (ml *Loader) merge(monitors []blip.ConfigMonitor, moncfg map[string]blip.ConfigMonitor) {
 	for _, cfg := range monitors {
 		cfg.ApplyDefaults(ml.cfg)
 		cfg.InterpolateEnvVars()
@@ -163,14 +169,14 @@ func hash(v interface{}) [sha256.Size]byte {
 	return sha256.Sum256([]byte(fmt.Sprintf("%v", v)))
 }
 
-func (ml *MonitorLoader) loadFiles(ctx context.Context) ([]blip.ConfigMonitor, error) {
+func (ml *Loader) loadFiles(ctx context.Context) ([]blip.ConfigMonitor, error) {
 	if len(ml.cfg.MonitorLoader.Files) == 0 {
 		return nil, nil
 	}
 	return nil, nil
 }
 
-func (ml *MonitorLoader) loadAWS(ctx context.Context) ([]blip.ConfigMonitor, error) {
+func (ml *Loader) loadAWS(ctx context.Context) ([]blip.ConfigMonitor, error) {
 	if ml.cfg.MonitorLoader.AWS.DisableAuto {
 		return nil, nil
 	}
@@ -179,7 +185,7 @@ func (ml *MonitorLoader) loadAWS(ctx context.Context) ([]blip.ConfigMonitor, err
 }
 
 // LoadLocal auto-detects local MySQL instances.
-func (ml *MonitorLoader) LoadLocal(ctx context.Context) ([]blip.ConfigMonitor, error) {
+func (ml *Loader) LoadLocal(ctx context.Context) ([]blip.ConfigMonitor, error) {
 	// Do nothing if local auto-detect is explicitly disabled
 	if ml.cfg.MonitorLoader.Local.DisableAuto {
 		return nil, nil
@@ -239,8 +245,8 @@ USERS:
 	return nil, nil
 }
 
-func (ml *MonitorLoader) testLocal(bg context.Context, moncfg blip.ConfigMonitor) error {
-	db, err := ml.factory.DbConn.Make(moncfg)
+func (ml *Loader) testLocal(bg context.Context, moncfg blip.ConfigMonitor) error {
+	db, err := ml.dbMaker.Make(moncfg)
 	if err != nil {
 		return err
 	}
@@ -254,7 +260,7 @@ type printMonitors struct {
 	Monitors []blip.ConfigMonitor `yaml:"monitors"`
 }
 
-func (ml *MonitorLoader) Print() string {
+func (ml *Loader) Print() string {
 	ml.Lock()
 	defer ml.Unlock()
 	m := make([]blip.ConfigMonitor, len(ml.dbmon))

@@ -4,28 +4,33 @@ import (
 	"context"
 	"sync"
 
+	dsndriver "github.com/go-mysql/hotswap-dsn-driver"
 	"github.com/go-sql-driver/mysql"
 
 	"github.com/square/blip"
 )
 
+func init() {
+	dsndriver.SetHotswapFunc(Repo.ReloadPassword)
+}
+
 type PasswordFunc func(context.Context) (string, error)
 
-type dsnRepo struct {
+type repo struct {
 	m *sync.Map
 }
 
-var Repo = &dsnRepo{
+var Repo = &repo{
 	m: &sync.Map{},
 }
 
-func (r *dsnRepo) Add(addr string, f PasswordFunc) error {
+func (r *repo) Add(addr string, f PasswordFunc) error {
 	r.m.Store(addr, f)
 	blip.Debug("added %s", addr)
 	return nil
 }
 
-func (r *dsnRepo) ReloadPassword(ctx context.Context, currentDSN string) string {
+func (r *repo) ReloadPassword(ctx context.Context, currentDSN string) string {
 	// Only return new DSN on success and password is different. Else, return
 	// an empty string which makes the hotswap driver return the original driver
 	// error, i.e. it's like this func was never called. Only when this func

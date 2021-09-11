@@ -16,6 +16,7 @@ import (
 	"github.com/square/blip/collect"
 	"github.com/square/blip/dbconn"
 	"github.com/square/blip/event"
+	"github.com/square/blip/monitor"
 )
 
 func Defaults() (Plugins, Factories) {
@@ -25,7 +26,7 @@ func Defaults() (Plugins, Factories) {
 	factories := Factories{
 		AWSConfig:  awsConfig,
 		DbConn:     dbMaker,
-		DbMon:      nil, // deferred, created in server.Boot
+		Monitor:    nil, // deferred, created in server.Boot
 		HTTPClient: httpClientFactory{},
 	}
 	return Plugins{}, factories
@@ -43,7 +44,7 @@ type Plugins struct {
 type Factories struct {
 	AWSConfig  aws.ConfigFactory
 	DbConn     dbconn.Factory
-	DbMon      DbMonFactory
+	Monitor    monitor.Factory
 	HTTPClient HTTPClientFactory
 }
 

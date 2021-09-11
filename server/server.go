@@ -14,6 +14,7 @@ import (
 	"github.com/square/blip/collect"
 	"github.com/square/blip/event"
 	"github.com/square/blip/metrics"
+	"github.com/square/blip/monitor"
 	"github.com/square/blip/sink"
 	"github.com/square/blip/status"
 )
@@ -31,7 +32,8 @@ func ControlChans() (stopChan, doneChan chan struct{}) {
 type Server struct {
 	cfg           blip.Config
 	cmdline       CommandLine
-	monitorLoader *MonitorLoader
+	planLoader    *collect.PlanLoader
+	monitorLoader *monitor.Loader
 	api           *API
 	stopChan      chan struct{}
 	doneChan      chan struct{}
@@ -144,20 +146,8 @@ func (s *Server) Boot(plugin Plugins, factory Factories) error {
 	// Get the built-in level plan loader singleton. It's used in two places:
 	// here for initial plan loading, and level.Collector (LPC) to fetch the
 	// plan and set the Monitor to use it.
-	planLoader := collect.DefaultPlanLoader()
-
-	// User-provided LoadLevelPlans plugin takes priority if set; else, use
-	// the built-in default plan loader.
-	if plugin.LoadLevelPlans != nil {
-		blip.Debug("call plugin.LoadLevelPlans")
-		plans, err := plugin.LoadLevelPlans(cfg)
-		if err != nil {
-			return err
-		}
-		err = planLoader.SetPlans(plans)
-	} else {
-		err = planLoader.LoadPlans(cfg, factory.DbConn)
-	}
+	s.planLoader = collect.NewPlanLoader(s.cfg, plugin.LoadLevelPlans)
+	err = s.planLoader.LoadPlans(factory.DbConn)
 	if err != nil {
 		event.Sendf(event.BOOT_PLANS_ERROR, err.Error())
 		return err
@@ -165,7 +155,7 @@ func (s *Server) Boot(plugin Plugins, factory Factories) error {
 	event.Send(event.BOOT_PLANS_LOADED)
 
 	if s.cmdline.Options.PrintPlans {
-		planLoader.Print()
+		s.planLoader.Print()
 	}
 
 	// ----------------------------------------------------------------------
@@ -187,19 +177,15 @@ func (s *Server) Boot(plugin Plugins, factory Factories) error {
 	*/
 
 	// ----------------------------------------------------------------------
-	// Database monitors (dbmon)
+	// Database monitors
 
 	// Make deferred dbmon factory
-	if factory.DbMon == nil {
-		factory.DbMon = &dbmonFactory{
-			mcMaker:    metrics.DefaultFactory,
-			dbMaker:    factory.DbConn,
-			planLoader: collect.DefaultPlanLoader(),
-		}
+	if factory.Monitor == nil {
+		factory.Monitor = monitor.NewFactory(metrics.DefaultFactory, factory.DbConn, s.planLoader)
 	}
 
 	// Create, but don't start, database monitors. They're started later in Run.
-	s.monitorLoader = NewMonitorLoader(cfg, plugin, factory)
+	s.monitorLoader = monitor.NewLoader(s.cfg, plugin.LoadMonitors, factory.Monitor, factory.DbConn)
 	if _, err := s.monitorLoader.Load(context.Background()); err != nil {
 		event.Sendf(event.BOOT_MONITORS_ERROR, err.Error())
 		return err

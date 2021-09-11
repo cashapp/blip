@@ -1,215 +1,298 @@
+// Package monitor provides the monitor type that monitors one MySQL instnace.
 package monitor
 
 import (
-	"context"
 	"database/sql"
+	"log"
+	"runtime"
 	"sync"
 	"time"
 
 	"github.com/square/blip"
 	"github.com/square/blip/collect"
+	"github.com/square/blip/dbconn"
 	"github.com/square/blip/event"
+	"github.com/square/blip/ha"
+	"github.com/square/blip/heartbeat"
 	"github.com/square/blip/metrics"
-	"github.com/square/blip/status"
+	"github.com/square/blip/prom"
+	"github.com/square/blip/sink"
 )
 
-// Monitor monitors a single MySQL instances. It implments blip.Monitor.
-type Monitor struct {
-	monitorId string
-	db        *sql.DB
-	mcMaker   metrics.CollectorFactory
-	// --
-	mcList  map[string]metrics.Collector   // keyed on domain
-	atLevel map[string][]metrics.Collector // keyed on level
-	*sync.RWMutex
-	connected bool
-	ready     bool
-	plan      collect.Plan
-	event     event.MonitorSink
-	sem       chan bool
-	semSize   int
+type Factory interface {
+	Make(blip.ConfigMonitor) Monitor
 }
 
-func NewMonitor(monitorId string, db *sql.DB, mcMaker metrics.CollectorFactory) *Monitor {
-	sem := make(chan bool, 2)
-	semSize := 2
-	for i := 0; i < semSize; i++ {
-		sem <- true
-	}
+type factory struct {
+	mcMaker    metrics.CollectorFactory
+	dbMaker    dbconn.Factory
+	planLoader *collect.PlanLoader
+}
 
-	return &Monitor{
-		monitorId: monitorId,
-		db:        db,
-		mcMaker:   mcMaker,
-		// --
-		atLevel: map[string][]metrics.Collector{},
-		mcList:  map[string]metrics.Collector{},
-		RWMutex: &sync.RWMutex{},
-		event:   event.MonitorSink{MonitorId: monitorId},
-		sem:     sem,
-		semSize: semSize,
+var _ Factory = factory{}
+
+func NewFactory(mcMaker metrics.CollectorFactory, dbMaker dbconn.Factory, planLoader *collect.PlanLoader) Factory {
+	return &factory{
+		mcMaker:    mcMaker,
+		dbMaker:    dbMaker,
+		planLoader: planLoader,
 	}
 }
 
-func (m *Monitor) MonitorId() string {
-	return m.monitorId
+func (f factory) Make(cfg blip.ConfigMonitor) Monitor {
+	return &monitor{
+		monitorId:  blip.MonitorId(cfg),
+		config:     cfg,
+		mcMaker:    f.mcMaker,
+		dbMaker:    f.dbMaker,
+		planLoader: f.planLoader,
+	}
 }
 
-func (m *Monitor) DB() *sql.DB {
-	return m.db
+type Monitor interface {
+	MonitorId() string
+	DB() *sql.DB
+	Config() blip.ConfigMonitor
+	Start() error
+	Stop() error
 }
 
-func (m *Monitor) Config() blip.ConfigMonitor {
-	// Get config from DbMon
-	return blip.ConfigMonitor{}
+// monitor monitors one MySQL instance.
+type monitor struct {
+	// Factory values
+	monitorId  string
+	config     blip.ConfigMonitor
+	mcMaker    metrics.CollectorFactory
+	dbMaker    dbconn.Factory
+	planLoader *collect.PlanLoader
+
+	// monitor and sub-components
+	engine *Engine
+	db     *sql.DB
+	lpc    LevelCollector
+	lpa    LevelAdjuster
+	hbw    heartbeat.Writer
+	hbr    heartbeat.Reader
+
+	// Control chans and sync
+	*sync.Mutex
+	stopChan    chan struct{}
+	doneChanLPA chan struct{}
+	doneChanLPC chan struct{}
+	doneChanHBW chan struct{}
+	doneChanHBR chan struct{}
+	stopped     bool
 }
 
-// Prepare prepares the monitor to collect metrics for the plan. The monitor
-// must be successfully prepared for Collect() to work because Prepare()
-// initializes metrics collectors for every level of the plan. Prepare() can
-// be called again when, for example, the LPA (level.Adjuster) detects a state
-// change and calls the LPC (level.Collector) to change plans, which than calls
-// this func with the new state plan. (Each monitor has its own LPA and LPC.)
-//
-// Do not call this func concurrently! It does not guard against concurrent
-// calls. Instead, serialization is handled by the only caller: ChangePlan()
-// from the monitor's LPC.
-func (m *Monitor) Prepare(ctx context.Context, plan collect.Plan) error {
-	m.event.Sendf(event.MONITOR_PREPARE_PLAN, plan.Name)
-	status.Monitor(m.monitorId, "monitor", "preparing plan %s", plan.Name)
+var _ Monitor = &monitor{}
 
-	// Try forever to make a successful connection
-	if !m.connected {
-		m.event.Send(event.MONITOR_CONNECTING)
-		for {
-			dbctx, cancel := context.WithTimeout(ctx, 5*time.Second)
-			err := m.db.PingContext(dbctx)
-			cancel()
-			if err == nil {
-				m.event.Send(event.MONITOR_CONNECTED)
-				break
-			}
+// monitorId returns the monitor ID. This method implements blip.monitor.
+func (d *monitor) MonitorId() string {
+	return d.monitorId
+}
 
-			select {
-			case <-ctx.Done():
-				return nil
-			default:
-			}
+// DB returns the low-level database connection. This method implements blip.monitor.
+func (d *monitor) DB() *sql.DB {
+	return d.db
+}
 
-			time.Sleep(2 * time.Second)
+// Config returns the monitor config. This method implements blip.monitor.
+func (d *monitor) Config() blip.ConfigMonitor {
+	return d.config
+}
+
+// Start starts monitoring the database if no error is returned.
+func (d *monitor) Start() error {
+	var err error
+
+	d.db, err = d.dbMaker.Make(d.config)
+	if err != nil {
+		return err // @todo
+	}
+
+	sinks := []sink.Sink{}
+	for sinkName, opts := range d.config.Sinks {
+		sink, err := sink.Make(sinkName, d.monitorId, opts)
+		if err != nil {
+			return err
 		}
+		sinks = append(sinks, sink)
+		blip.Debug("%s sends to %s", d.monitorId, sinkName)
+	}
+	if len(sinks) == 0 && !blip.Strict {
+		blip.Debug("using log sink")
+		sink, _ := sink.Make("log", d.monitorId, map[string]string{})
+		sinks = append(sinks, sink)
 	}
 
-	// Create and prepare metric collectors for every level
-	atLevel := map[string][]metrics.Collector{}
-	for levelName, level := range plan.Levels {
-		for domain, _ := range level.Collect {
-
-			// Make collector if needed
-			mc, ok := m.mcList[domain]
-			if !ok {
-				var err error
-				mc, err = m.mcMaker.Make(
-					domain,
-					metrics.FactoryArgs{
-						MonitorId: m.monitorId,
-						DB:        m.db,
-					},
-				)
-				if err != nil {
-					blip.Debug(err.Error())
-					return err // @todo
-				}
-				m.mcList[domain] = mc
-			}
-
-			// @todo pass ctx
-
-			if err := mc.Prepare(plan); err != nil {
-				blip.Debug("%s: mc.Prepare error: %s", m.monitorId, err)
-				return err // @todo
-			}
-
-			// At this level, collect from this domain
-			atLevel[levelName] = append(atLevel[levelName], mc)
-
-			// OK to keep working?
-			select {
-			case <-ctx.Done():
-				return nil
-			default:
-			}
-		}
-	}
-
-	m.Lock()
-	m.atLevel = atLevel
-	m.plan = plan
-	m.ready = true
-	m.Unlock()
-
-	status.Monitor(m.monitorId, "monitor", "ready to collect plan %s", plan.Name)
+	d.Mutex = &sync.Mutex{}
+	d.stopChan = make(chan struct{})
+	d.engine = NewEngine(d.monitorId, d.db, metrics.DefaultFactory)
+	d.lpc = NewLevelCollector(LevelCollectorArgs{
+		Engine:     d.engine,
+		PlanLoader: d.planLoader,
+		Sinks:      sinks,
+	})
+	go d.run()
 	return nil
 }
 
-func (m *Monitor) Collect(ctx context.Context, levelName string) (*blip.Metrics, error) {
-	// Lock while collecting so Preapre cannot change plan while using it.
-	// This func shouldn't take a lot less than 1s to exec.
-	m.RLock()
+func (d *monitor) run() {
 	defer func() {
-	RECHARGE_SEMAPHORE:
-		for i := 0; i < m.semSize; i++ {
-			select {
-			case m.sem <- true:
-			default:
-				break RECHARGE_SEMAPHORE
-			}
+		if err := recover(); err != nil {
+			b := make([]byte, 4096)
+			n := runtime.Stack(b, false)
+			log.Printf("PANIC: %s\n%s", err, string(b[0:n]))
 		}
-		m.RUnlock()
+		d.Stop()
 	}()
 
-	if !m.ready {
-		blip.Debug("%s not ready", m.monitorId)
-		return nil, nil
+	if d.config.Exporter.Bind != "" {
+		exp := prom.NewExporter(
+			d.monitorId,
+			d.db,
+			d.mcMaker,
+		)
+		if err := exp.Prepare(collect.PromPlan()); err != nil {
+			// @todo move to Boot
+			blip.Debug(err.Error())
+			return
+		}
+		api := prom.NewAPI(d.config.Exporter.Bind, d.monitorId, exp)
+		go api.Run()
+		if blip.True(d.config.Exporter.Legacy) {
+			blip.Debug("legacy mode")
+			<-d.stopChan
+			return
+		}
 	}
 
-	mc := m.atLevel[levelName]
-	if mc == nil {
-		blip.Debug("%s no mc at level '%s'", m.monitorId, levelName)
-		return nil, nil
+	// Run option level plan adjuster (lpa). When enabled, the lpa checks the
+	// state of MySQL . If the state changes,
+	// it calls lpc.ChangePlan to change the plan as configured by
+	// config.monitors.M.plans.adjust.<state>.
+	if d.config.Plans.Adjust.Enabled() {
+		d.doneChanLPA = make(chan struct{})
+		d.lpa = NewLevelAdjuster(LevelAdjusterArgs{
+			MonitorId: d.monitorId,
+			Config:    d.config.Plans.Adjust,
+			DB:        d.db,
+			LPC:       d.lpc,
+			HA:        ha.Disabled,
+		})
+		go d.lpa.Run(d.stopChan, d.doneChanLPA)
+	} else {
+		// When the lpa is not enabled, we need to get the party started by
+		// setting the first (and only) plan: "". When lpc.ChangePlan passes that
+		// along to planLoader.Plan, the plan loader will automatically find
+		// and return the first plan by precedence: first plan from table, or
+		// first plan file, or internal plan--trying monitor plans first, then
+		// default plans. So it always finds something: the default internal plan,
+		// if nothing else.
+		//
+		// Also, without an lpa, monitors default to active state.
+		if err := d.lpc.ChangePlan(blip.STATE_ACTIVE, ""); err != nil {
+			blip.Debug(err.Error())
+			// @todo
+		}
 	}
 
-	blip.Debug("%s: collect level in plan %s", m.monitorId, m.plan.Name)
-	status.Monitor(m.monitorId, "monitor", "collect level in plan %s", levelName, m.plan.Name)
-	defer status.Monitor(m.monitorId, "monitor", "waiting to collect plan %s", m.plan.Name)
+	// Run optional heartbeat monitor to monitor replication lag. When enabled,
+	// the heartbeat (hb) writes a high-resolution timestamp to a row in a table
+	// at the configured frequence: config.monitors.M.heartbeat.freq.
+	if !blip.True(d.config.Heartbeat.Disable) {
 
-	bm := &blip.Metrics{
-		Plan:      m.plan.Name,
-		Level:     levelName,
-		MonitorId: m.monitorId,
-		Values:    make(map[string][]blip.MetricValue, len(mc)),
-	}
-	mux := &sync.Mutex{} // serialize writes to Values ^
+		if !blip.True(d.config.Heartbeat.DisableWrite) {
+			d.hbw = heartbeat.NewWriter(d.monitorId, d.db)
+			d.doneChanHBW = make(chan struct{})
+			go d.hbw.Write(d.stopChan, d.doneChanHBW)
+		}
 
-	var wg sync.WaitGroup
-	bm.Begin = time.Now()
-	for i := range mc {
-		<-m.sem
-		wg.Add(1)
-		go func(mc metrics.Collector) {
-			defer wg.Done()
-			defer func() { m.sem <- true }()
-			vals, err := mc.Collect(ctx, levelName)
-			if err != nil {
-				// @todo
+		if !!blip.True(d.config.Heartbeat.DisableRead) &&
+			(len(d.config.Heartbeat.Source) > 0 || !blip.True(d.config.Heartbeat.DisableAutoSource)) {
+			var sf heartbeat.SourceFinder
+			if len(d.config.Heartbeat.Source) > 0 {
+				sf = heartbeat.NewStaticSourceList(d.config.Heartbeat.Source, d.db)
+			} else if !blip.True(d.config.Heartbeat.DisableAutoSource) {
+				sf = heartbeat.NewAutoSourceFinder() // @todo
+			} else {
+				panic("no repl sources and auto-source disable")
 			}
-			mux.Lock()
-			bm.Values[mc.Domain()] = vals
-			mux.Unlock()
-		}(mc[i])
+			d.hbr = heartbeat.NewReader(
+				d.config,
+				d.db,
+				heartbeat.NewSlowFastWaiter(),
+				sf,
+			)
+			d.doneChanHBR = make(chan struct{})
+			go d.hbr.Read(d.stopChan, d.doneChanHBR)
+		} else {
+			blip.Debug("heartbeat read disabled: no sources, aut-source dissabled")
+		}
 	}
-	wg.Wait()
-	bm.End = time.Now()
 
-	return bm, nil
+	// @todo inconsequential race condition
+
+	// Run level plan collector (lpc). This is the foundation of d.
+	d.doneChanLPC = make(chan struct{})
+	if err := d.lpc.Run(d.stopChan, d.doneChanLPC); err != nil {
+		blip.Debug(err.Error())
+		// @todo
+	}
+}
+
+func (d *monitor) Stop() error {
+	d.Lock()
+	defer d.Unlock()
+	if d.stopped {
+		return nil
+	}
+	d.stopped = true
+
+	defer event.Sendf(event.MONITOR_STOPPED, d.monitorId)
+
+	close(d.stopChan)
+	d.db.Close()
+
+	running := 0
+	if d.doneChanLPC != nil {
+		running += 1 // lpc
+	}
+	if d.doneChanLPA != nil {
+		running += 1 // lpa
+	}
+	if d.doneChanHBW != nil {
+		running += 1 // + Heartbeat writer
+	}
+	if d.doneChanHBR != nil {
+		running += 1 // + Heartbeat reader
+	}
+
+WAIT_LOOP:
+	for running > 0 {
+		blip.Debug("%s: %d running", d.monitorId, running)
+		select {
+		case <-d.doneChanLPA:
+			blip.Debug("%s: lpa done", d.monitorId)
+			d.doneChanLPA = nil
+			running -= 1
+		case <-d.doneChanLPC:
+			blip.Debug("%s: lpc done", d.monitorId)
+			d.doneChanLPC = nil
+			running -= 1
+		case <-d.doneChanHBW:
+			blip.Debug("%s: hb writer done", d.monitorId)
+			d.doneChanHBW = nil
+			running -= 1
+		case <-d.doneChanHBR:
+			blip.Debug("%s: hb reader done", d.monitorId)
+			d.doneChanHBR = nil
+			running -= 1
+		case <-time.After(2 * time.Second):
+			// @todo
+			break WAIT_LOOP
+		}
+	}
+
+	return nil
 }

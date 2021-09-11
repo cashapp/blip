@@ -1,3 +1,5 @@
+// Package collect provides the Plan type, the PlanLoader singleton, internal
+// plans, and utility functions for collecting metrics.
 package collect
 
 // Plan represents different levels of metrics collection.

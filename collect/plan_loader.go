@@ -16,27 +16,25 @@ import (
 	"github.com/square/blip/dbconn"
 )
 
-// PlanLooader is a singleton repo for level plans.
+// PlanLooader is a singleton service and repo for level plans.
 type PlanLoader struct {
+	cfg          blip.Config
+	plugin       func(blip.Config) ([]Plan, error)
 	defaultPlans map[string]Plan            // keyed on Plan.Name
 	monitorPlans map[string]map[string]Plan // keyed on monitorId, Plan.Name
 	needToLoad   map[string]string          // keyed on monitorId => Plan.Table
 	*sync.RWMutex
 }
 
-var planLoader *PlanLoader
-
-func init() {
-	planLoader = &PlanLoader{
+func NewPlanLoader(cfg blip.Config, plugin func(blip.Config) ([]Plan, error)) *PlanLoader {
+	return &PlanLoader{
+		cfg:          cfg,
+		plugin:       plugin,
 		defaultPlans: map[string]Plan{},
 		monitorPlans: map[string]map[string]Plan{},
 		needToLoad:   map[string]string{},
 		RWMutex:      &sync.RWMutex{},
 	}
-}
-
-func DefaultPlanLoader() *PlanLoader {
-	return planLoader
 }
 
 func (pl *PlanLoader) SetPlans(plans []Plan) error {
@@ -54,35 +52,49 @@ func (pl *PlanLoader) SetPlans(plans []Plan) error {
 // Server.Boot() to load all plan when the user doesn't specify a LoadLevelPlans
 // plugin. Monitor plans from a table are deferred until the monitor's LPC
 // calls Plan() because the monitor might not be online when Blip starts.
-func (pl *PlanLoader) LoadPlans(cfg blip.Config, dbMaker dbconn.Factory) error {
+func (pl *PlanLoader) LoadPlans(dbMaker dbconn.Factory) error {
 	// ----------------------------------------------------------------------
 	// Default plans: config.plans
 	// ----------------------------------------------------------------------
 
 	defaultPlans := map[string]Plan{}
 
-	if cfg.Plans.Table != "" {
-		// Read default plans from table on cfg.plans.monitor
-		blip.Debug("loading plans from %s", cfg.Plans.Table)
+	if pl.plugin != nil {
+		plans, err := pl.plugin(pl.cfg)
+		if err != nil {
+			return err
+		}
+		for i, plan := range plans {
+			if i == 0 {
+				plan.firstRow = true
+			}
+			defaultPlans[plan.Name] = plan
+		}
+		return nil
+	}
+
+	if pl.cfg.Plans.Table != "" {
+		// Read default plans from table on pl.cfg.plans.monitor
+		blip.Debug("loading plans from %s", pl.cfg.Plans.Table)
 
 		// Connect to db specified by config.plans.monitor, which should have
 		// been validated already, but double check. It reuses ConfigMonitor
 		// for the DSN info, not because it's an actual db to monitor.
-		if cfg.Plans.Monitor == nil {
+		if pl.cfg.Plans.Monitor == nil {
 			if blip.Strict {
 				return fmt.Errorf("Table set but Monitor is nil")
 			} else {
 				blip.Debug("ignoring plans.Table because Monitor=nil and not strict")
 			}
 		} else {
-			db, err := dbMaker.Make(*cfg.Plans.Monitor)
+			db, err := dbMaker.Make(*pl.cfg.Plans.Monitor)
 			if err != nil {
 				return err
 			}
 			defer db.Close()
 
 			// Last arg "" = no monitorId, read all rows
-			plans, err := ReadPlansFromTable(cfg.Plans.Table, db, "")
+			plans, err := ReadPlansFromTable(pl.cfg.Plans.Table, db, "")
 			if err != nil {
 				return err
 			}
@@ -97,10 +109,10 @@ func (pl *PlanLoader) LoadPlans(cfg blip.Config, dbMaker dbconn.Factory) error {
 		}
 	}
 
-	if len(cfg.Plans.Files) > 0 {
+	if len(pl.cfg.Plans.Files) > 0 {
 		// Read all plans from all files
-		blip.Debug("loading plans from %v", cfg.Plans.Files)
-		plans, err := ReadPlansFromFiles(cfg.Plans.Files)
+		blip.Debug("loading plans from %v", pl.cfg.Plans.Files)
+		plans, err := ReadPlansFromFiles(pl.cfg.Plans.Files)
 		if err != nil {
 			return err
 		}
@@ -128,7 +140,7 @@ func (pl *PlanLoader) LoadPlans(cfg blip.Config, dbMaker dbconn.Factory) error {
 	monitorPlans := map[string]map[string]Plan{}
 	needToLoad := map[string]string{}
 
-	for _, mon := range cfg.Monitors {
+	for _, mon := range pl.cfg.Monitors {
 		if mon.Plans.Table != "" {
 			// Monitor plans from table, but defer until monitor's LPC calls Plan()
 			blip.Debug("monitor %s plans from %s (deferred)", mon.MonitorId, mon.Plans.Table)
@@ -335,7 +347,7 @@ PATHS:
 func ReadPlansFromTable(table string, db *sql.DB, monitorId string) ([]Plan, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	q := fmt.Sprintf("SELECT name, plan, COALESCE(monitorId, '') FROM %s", dbconn.SanitizeTable(table))
+	q := fmt.Sprintf("SELECT name, plan, COALESCE(monitorId, '') FROM %s", blip.SanitizeTable(table))
 	if monitorId != "" {
 		q += " WHERE monitorId = '" + monitorId + "' ORDER BY name ASC" // @todo sanitize
 	}
