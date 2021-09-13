@@ -7,7 +7,6 @@ import (
 	"os"
 	"path"
 	"runtime"
-	"strings"
 	"time"
 )
 
@@ -79,14 +78,6 @@ func True(b *bool) bool {
 		return false
 	}
 	return *b
-}
-
-func SanitizeTable(table string) string {
-	v := strings.SplitN(table, ".", 2)
-	if len(v) == 1 {
-		return "`" + DEFAULT_DATABASE + "`.`" + v[0] + "`"
-	}
-	return "`" + v[0] + "`.`" + v[1] + "`"
 }
 
 func MonitorId(cfg ConfigMonitor) string {

@@ -8,7 +8,7 @@ import (
 	"github.com/hashicorp/go-version"
 
 	"github.com/square/blip"
-	"github.com/square/blip/collect"
+	"github.com/square/blip/sqlutil"
 )
 
 const (
@@ -32,16 +32,16 @@ func (c *Binlogs) Domain() string {
 	return binlog_domain
 }
 
-func (c *Binlogs) Help() collect.Help {
-	return collect.Help{
+func (c *Binlogs) Help() blip.CollectorHelp {
+	return blip.CollectorHelp{
 		Domain:      binlog_domain,
 		Description: "Collect size of binary logs",
-		Options:     map[string]collect.HelpOption{},
+		Options:     map[string]blip.CollectorHelpOption{},
 	}
 }
 
 // Prepares queries for all levels in the plan that contain the "var.global" domain
-func (c *Binlogs) Prepare(plan collect.Plan) error {
+func (c *Binlogs) Prepare(plan blip.Plan) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
 	defer cancel()
 	var val string
@@ -84,7 +84,7 @@ func (c *Binlogs) Collect(ctx context.Context, levelName string) ([]blip.MetricV
 			continue
 		}
 
-		n, ok = collect.Float64(val)
+		n, ok = sqlutil.Float64(val)
 		if !ok {
 			continue
 		}

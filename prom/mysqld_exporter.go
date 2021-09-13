@@ -10,7 +10,6 @@ import (
 	"github.com/prometheus/common/expfmt"
 
 	"github.com/square/blip"
-	"github.com/square/blip/collect"
 	"github.com/square/blip/metrics"
 	"github.com/square/blip/prom/tr"
 )
@@ -41,7 +40,7 @@ func (e *Exporter) Status() error {
 	return nil
 }
 
-func (e *Exporter) Prepare(plan collect.Plan) error {
+func (e *Exporter) Prepare(plan blip.Plan) error {
 	if len(plan.Levels) != 1 {
 		return fmt.Errorf("multiple levels not supported")
 	}

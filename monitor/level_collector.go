@@ -9,8 +9,8 @@ import (
 	"time"
 
 	"github.com/square/blip"
-	"github.com/square/blip/collect"
 	"github.com/square/blip/event"
+	"github.com/square/blip/plan"
 	"github.com/square/blip/sink"
 	"github.com/square/blip/status"
 )
@@ -44,12 +44,12 @@ func (a byFreq) Less(i, j int) bool { return a[i].freq < a[j].freq }
 type collector struct {
 	monitorId        string
 	engine           *Engine
-	planLoader       *collect.PlanLoader
+	planLoader       *plan.Loader
 	sinks            []sink.Sink
 	transformMetrics func(*blip.Metrics) error
 	// --
 	state                string
-	plan                 collect.Plan
+	plan                 blip.Plan
 	changing             bool
 	changePlanCancelFunc context.CancelFunc
 	changePlanDoneChan   chan struct{}
@@ -63,17 +63,18 @@ type collector struct {
 type LevelCollectorArgs struct {
 	MonitorId        string
 	Engine           *Engine
-	PlanLoader       *collect.PlanLoader
+	PlanLoader       *plan.Loader
 	Sinks            []sink.Sink
 	TransformMetrics func(*blip.Metrics) error
 }
 
 func NewLevelCollector(args LevelCollectorArgs) *collector {
 	return &collector{
-		monitorId:  args.MonitorId,
-		engine:     args.Engine,
-		planLoader: args.PlanLoader,
-		sinks:      args.Sinks,
+		monitorId:        args.MonitorId,
+		engine:           args.Engine,
+		planLoader:       args.PlanLoader,
+		sinks:            args.Sinks,
+		transformMetrics: args.TransformMetrics,
 		// --
 		changeMux: &sync.Mutex{},
 		stateMux:  &sync.Mutex{},
@@ -258,7 +259,7 @@ func (c *collector) changePlan(ctx context.Context, newState, newPlanName string
 	return nil
 }
 
-func LevelUp(plan *collect.Plan) []level {
+func LevelUp(plan *blip.Plan) []level {
 	levels := make([]level, len(plan.Levels))
 	i := 0
 	for _, l := range plan.Levels {

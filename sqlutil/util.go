@@ -1,4 +1,4 @@
-package collect
+package sqlutil
 
 import (
 	"strconv"
@@ -55,4 +55,12 @@ func INList(objs []string, quoteChar string) string {
 		in += "," + quoteChar + CleanObjectName(objs[i]) + quoteChar
 	}
 	return in
+}
+
+func SanitizeTable(table, db string) string {
+	v := strings.SplitN(table, ".", 2)
+	if len(v) == 1 {
+		return "`" + db + "`.`" + v[0] + "`"
+	}
+	return "`" + v[0] + "`.`" + v[1] + "`"
 }

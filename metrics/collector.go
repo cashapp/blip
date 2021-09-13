@@ -7,7 +7,6 @@ import (
 	"sync"
 
 	"github.com/square/blip"
-	"github.com/square/blip/collect"
 	"github.com/square/blip/event"
 	"github.com/square/blip/metrics/innodb"
 	"github.com/square/blip/metrics/size"
@@ -21,10 +20,10 @@ type Collector interface {
 	Domain() string
 
 	// Help returns information about using the collector.
-	Help() collect.Help
+	Help() blip.CollectorHelp
 
 	// Prepare prepares a plan for future calls to Collect.
-	Prepare(collect.Plan) error
+	Prepare(blip.Plan) error
 
 	// Collect collects metrics for the given in the previously prepared plan.
 	Collect(ctx context.Context, levelName string) ([]blip.MetricValue, error)

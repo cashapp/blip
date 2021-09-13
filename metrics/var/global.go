@@ -11,7 +11,7 @@ import (
 	_ "github.com/go-sql-driver/mysql"
 
 	"github.com/square/blip"
-	"github.com/square/blip/collect"
+	"github.com/square/blip/sqlutil"
 )
 
 const (
@@ -28,7 +28,7 @@ var validMetricRegex = regexp.MustCompile("^[a-zA-Z0-9_-]*$")
 // Global collects global system variables for the var.global domain.
 type Global struct {
 	db       *sql.DB
-	plans    collect.Plan
+	plans    blip.Plan
 	domain   string
 	metrics  map[string][]string // keyed on level
 	queryIn  map[string]string
@@ -52,11 +52,11 @@ func (c *Global) Domain() string {
 	return blip_domain
 }
 
-func (c *Global) Help() collect.Help {
-	return collect.Help{
+func (c *Global) Help() blip.CollectorHelp {
+	return blip.CollectorHelp{
 		Domain:      blip_domain,
 		Description: "Collect global status variables (sysvars)",
-		Options: map[string]collect.HelpOption{
+		Options: map[string]blip.CollectorHelpOption{
 			OPT_SOURCE: {
 				Name:    OPT_SOURCE,
 				Desc:    "Where to collect sysvars from",
@@ -81,7 +81,7 @@ func (c *Global) Help() collect.Help {
 }
 
 // Prepares queries for all levels in the plan that contain the "var.global" domain
-func (c *Global) Prepare(plan collect.Plan) error {
+func (c *Global) Prepare(plan blip.Plan) error {
 LEVEL:
 	for levelName, level := range plan.Levels {
 		dom, ok := level.Collect[blip_domain]
@@ -254,7 +254,7 @@ func (c *Global) collectSELECT(ctx context.Context, levelName string) ([]blip.Me
 
 		values := strings.Split(val, ",")
 		for i, metric := range c.metrics[levelName] {
-			f, ok := collect.Float64(values[i])
+			f, ok := sqlutil.Float64(values[i])
 			if !ok {
 				continue
 			}
@@ -291,7 +291,7 @@ func (c *Global) collectRows(ctx context.Context, levelName string) ([]blip.Metr
 			continue
 		}
 
-		m.Value, ok = collect.Float64(val)
+		m.Value, ok = sqlutil.Float64(val)
 		if !ok {
 			// log.Printf("Error parsing the metric: %s value: %s as float %s", m.Name, val, err)
 			// Log error and continue to next row to retrieve next metric

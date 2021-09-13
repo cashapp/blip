@@ -11,10 +11,10 @@ import (
 	"time"
 
 	"github.com/square/blip"
-	"github.com/square/blip/collect"
 	"github.com/square/blip/event"
 	"github.com/square/blip/metrics"
 	"github.com/square/blip/monitor"
+	"github.com/square/blip/plan"
 	"github.com/square/blip/sink"
 	"github.com/square/blip/status"
 )
@@ -32,7 +32,7 @@ func ControlChans() (stopChan, doneChan chan struct{}) {
 type Server struct {
 	cfg           blip.Config
 	cmdline       CommandLine
-	planLoader    *collect.PlanLoader
+	planLoader    *plan.Loader
 	monitorLoader *monitor.Loader
 	api           *API
 	stopChan      chan struct{}
@@ -141,12 +141,17 @@ func (s *Server) Boot(plugin Plugins, factory Factories) error {
 	}
 
 	// ----------------------------------------------------------------------
+	// Register default metric collectors and sinks
+	metrics.RegisterDefaults()
+	sink.RegisterDefaults()
+
+	// ----------------------------------------------------------------------
 	// Load level plans
 
 	// Get the built-in level plan loader singleton. It's used in two places:
 	// here for initial plan loading, and level.Collector (LPC) to fetch the
 	// plan and set the Monitor to use it.
-	s.planLoader = collect.NewPlanLoader(s.cfg, plugin.LoadLevelPlans)
+	s.planLoader = plan.NewLoader(s.cfg, plugin.LoadLevelPlans)
 	err = s.planLoader.LoadPlans(factory.DbConn)
 	if err != nil {
 		event.Sendf(event.BOOT_PLANS_ERROR, err.Error())
@@ -159,27 +164,9 @@ func (s *Server) Boot(plugin Plugins, factory Factories) error {
 	}
 
 	// ----------------------------------------------------------------------
-	// Sinks
-
-	metrics.RegisterDefaults()
-	sink.RegisterDefaults()
-
-	/*
-		if plugin.TransformMetrics != nil {
-			allSinks := sinks
-			tf := sink.TransformMetrics{
-				Plugin: plugin.TransformMetrics,
-				Sinks:  allSinks,
-			}
-			sinks = []sink.Sink{tf}
-			blip.Debug("using plugin.TransformMetrics")
-		}
-	*/
-
-	// ----------------------------------------------------------------------
 	// Database monitors
 
-	// Make deferred dbmon factory
+	// Make deferred monitor factory
 	if factory.Monitor == nil {
 		factory.Monitor = monitor.NewFactory(metrics.DefaultFactory, factory.DbConn, s.planLoader)
 	}
@@ -195,18 +182,15 @@ func (s *Server) Boot(plugin Plugins, factory Factories) error {
 		fmt.Println(s.monitorLoader.Print())
 	}
 
-	if !s.cmdline.Options.BootCheck && (s.cmdline.Options.PrintConfig || s.cmdline.Options.PrintPlans || s.cmdline.Options.PrintMonitors) {
-		os.Exit(0)
-	}
-
 	// ----------------------------------------------------------------------
 	// API
 	s.api = NewAPI(cfg.API)
 
 	// Exit if boot check, else return and caller should call Run
-	if s.cmdline.Options.BootCheck {
+	if s.cmdline.Options.BootCheck || s.cmdline.Options.PrintConfig || s.cmdline.Options.PrintPlans || s.cmdline.Options.PrintMonitors {
 		os.Exit(0)
 	}
+
 	return nil
 }
 
@@ -223,8 +207,8 @@ func (s *Server) Run(stopChan, doneChan chan struct{}) error {
 
 	monitors := s.monitorLoader.Monitors()
 
-	// Space out dbmon so their clocks don't tick at the same time.
-	// We don't want, for example, 25 dbmon simultaneously waking up,
+	// Space out monitors so their clocks don't tick at the same time.
+	// We don't want, for example, 25 monitors simultaneously waking up,
 	// connecting to MySQL, processing metrics. That'll make Blip
 	// CPU/net usage unnecessarily spiky.
 	var space time.Duration
@@ -234,25 +218,24 @@ func (s *Server) Run(stopChan, doneChan chan struct{}) error {
 		space = 10 * time.Millisecond
 	}
 
-	// Start database monitors (dbmon), which starts metrics collection
-	for _, dbmon := range monitors {
+	// Start database monitors, which starts metrics collection
+	for _, m := range monitors {
 		time.Sleep(space)
-		if err := dbmon.Start(); err != nil {
+		if err := m.Start(); err != nil {
 			return err // @todo
 		}
 	}
 
 	go s.api.Run()
 
+	// Run until stopped by Shutdown or signal
 	event.Send(event.SERVER_RUN_WAIT)
-
 	signalChan := make(chan os.Signal)
 	signal.Notify(signalChan, os.Interrupt, syscall.SIGTERM)
 	select {
 	case <-stopChan:
 	case <-signalChan:
 	}
-
 	return nil
 }
 

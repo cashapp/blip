@@ -13,7 +13,6 @@ import (
 
 	"github.com/square/blip"
 	"github.com/square/blip/aws"
-	"github.com/square/blip/collect"
 	"github.com/square/blip/dbconn"
 	"github.com/square/blip/event"
 	"github.com/square/blip/monitor"
@@ -35,7 +34,7 @@ func Defaults() (Plugins, Factories) {
 type Plugins struct {
 	InitEventSink    func() event.Sink
 	LoadConfig       func(blip.Config) (blip.Config, error)
-	LoadLevelPlans   func(blip.Config) ([]collect.Plan, error)
+	LoadLevelPlans   func(blip.Config) ([]blip.Plan, error)
 	LoadMonitors     func(blip.Config) ([]blip.ConfigMonitor, error)
 	ModifyDB         func(*sql.DB)
 	TransformMetrics func(*blip.Metrics) error

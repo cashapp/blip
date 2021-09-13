@@ -4,10 +4,11 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/square/blip/collect"
+	"github.com/square/blip"
+	"github.com/square/blip/sqlutil"
 )
 
-func DataSizeQuery(set map[string]string, def collect.Help) (string, error) {
+func DataSizeQuery(set map[string]string, def blip.CollectorHelp) (string, error) {
 	cols := ""
 	groupBy := ""
 	if val := set[OPT_TOTAL]; val == "only" {
@@ -25,7 +26,7 @@ func DataSizeQuery(set map[string]string, def collect.Help) (string, error) {
 
 	where := ""
 	if include := set[OPT_INCLUDE]; include != "" {
-		o := collect.ObjectList(include, "'")
+		o := sqlutil.ObjectList(include, "'")
 		if like {
 			for i := range o {
 				o[i] = "table_schema LIKE " + o[i]
@@ -39,7 +40,7 @@ func DataSizeQuery(set map[string]string, def collect.Help) (string, error) {
 		if exclude == "" {
 			exclude = def.Options[OPT_EXCLUDE].Default
 		}
-		o := collect.ObjectList(exclude, "'")
+		o := sqlutil.ObjectList(exclude, "'")
 		if like {
 			for i := range o {
 				o[i] = "table_schema NOT LIKE " + o[i]

@@ -6,7 +6,7 @@ import (
 	"fmt"
 
 	"github.com/square/blip"
-	"github.com/square/blip/collect"
+	"github.com/square/blip/sqlutil"
 )
 
 const (
@@ -24,7 +24,7 @@ const (
 type Data struct {
 	monitorId string
 	db        *sql.DB
-	plans     collect.Plan
+	plans     blip.Plan
 	query     map[string]string // keyed on level
 	total     map[string]bool   // keyed on level
 }
@@ -41,11 +41,11 @@ func (c *Data) Domain() string {
 	return data_domain
 }
 
-func (c *Data) Help() collect.Help {
-	return collect.Help{
+func (c *Data) Help() blip.CollectorHelp {
+	return blip.CollectorHelp{
 		Domain:      binlog_domain,
 		Description: "Collect size of databases (total data size)",
-		Options: map[string]collect.HelpOption{
+		Options: map[string]blip.CollectorHelpOption{
 			OPT_TOTAL: {
 				Name:    OPT_TOTAL,
 				Desc:    "Return total size of all databases (tag=\"\")",
@@ -79,7 +79,7 @@ func (c *Data) Help() collect.Help {
 }
 
 // Prepares queries for all levels in the plan that contain the "var.global" domain
-func (c *Data) Prepare(plan collect.Plan) error {
+func (c *Data) Prepare(plan blip.Plan) error {
 LEVEL:
 	for _, level := range plan.Levels {
 		dom, ok := level.Collect[data_domain]
@@ -129,7 +129,7 @@ func (c *Data) Collect(ctx context.Context, levelName string) ([]blip.MetricValu
 
 		m.Tags["db"] = name
 
-		m.Value, ok = collect.Float64(val)
+		m.Value, ok = sqlutil.Float64(val)
 		if !ok {
 			continue
 		}

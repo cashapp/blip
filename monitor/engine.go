@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/square/blip"
-	"github.com/square/blip/collect"
 	"github.com/square/blip/event"
 	"github.com/square/blip/metrics"
 	"github.com/square/blip/status"
@@ -24,7 +23,7 @@ type Engine struct {
 	*sync.RWMutex
 	connected bool
 	ready     bool
-	plan      collect.Plan
+	plan      blip.Plan
 	event     event.MonitorSink
 	sem       chan bool
 	semSize   int
@@ -74,7 +73,7 @@ func (m *Engine) Config() blip.ConfigMonitor {
 // Do not call this func concurrently! It does not guard against concurrent
 // calls. Instead, serialization is handled by the only caller: ChangePlan()
 // from the monitor's LPC.
-func (m *Engine) Prepare(ctx context.Context, plan collect.Plan) error {
+func (m *Engine) Prepare(ctx context.Context, plan blip.Plan) error {
 	m.event.Sendf(event.MONITOR_PREPARE_PLAN, plan.Name)
 	status.Monitor(m.monitorId, "monitor", "preparing plan %s", plan.Name)
 

@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	"github.com/square/blip"
-	"github.com/square/blip/collect"
+	"github.com/square/blip/sqlutil"
 )
 
 const (
@@ -17,7 +17,7 @@ const (
 type Global struct {
 	monitorId string
 	db        *sql.DB
-	plans     collect.Plan
+	plans     blip.Plan
 	keep      map[string]map[string]bool
 	all       map[string]bool
 }
@@ -38,11 +38,11 @@ func (c *Global) Domain() string {
 	return blip_domain
 }
 
-func (c *Global) Help() collect.Help {
-	return collect.Help{
+func (c *Global) Help() blip.CollectorHelp {
+	return blip.CollectorHelp{
 		Domain:      blip_domain,
 		Description: "Collect global status variables (sysvars)",
-		Options: map[string]collect.HelpOption{
+		Options: map[string]blip.CollectorHelpOption{
 			OPT_ALL: {
 				Name: OPT_ALL,
 				Desc: "Collect all sysvars",
@@ -56,7 +56,7 @@ func (c *Global) Help() collect.Help {
 }
 
 // Prepares queries for all levels in the plan that contain the "var.global" domain
-func (c *Global) Prepare(plan collect.Plan) error {
+func (c *Global) Prepare(plan blip.Plan) error {
 LEVEL:
 	for _, level := range plan.Levels {
 		dom, ok := level.Collect[blip_domain]
@@ -104,7 +104,7 @@ func (c *Global) Collect(ctx context.Context, levelName string) ([]blip.MetricVa
 			continue
 		}
 
-		m.Value, ok = collect.Float64(val)
+		m.Value, ok = sqlutil.Float64(val)
 		if !ok {
 			// log.Printf("Error parsing the metric: %s value: %s as float %s", m.Name, val, err)
 			// Log error and continue to next row to retrieve next metric
