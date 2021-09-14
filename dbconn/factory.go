@@ -18,20 +18,12 @@ import (
 	"github.com/square/blip/aws"
 )
 
-type Factory interface {
-	Make(blip.ConfigMonitor) (*sql.DB, error)
-}
-
-var _ Factory = factory{}
-
 type factory struct {
-	awsConfg aws.ConfigFactory
+	awsConfg blip.AWSConfigFactory
 	modifyDB func(*sql.DB)
 }
 
-var _ Factory = factory{}
-
-func NewConnFactory(awsConfg aws.ConfigFactory, modifyDB func(*sql.DB)) factory {
+func NewConnFactory(awsConfg blip.AWSConfigFactory, modifyDB func(*sql.DB)) factory {
 	return factory{
 		awsConfg: awsConfg,
 		modifyDB: modifyDB,

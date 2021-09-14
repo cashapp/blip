@@ -1,7 +1,6 @@
 package server
 
 import (
-	"database/sql"
 	"fmt"
 	"io/ioutil"
 	"net/http"
@@ -14,41 +13,19 @@ import (
 	"github.com/square/blip"
 	"github.com/square/blip/aws"
 	"github.com/square/blip/dbconn"
-	"github.com/square/blip/event"
-	"github.com/square/blip/monitor"
 )
 
-func Defaults() (Plugins, Factories) {
+func Defaults() (blip.Plugins, blip.Factories) {
 	// Plugins are optional, but factories are required
 	awsConfig := aws.NewConfigFactory()
 	dbMaker := dbconn.NewConnFactory(awsConfig, nil)
-	factories := Factories{
+	factories := blip.Factories{
 		AWSConfig:  awsConfig,
 		DbConn:     dbMaker,
 		Monitor:    nil, // deferred, created in server.Boot
 		HTTPClient: httpClientFactory{},
 	}
-	return Plugins{}, factories
-}
-
-type Plugins struct {
-	InitEventSink    func() event.Sink
-	LoadConfig       func(blip.Config) (blip.Config, error)
-	LoadLevelPlans   func(blip.Config) ([]blip.Plan, error)
-	LoadMonitors     func(blip.Config) ([]blip.ConfigMonitor, error)
-	ModifyDB         func(*sql.DB)
-	TransformMetrics func(*blip.Metrics) error
-}
-
-type Factories struct {
-	AWSConfig  aws.ConfigFactory
-	DbConn     dbconn.Factory
-	Monitor    monitor.Factory
-	HTTPClient HTTPClientFactory
-}
-
-type HTTPClientFactory interface {
-	Make(cfg blip.ConfigHTTP, usedFor string) (*http.Client, error)
+	return blip.Plugins{}, factories
 }
 
 type httpClientFactory struct{}

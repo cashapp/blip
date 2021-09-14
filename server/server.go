@@ -12,10 +12,8 @@ import (
 
 	"github.com/square/blip"
 	"github.com/square/blip/event"
-	"github.com/square/blip/metrics"
 	"github.com/square/blip/monitor"
 	"github.com/square/blip/plan"
-	"github.com/square/blip/sink"
 	"github.com/square/blip/status"
 )
 
@@ -45,7 +43,7 @@ type Server struct {
 // sometimes is too wrong for Blip to run (for example, an invalid config).
 //
 // Boot must be called once before Run.
-func (s *Server) Boot(plugin Plugins, factory Factories) error {
+func (s *Server) Boot(plugin blip.Plugins, factory blip.Factories) error {
 	status.Blip("server", "booting")
 
 	// ----------------------------------------------------------------------
@@ -95,10 +93,6 @@ func (s *Server) Boot(plugin Plugins, factory Factories) error {
 	// As with all plugins, the plugin takes priority and is used exclusively
 	// if set by the user. If this plugin isn't set, the default even sink is
 	// event.ToSTDOUT, which simply prints events to STDOUT.
-	if plugin.InitEventSink != nil {
-		blip.Debug("call plugin.InitEventSink")
-		event.SetSink(plugin.InitEventSink())
-	}
 	event.Sendf(event.BOOT, "blip %s", blip.VERSION) // very first event
 
 	// ----------------------------------------------------------------------
@@ -141,11 +135,6 @@ func (s *Server) Boot(plugin Plugins, factory Factories) error {
 	}
 
 	// ----------------------------------------------------------------------
-	// Register default metric collectors and sinks
-	metrics.RegisterDefaults()
-	sink.RegisterDefaults()
-
-	// ----------------------------------------------------------------------
 	// Load level plans
 
 	// Get the built-in level plan loader singleton. It's used in two places:
@@ -168,7 +157,7 @@ func (s *Server) Boot(plugin Plugins, factory Factories) error {
 
 	// Make deferred monitor factory
 	if factory.Monitor == nil {
-		factory.Monitor = monitor.NewFactory(metrics.DefaultFactory, factory.DbConn, s.planLoader)
+		factory.Monitor = monitor.NewFactory(factory.DbConn, s.planLoader)
 	}
 
 	// Create, but don't start, database monitors. They're started later in Run.

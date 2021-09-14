@@ -17,39 +17,39 @@ import (
 type LoadFunc func(blip.Config) ([]blip.ConfigMonitor, error)
 
 type Changes struct {
-	Added   []Monitor
-	Removed []Monitor
-	Changed []Monitor
+	Added   []blip.Monitor
+	Removed []blip.Monitor
+	Changed []blip.Monitor
 }
 
 type Loader struct {
 	cfg      blip.Config
 	loadFunc LoadFunc
-	monMaker Factory
-	dbMaker  dbconn.Factory
+	monMaker blip.MonitorFactory
+	dbMaker  blip.DbFactory
 	// --
-	dbmon    map[string]Monitor // keyed on monitorId
+	dbmon    map[string]blip.Monitor // keyed on monitorId
 	source   string
 	stopLoss float64
 	*sync.Mutex
 }
 
-func NewLoader(cfg blip.Config, loadFunc LoadFunc, monMaker Factory, dbMaker dbconn.Factory) *Loader {
+func NewLoader(cfg blip.Config, loadFunc LoadFunc, monMaker blip.MonitorFactory, dbMaker blip.DbFactory) *Loader {
 	return &Loader{
 		cfg:      cfg,
 		loadFunc: loadFunc,
 		monMaker: monMaker,
 		dbMaker:  dbMaker,
 		// --
-		dbmon: map[string]Monitor{},
+		dbmon: map[string]blip.Monitor{},
 		Mutex: &sync.Mutex{},
 	}
 }
 
-func (ml *Loader) Monitors() []Monitor {
+func (ml *Loader) Monitors() []blip.Monitor {
 	ml.Lock()
 	defer ml.Unlock()
-	monitors := make([]Monitor, len(ml.dbmon))
+	monitors := make([]blip.Monitor, len(ml.dbmon))
 	i := 0
 	for _, dbmon := range ml.dbmon {
 		monitors[i] = dbmon
@@ -62,9 +62,9 @@ func (ml *Loader) Load(ctx context.Context) (Changes, error) {
 	event.Send(event.MONITOR_LOADER_LOADING)
 
 	ch := Changes{
-		Added:   []Monitor{},
-		Removed: []Monitor{},
-		Changed: []Monitor{},
+		Added:   []blip.Monitor{},
+		Removed: []blip.Monitor{},
+		Changed: []blip.Monitor{},
 	}
 	defer func() {
 		event.Sendf(event.BOOT_MONITORS_LOADED, "added: %d removed: %d changed: %d",
@@ -124,32 +124,32 @@ func (ml *Loader) Load(ctx context.Context) (Changes, error) {
 
 	// Make new dbmon, swap changed dbmon, and keep existing/same dbmon
 	for monitorId, cfg := range moncfg {
-		oldDbmon := ml.dbmon[monitorId]
+		oldMonitor := ml.dbmon[monitorId]
 		switch {
-		case oldDbmon == nil:
+		case oldMonitor == nil:
 			// NEW dbmon -----------------------------------------------------
-			newDbmon := ml.monMaker.Make(cfg)     // make new
-			ch.Added = append(ch.Added, newDbmon) // note new
-			ml.dbmon[monitorId] = newDbmon        // save new
-		case hash(cfg) != hash(oldDbmon.Config()):
+			newMonitor := ml.monMaker.Make(cfg)     // make new
+			ch.Added = append(ch.Added, newMonitor) // note new
+			ml.dbmon[monitorId] = newMonitor        // save new
+		case hash(cfg) != hash(oldMonitor.Config()):
 			// CHANGED dmon --------------------------------------------------
-			go oldDbmon.Stop()                        // stop prev
-			delete(ml.dbmon, monitorId)               // remove prev
-			ch.Changed = append(ch.Changed, oldDbmon) // note prev
-			newDbmon := ml.monMaker.Make(cfg)         // make new
-			ml.dbmon[monitorId] = newDbmon            // save new
+			go oldMonitor.Stop()                        // stop prev
+			delete(ml.dbmon, monitorId)                 // remove prev
+			ch.Changed = append(ch.Changed, oldMonitor) // note prev
+			newMonitor := ml.monMaker.Make(cfg)         // make new
+			ml.dbmon[monitorId] = newMonitor            // save new
 		default:
 			// Existing dbmon, no change -------------------------------------
 		}
 	}
 
 	// Stop and removed dbmon that have been removed
-	for monitorId, oldDbmon := range ml.dbmon {
+	for monitorId, oldMonitor := range ml.dbmon {
 		if _, ok := moncfg[monitorId]; ok {
 			continue
 		}
-		go oldDbmon.Stop()
-		ch.Removed = append(ch.Removed, oldDbmon)
+		go oldMonitor.Stop()
+		ch.Removed = append(ch.Removed, oldMonitor)
 		delete(ml.dbmon, monitorId)
 	}
 

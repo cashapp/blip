@@ -9,41 +9,30 @@ import (
 	"time"
 
 	"github.com/square/blip"
-	"github.com/square/blip/dbconn"
 	"github.com/square/blip/event"
 	"github.com/square/blip/ha"
 	"github.com/square/blip/heartbeat"
-	"github.com/square/blip/metrics"
 	"github.com/square/blip/plan"
 	"github.com/square/blip/prom"
 	"github.com/square/blip/sink"
 )
 
-type Factory interface {
-	Make(blip.ConfigMonitor) Monitor
-}
-
 type factory struct {
-	mcMaker    metrics.CollectorFactory
-	dbMaker    dbconn.Factory
+	dbMaker    blip.DbFactory
 	planLoader *plan.Loader
 }
 
-var _ Factory = factory{}
-
-func NewFactory(mcMaker metrics.CollectorFactory, dbMaker dbconn.Factory, planLoader *plan.Loader) Factory {
-	return &factory{
-		mcMaker:    mcMaker,
+func NewFactory(dbMaker blip.DbFactory, planLoader *plan.Loader) factory {
+	return factory{
 		dbMaker:    dbMaker,
 		planLoader: planLoader,
 	}
 }
 
-func (f factory) Make(cfg blip.ConfigMonitor) Monitor {
+func (f factory) Make(cfg blip.ConfigMonitor) blip.Monitor {
 	return &monitor{
 		monitorId:  blip.MonitorId(cfg),
 		config:     cfg,
-		mcMaker:    f.mcMaker,
 		dbMaker:    f.dbMaker,
 		planLoader: f.planLoader,
 	}
@@ -51,22 +40,12 @@ func (f factory) Make(cfg blip.ConfigMonitor) Monitor {
 
 // --------------------------------------------------------------------------
 
-// Monitor monitors one MySQL instance.
-type Monitor interface {
-	MonitorId() string
-	DB() *sql.DB
-	Config() blip.ConfigMonitor
-	Start() error
-	Stop() error
-}
-
 // monitor implements Monitor.
 type monitor struct {
 	// Factory values
 	monitorId  string
 	config     blip.ConfigMonitor
-	mcMaker    metrics.CollectorFactory
-	dbMaker    dbconn.Factory
+	dbMaker    blip.DbFactory
 	planLoader *plan.Loader
 
 	// monitor and sub-components
@@ -87,7 +66,7 @@ type monitor struct {
 	stopped     bool
 }
 
-var _ Monitor = &monitor{}
+var _ blip.Monitor = &monitor{}
 
 // MonitorId returns the monitor ID. This method implements blip.monitor.
 func (m *monitor) MonitorId() string {
@@ -113,7 +92,7 @@ func (m *monitor) Start() error {
 		return err // @todo
 	}
 
-	sinks := []sink.Sink{}
+	sinks := []blip.Sink{}
 	for sinkName, opts := range m.config.Sinks {
 		sink, err := sink.Make(sinkName, m.monitorId, opts)
 		if err != nil {
@@ -130,7 +109,7 @@ func (m *monitor) Start() error {
 
 	m.Mutex = &sync.Mutex{}
 	m.stopChan = make(chan struct{})
-	m.engine = NewEngine(m.monitorId, m.db, metrics.DefaultFactory)
+	m.engine = NewEngine(m.monitorId, m.db)
 	m.lpc = NewLevelCollector(LevelCollectorArgs{
 		Engine:     m.engine,
 		PlanLoader: m.planLoader,
@@ -154,7 +133,6 @@ func (m *monitor) run() {
 		exp := prom.NewExporter(
 			m.monitorId,
 			m.db,
-			m.mcMaker,
 		)
 		if err := exp.Prepare(blip.PromPlan()); err != nil {
 			// @todo move to Boot

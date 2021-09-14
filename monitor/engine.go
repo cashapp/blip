@@ -16,10 +16,9 @@ import (
 type Engine struct {
 	monitorId string
 	db        *sql.DB
-	mcMaker   metrics.CollectorFactory
 	// --
-	mcList  map[string]metrics.Collector   // keyed on domain
-	atLevel map[string][]metrics.Collector // keyed on level
+	mcList  map[string]blip.Collector   // keyed on domain
+	atLevel map[string][]blip.Collector // keyed on level
 	*sync.RWMutex
 	connected bool
 	ready     bool
@@ -29,7 +28,7 @@ type Engine struct {
 	semSize   int
 }
 
-func NewEngine(monitorId string, db *sql.DB, mcMaker metrics.CollectorFactory) *Engine {
+func NewEngine(monitorId string, db *sql.DB) *Engine {
 	sem := make(chan bool, 2)
 	semSize := 2
 	for i := 0; i < semSize; i++ {
@@ -39,10 +38,9 @@ func NewEngine(monitorId string, db *sql.DB, mcMaker metrics.CollectorFactory) *
 	return &Engine{
 		monitorId: monitorId,
 		db:        db,
-		mcMaker:   mcMaker,
 		// --
-		atLevel: map[string][]metrics.Collector{},
-		mcList:  map[string]metrics.Collector{},
+		atLevel: map[string][]blip.Collector{},
+		mcList:  map[string]blip.Collector{},
 		RWMutex: &sync.RWMutex{},
 		event:   event.MonitorSink{MonitorId: monitorId},
 		sem:     sem,
@@ -100,7 +98,7 @@ func (m *Engine) Prepare(ctx context.Context, plan blip.Plan) error {
 	}
 
 	// Create and prepare metric collectors for every level
-	atLevel := map[string][]metrics.Collector{}
+	atLevel := map[string][]blip.Collector{}
 	for levelName, level := range plan.Levels {
 		for domain, _ := range level.Collect {
 
@@ -108,9 +106,9 @@ func (m *Engine) Prepare(ctx context.Context, plan blip.Plan) error {
 			mc, ok := m.mcList[domain]
 			if !ok {
 				var err error
-				mc, err = m.mcMaker.Make(
+				mc, err = metrics.Make(
 					domain,
-					metrics.FactoryArgs{
+					blip.CollectorFactoryArgs{
 						MonitorId: m.monitorId,
 						DB:        m.db,
 					},
@@ -195,7 +193,7 @@ func (m *Engine) Collect(ctx context.Context, levelName string) (*blip.Metrics, 
 	for i := range mc {
 		<-m.sem
 		wg.Add(1)
-		go func(mc metrics.Collector) {
+		go func(mc blip.Collector) {
 			defer wg.Done()
 			defer func() { m.sem <- true }()
 			vals, err := mc.Collect(ctx, levelName)

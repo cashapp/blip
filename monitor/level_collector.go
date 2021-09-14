@@ -11,7 +11,6 @@ import (
 	"github.com/square/blip"
 	"github.com/square/blip/event"
 	"github.com/square/blip/plan"
-	"github.com/square/blip/sink"
 	"github.com/square/blip/status"
 )
 
@@ -45,7 +44,7 @@ type collector struct {
 	monitorId        string
 	engine           *Engine
 	planLoader       *plan.Loader
-	sinks            []sink.Sink
+	sinks            []blip.Sink
 	transformMetrics func(*blip.Metrics) error
 	// --
 	state                string
@@ -64,7 +63,7 @@ type LevelCollectorArgs struct {
 	MonitorId        string
 	Engine           *Engine
 	PlanLoader       *plan.Loader
-	Sinks            []sink.Sink
+	Sinks            []blip.Sink
 	TransformMetrics func(*blip.Metrics) error
 }
 

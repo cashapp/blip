@@ -13,7 +13,6 @@ import (
 	"gopkg.in/yaml.v2"
 
 	"github.com/square/blip"
-	"github.com/square/blip/dbconn"
 	"github.com/square/blip/sqlutil"
 )
 
@@ -54,7 +53,7 @@ func NewLoader(cfg blip.Config, plugin func(blip.Config) ([]blip.Plan, error)) *
 // Server.Boot() to load all plan when the user doesn't specify a LoadLevelPlans
 // plugin. Monitor plans from a table are deferred until the monitor's LPC
 // calls Plan() because the monitor might not be online when Blip starts.
-func (pl *Loader) LoadPlans(dbMaker dbconn.Factory) error {
+func (pl *Loader) LoadPlans(dbMaker blip.DbFactory) error {
 	// ----------------------------------------------------------------------
 	// Shared plans: config.plans
 	// ----------------------------------------------------------------------

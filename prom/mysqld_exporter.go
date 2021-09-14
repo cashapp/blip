@@ -18,19 +18,17 @@ import (
 type Exporter struct {
 	monitorId    string
 	db           *sql.DB
-	mcMaker      metrics.CollectorFactory
 	promRegistry *prom.Registry
-	mcList       map[string]metrics.Collector // keyed on domain
+	mcList       map[string]blip.Collector // keyed on domain
 	levelName    string
 }
 
-func NewExporter(monitorId string, db *sql.DB, mcMaker metrics.CollectorFactory) *Exporter {
+func NewExporter(monitorId string, db *sql.DB) *Exporter {
 	e := &Exporter{
 		monitorId:    monitorId,
 		db:           db,
-		mcMaker:      mcMaker,
 		promRegistry: prom.NewRegistry(),
-		mcList:       map[string]metrics.Collector{},
+		mcList:       map[string]blip.Collector{},
 	}
 	e.promRegistry.MustRegister(e)
 	return e
@@ -53,9 +51,9 @@ func (e *Exporter) Prepare(plan blip.Plan) error {
 			mc, ok := e.mcList[domain]
 			if !ok {
 				var err error
-				mc, err = e.mcMaker.Make(
+				mc, err = metrics.Make(
 					domain,
-					metrics.FactoryArgs{
+					blip.CollectorFactoryArgs{
 						MonitorId: e.monitorId,
 						DB:        e.db,
 					},

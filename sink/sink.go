@@ -1,7 +1,6 @@
 package sink
 
 import (
-	"context"
 	"fmt"
 	"sync"
 	"time"
@@ -10,21 +9,50 @@ import (
 	"github.com/square/blip/event"
 )
 
-// Sink sends metrics to an external destination.
-type Sink interface {
-	Send(context.Context, *blip.Metrics) error
-	Status() error
-	Name() string
-	MonitorId() string
+func Register(name string, f blip.SinkFactory) error {
+	r.Lock()
+	defer r.Unlock()
+	_, ok := r.factory[name]
+	if ok {
+		return fmt.Errorf("%s already registered", name)
+	}
+	r.factory[name] = f
+	event.Sendf(event.REGISTER_SINK, name)
+	return nil
 }
 
-type Factory interface {
-	Make(name, monitorId string, opts map[string]string) (Sink, error)
+func Make(name, monitorId string, opts map[string]string) (blip.Sink, error) {
+	r.Lock()
+	defer r.Unlock()
+	f, ok := r.factory[name]
+	if !ok {
+		return nil, fmt.Errorf("%s not registered", name)
+	}
+	return f.Make(name, monitorId, opts)
+}
+
+// --------------------------------------------------------------------------
+
+func init() {
+	Register("log", f)
+	Register("signalfx", f)
+}
+
+type repo struct {
+	*sync.Mutex
+	factory map[string]blip.SinkFactory
+}
+
+var r = &repo{
+	Mutex:   &sync.Mutex{},
+	factory: map[string]blip.SinkFactory{},
 }
 
 type factory struct{}
 
-func (f factory) Make(name, monitorId string, opts map[string]string) (Sink, error) {
+var f = factory{}
+
+func (f factory) Make(name, monitorId string, opts map[string]string) (blip.Sink, error) {
 	switch name {
 	case "signalfx":
 		sfx, err := NewSignalFxSink(monitorId, opts)
@@ -47,45 +75,4 @@ func (f factory) Make(name, monitorId string, opts map[string]string) (Sink, err
 		return NewLogSink(monitorId)
 	}
 	return nil, fmt.Errorf("%s not registered", name)
-}
-
-var defaultFactory = factory{}
-
-func RegisterDefaults() {
-	Register("log", defaultFactory)
-	Register("signalfx", defaultFactory)
-}
-
-// --------------------------------------------------------------------------
-
-type repo struct {
-	*sync.Mutex
-	factory map[string]Factory
-}
-
-var sinkRepo = &repo{
-	Mutex:   &sync.Mutex{},
-	factory: map[string]Factory{},
-}
-
-func Register(name string, f Factory) error {
-	sinkRepo.Lock()
-	defer sinkRepo.Unlock()
-	_, ok := sinkRepo.factory[name]
-	if ok {
-		return fmt.Errorf("%s already registered", name)
-	}
-	sinkRepo.factory[name] = f
-	event.Sendf(event.REGISTER_SINK, name)
-	return nil
-}
-
-func Make(name, monitorId string, opts map[string]string) (Sink, error) {
-	sinkRepo.Lock()
-	defer sinkRepo.Unlock()
-	f, ok := sinkRepo.factory[name]
-	if !ok {
-		return nil, fmt.Errorf("%s not registered", name)
-	}
-	return f.Make(name, monitorId, opts)
 }
