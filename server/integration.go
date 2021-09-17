@@ -22,7 +22,6 @@ func Defaults() (blip.Plugins, blip.Factories) {
 	factories := blip.Factories{
 		AWSConfig:  awsConfig,
 		DbConn:     dbMaker,
-		Monitor:    nil, // deferred, created in server.Boot
 		HTTPClient: httpClientFactory{},
 	}
 	return blip.Plugins{}, factories

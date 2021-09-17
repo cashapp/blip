@@ -17,20 +17,20 @@ import (
 	"github.com/square/blip/sink"
 )
 
-type factory struct {
+type Factory struct {
 	dbMaker    blip.DbFactory
 	planLoader *plan.Loader
 }
 
-func NewFactory(dbMaker blip.DbFactory, planLoader *plan.Loader) factory {
-	return factory{
+func NewFactory(dbMaker blip.DbFactory, planLoader *plan.Loader) Factory {
+	return Factory{
 		dbMaker:    dbMaker,
 		planLoader: planLoader,
 	}
 }
 
-func (f factory) Make(cfg blip.ConfigMonitor) blip.Monitor {
-	return &monitor{
+func (f Factory) Make(cfg blip.ConfigMonitor) *Monitor {
+	return &Monitor{
 		monitorId:  blip.MonitorId(cfg),
 		config:     cfg,
 		dbMaker:    f.dbMaker,
@@ -38,10 +38,8 @@ func (f factory) Make(cfg blip.ConfigMonitor) blip.Monitor {
 	}
 }
 
-// --------------------------------------------------------------------------
-
-// monitor implements Monitor.
-type monitor struct {
+// Monitor monitors one MySQL instance.
+type Monitor struct {
 	// Factory values
 	monitorId  string
 	config     blip.ConfigMonitor
@@ -66,25 +64,23 @@ type monitor struct {
 	stopped     bool
 }
 
-var _ blip.Monitor = &monitor{}
-
-// MonitorId returns the monitor ID. This method implements blip.monitor.
-func (m *monitor) MonitorId() string {
+// MonitorId returns the monitor ID. This method implements *Monitor.
+func (m *Monitor) MonitorId() string {
 	return m.monitorId
 }
 
-// DB returns the low-level database connection. This method implements blip.monitor.
-func (m *monitor) DB() *sql.DB {
+// DB returns the low-level database connection. This method implements *Monitor.
+func (m *Monitor) DB() *sql.DB {
 	return m.db
 }
 
-// Config returns the monitor config. This method implements blip.monitor.
-func (m *monitor) Config() blip.ConfigMonitor {
+// Config returns the monitor config. This method implements *Monitor.
+func (m *Monitor) Config() blip.ConfigMonitor {
 	return m.config
 }
 
 // Start starts monitoring the database if no error is returned.
-func (m *monitor) Start() error {
+func (m *Monitor) Start() error {
 	var err error
 
 	m.db, err = m.dbMaker.Make(m.config)
@@ -119,7 +115,7 @@ func (m *monitor) Start() error {
 	return nil
 }
 
-func (m *monitor) run() {
+func (m *Monitor) run() {
 	defer func() {
 		if err := recover(); err != nil {
 			b := make([]byte, 4096)
@@ -222,7 +218,7 @@ func (m *monitor) run() {
 	}
 }
 
-func (m *monitor) Stop() error {
+func (m *Monitor) Stop() error {
 	m.Lock()
 	defer m.Unlock()
 	if m.stopped {

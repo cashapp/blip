@@ -44,6 +44,7 @@ type Server struct {
 //
 // Boot must be called once before Run.
 func (s *Server) Boot(plugin blip.Plugins, factory blip.Factories) error {
+	event.Sendf(event.BOOT, "blip %s", blip.VERSION) // very first event
 	status.Blip("server", "booting")
 
 	// ----------------------------------------------------------------------
@@ -85,15 +86,6 @@ func (s *Server) Boot(plugin blip.Plugins, factory blip.Factories) error {
 			blip.Strict = true
 		}
 	}
-
-	// ----------------------------------------------------------------------
-	// Event sinks
-
-	// Init event sink. Do this second-ish because all code sends events.
-	// As with all plugins, the plugin takes priority and is used exclusively
-	// if set by the user. If this plugin isn't set, the default even sink is
-	// event.ToSTDOUT, which simply prints events to STDOUT.
-	event.Sendf(event.BOOT, "blip %s", blip.VERSION) // very first event
 
 	// ----------------------------------------------------------------------
 	// Load config
@@ -155,13 +147,13 @@ func (s *Server) Boot(plugin blip.Plugins, factory blip.Factories) error {
 	// ----------------------------------------------------------------------
 	// Database monitors
 
-	// Make deferred monitor factory
-	if factory.Monitor == nil {
-		factory.Monitor = monitor.NewFactory(factory.DbConn, s.planLoader)
-	}
-
 	// Create, but don't start, database monitors. They're started later in Run.
-	s.monitorLoader = monitor.NewLoader(s.cfg, plugin.LoadMonitors, factory.Monitor, factory.DbConn)
+	s.monitorLoader = monitor.NewLoader(
+		s.cfg,
+		plugin.LoadMonitors,
+		monitor.NewFactory(factory.DbConn, s.planLoader),
+		factory.DbConn,
+	)
 	if _, err := s.monitorLoader.Load(context.Background()); err != nil {
 		event.Sendf(event.BOOT_MONITORS_ERROR, err.Error())
 		return err

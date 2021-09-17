@@ -19,10 +19,6 @@ const VERSION = "0.0.0"
 
 var SHA = ""
 
-// --------------------------------------------------------------------------
-// Integrations
-// --------------------------------------------------------------------------
-
 type Plugins struct {
 	LoadConfig       func(Config) (Config, error)
 	LoadLevelPlans   func(Config) ([]Plan, error)
@@ -35,7 +31,6 @@ type Factories struct {
 	AWSConfig  AWSConfigFactory
 	DbConn     DbFactory
 	HTTPClient HTTPClientFactory
-	Monitor    MonitorFactory
 }
 
 type AWSConfigFactory interface {
@@ -49,23 +44,6 @@ type DbFactory interface {
 type HTTPClientFactory interface {
 	Make(cfg ConfigHTTP, usedFor string) (*http.Client, error)
 }
-
-type MonitorFactory interface {
-	Make(ConfigMonitor) Monitor
-}
-
-// --------------------------------------------------------------------------
-
-// Monitor monitors one MySQL instance.
-type Monitor interface {
-	MonitorId() string
-	DB() *sql.DB
-	Config() ConfigMonitor
-	Start() error
-	Stop() error
-}
-
-// --------------------------------------------------------------------------
 
 // Collector collects metrics for a single metric domain.
 type Collector interface {
@@ -91,8 +69,6 @@ type CollectorFactory interface {
 	Make(domain string, args CollectorFactoryArgs) (Collector, error)
 }
 
-// --------------------------------------------------------------------------
-
 // Metrics are metrics collected for one plan level, from one database instance.
 type Metrics struct {
 	Begin     time.Time                // when collection started
@@ -111,8 +87,6 @@ type MetricValue struct {
 	Tags  map[string]string
 }
 
-// --------------------------------------------------------------------------
-
 // Sink sends metrics to an external destination.
 type Sink interface {
 	Send(context.Context, *Metrics) error
@@ -124,8 +98,6 @@ type Sink interface {
 type SinkFactory interface {
 	Make(name, monitorId string, opts map[string]string) (Sink, error)
 }
-
-// --------------------------------------------------------------------------
 
 const (
 	UNKNOWN byte = iota

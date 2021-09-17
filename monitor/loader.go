@@ -17,39 +17,39 @@ import (
 type LoadFunc func(blip.Config) ([]blip.ConfigMonitor, error)
 
 type Changes struct {
-	Added   []blip.Monitor
-	Removed []blip.Monitor
-	Changed []blip.Monitor
+	Added   []*Monitor
+	Removed []*Monitor
+	Changed []*Monitor
 }
 
 type Loader struct {
 	cfg      blip.Config
 	loadFunc LoadFunc
-	monMaker blip.MonitorFactory
+	monMaker Factory
 	dbMaker  blip.DbFactory
 	// --
-	dbmon    map[string]blip.Monitor // keyed on monitorId
+	dbmon    map[string]*Monitor // keyed on monitorId
 	source   string
 	stopLoss float64
 	*sync.Mutex
 }
 
-func NewLoader(cfg blip.Config, loadFunc LoadFunc, monMaker blip.MonitorFactory, dbMaker blip.DbFactory) *Loader {
+func NewLoader(cfg blip.Config, loadFunc LoadFunc, monMaker Factory, dbMaker blip.DbFactory) *Loader {
 	return &Loader{
 		cfg:      cfg,
 		loadFunc: loadFunc,
 		monMaker: monMaker,
 		dbMaker:  dbMaker,
 		// --
-		dbmon: map[string]blip.Monitor{},
+		dbmon: map[string]*Monitor{},
 		Mutex: &sync.Mutex{},
 	}
 }
 
-func (ml *Loader) Monitors() []blip.Monitor {
+func (ml *Loader) Monitors() []*Monitor {
 	ml.Lock()
 	defer ml.Unlock()
-	monitors := make([]blip.Monitor, len(ml.dbmon))
+	monitors := make([]*Monitor, len(ml.dbmon))
 	i := 0
 	for _, dbmon := range ml.dbmon {
 		monitors[i] = dbmon
@@ -62,9 +62,9 @@ func (ml *Loader) Load(ctx context.Context) (Changes, error) {
 	event.Send(event.MONITOR_LOADER_LOADING)
 
 	ch := Changes{
-		Added:   []blip.Monitor{},
-		Removed: []blip.Monitor{},
-		Changed: []blip.Monitor{},
+		Added:   []*Monitor{},
+		Removed: []*Monitor{},
+		Changed: []*Monitor{},
 	}
 	defer func() {
 		event.Sendf(event.BOOT_MONITORS_LOADED, "added: %d removed: %d changed: %d",
