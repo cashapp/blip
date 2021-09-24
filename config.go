@@ -6,8 +6,11 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
+
+	"gopkg.in/yaml.v2"
 )
 
 const (
@@ -35,6 +38,35 @@ func interpolateEnv(v string) string {
 		return m[3]
 	}
 	return envvar.ReplaceAllString(v, v2)
+}
+
+func LoadConfig(filePath string, cfg Config) (Config, error) {
+	file, err := filepath.Abs(filePath)
+	if err != nil {
+		return Config{}, err
+	}
+	Debug("config file: %s (%s)", filePath, file)
+
+	// Config file must exist
+	if _, err := os.Stat(file); err != nil {
+		if cfg.Strict {
+			return Config{}, fmt.Errorf("config file %s does not exist", filePath)
+		}
+		Debug("config file doesn't exist")
+		return cfg, nil
+	}
+
+	bytes, err := ioutil.ReadFile(file)
+	if err != nil {
+		// err includes file name, e.g. "read config file: open <file>: no such file or directory"
+		return Config{}, fmt.Errorf("cannot read config file: %s", err)
+	}
+
+	if err := yaml.Unmarshal(bytes, &cfg); err != nil {
+		return cfg, fmt.Errorf("cannot decode YAML in %s: %s", file, err)
+	}
+
+	return cfg, nil
 }
 
 // Config represents the Blip startup configuration.

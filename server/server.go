@@ -4,6 +4,8 @@ package server
 import (
 	"context"
 	"fmt"
+	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"strings"
@@ -11,6 +13,8 @@ import (
 	"time"
 
 	"github.com/square/blip"
+	"github.com/square/blip/aws"
+	"github.com/square/blip/dbconn"
 	"github.com/square/blip/event"
 	"github.com/square/blip/monitor"
 	"github.com/square/blip/plan"
@@ -21,6 +25,33 @@ import (
 func ControlChans() (stopChan, doneChan chan struct{}) {
 	return make(chan struct{}), make(chan struct{})
 }
+
+func Defaults() (blip.Plugins, blip.Factories) {
+	// Plugins are optional, but factories are required
+	awsConfig := aws.NewConfigFactory()
+	dbMaker := dbconn.NewConnFactory(awsConfig, nil)
+	factories := blip.Factories{
+		AWSConfig:  awsConfig,
+		DbConn:     dbMaker,
+		HTTPClient: httpClientFactory{},
+	}
+	return blip.Plugins{}, factories
+}
+
+type httpClientFactory struct{}
+
+func (f httpClientFactory) Make(cfg blip.ConfigHTTP, usedFor string) (*http.Client, error) {
+	client := &http.Client{}
+	if cfg.Proxy != "" {
+		proxyFunc := func(req *http.Request) (url *url.URL, err error) {
+			return url.Parse(cfg.Proxy)
+		}
+		client.Transport = &http.Transport{Proxy: proxyFunc}
+	}
+	return client, nil
+}
+
+// --------------------------------------------------------------------------
 
 // Server is the core runtime for one instance of Blip. It's responsible for
 // starting and running everything: Boot and Run, respectively. As long as
@@ -103,7 +134,7 @@ func (s *Server) Boot(plugin blip.Plugins, factory blip.Factories) error {
 		blip.Debug("call plugin.LoadConfig")
 		cfg, err = plugin.LoadConfig(cfg)
 	} else {
-		cfg, err = LoadConfig(s.cmdline.Options.Config, cfg)
+		cfg, err = blip.LoadConfig(s.cmdline.Options.Config, cfg)
 	}
 	if err != nil {
 		event.Sendf(event.BOOT_CONFIG_ERROR, err.Error())
@@ -151,8 +182,8 @@ func (s *Server) Boot(plugin blip.Plugins, factory blip.Factories) error {
 	s.monitorLoader = monitor.NewLoader(
 		s.cfg,
 		plugin.LoadMonitors,
-		monitor.NewFactory(factory.DbConn, s.planLoader),
 		factory.DbConn,
+		s.planLoader,
 	)
 	if _, err := s.monitorLoader.Load(context.Background()); err != nil {
 		event.Sendf(event.BOOT_MONITORS_ERROR, err.Error())

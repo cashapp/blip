@@ -3,7 +3,6 @@ package monitor
 import (
 	"context"
 	"fmt"
-	"math"
 	"sort"
 	"sync"
 	"time"
@@ -14,7 +13,14 @@ import (
 	"github.com/square/blip/status"
 )
 
-// LevelCollector calls a monitor to collect metrics according to a plan.
+// LevelCollector collect metrics according to a plan. It doesn't collect metrics
+// directly, as part of a Monitor, it calls the Engine when it's time to collect
+// metrics for a certain level--based on the frequency the users specifies for
+// each level. After the Engine returns metrics, the collector (or "LPC" for short)
+// calls the blip.Plugin.TransformMetrics (if specified), then sends metrics to
+// all sinks specififed for the monitor. Then it waits until it's time to collect
+// metrics for the next level. Consequently, the LPC drives metrics collection,
+// but the Engine does the actual work of collecting metrics.
 type LevelCollector interface {
 	// Run runs the collector to collect metrics; it's a blocking call.
 	Run(stopChan, doneChan chan struct{}) error
@@ -27,17 +33,6 @@ type LevelCollector interface {
 }
 
 var _ LevelCollector = &collector{}
-
-type level struct {
-	freq float64
-	name string
-}
-
-type byFreq []level
-
-func (a byFreq) Len() int           { return len(a) }
-func (a byFreq) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
-func (a byFreq) Less(i, j int) bool { return a[i].freq < a[j].freq }
 
 // collector is the implementation of LevelCollector.
 type collector struct {
@@ -110,7 +105,7 @@ func (c *collector) Run(stopChan, doneChan chan struct{}) error {
 	// -----------------------------------------------------------------------
 	// LPC main loop: collect metrics on whole second ticks
 
-	s := float64(0) // number of whole second ticks
+	s := 1 // number of whole second ticks
 	level := -1
 	levelName := ""
 
@@ -134,7 +129,7 @@ func (c *collector) Run(stopChan, doneChan chan struct{}) error {
 
 		// Determine lowest level to collect
 		for i := range c.levels {
-			if math.Mod(s, c.levels[i].freq) == 0 {
+			if i%c.levels[i].freq == 0 {
 				level = i
 			}
 		}
@@ -233,50 +228,111 @@ func (c *collector) changePlan(ctx context.Context, newState, newPlanName string
 		c.stateMux.Unlock()
 	}()
 
+	// Load new plan from plan loader, which contains all plans
 	newPlan, err := c.planLoader.Plan(c.engine.MonitorId(), newPlanName, c.engine.DB())
 	if err != nil {
 		return err
 	}
 
-	newLevels := LevelUp(&newPlan)
+	// Convert plan levels to sorted levels for efficient level calculation in Run;
+	// see code comments belows
+	levels := sortedLevels(newPlan)
 
+	// New plan is ready. Lock to prevent conflict with Run which is accessing
+	// the (current) plan every 1s. Run only locks when calculating which level
+	// (by name) to collect, then it unlocks and tells the Engine to collect that
+	// level.
+	c.stateMux.Lock()
+	c.paused = true
+	c.stateMux.Unlock()
+
+	// Have engine prepare the plan, which really makes each metrics collector
+	// prepare for the plan
 	if err := c.engine.Prepare(ctx, newPlan); err != nil {
+		c.stateMux.Lock()
+		c.paused = false // plan did NOT change; resume current plan
+		c.stateMux.Unlock()
 		return err
 	}
 
-	c.stateMux.Lock() // -- X lock
+	// collect new plan
+	c.stateMux.Lock() // -- X lock --
 	oldState := c.state
 	oldPlanName := c.plan.Name
 	c.state = newState
 	c.plan = newPlan
-	c.levels = newLevels
+	c.levels = levels
 	c.paused = false
-	c.stateMux.Unlock() // -- X unlock
+	c.stateMux.Unlock() // -- X unlock --
 
-	c.event.Sendf(event.CHANGE_PLAN, "state:%s plan:%s -> state:%s plan:%s", oldState, oldPlanName, newState, newPlan.Name)
+	c.event.Sendf(event.CHANGE_PLAN, "state:%s plan:%s -> state:%s plan:%s",
+		oldState, oldPlanName, newState, newPlan.Name)
 
 	return nil
 }
 
-func LevelUp(plan *blip.Plan) []level {
+// Pause pauses metrics collection until ChangePlan is called.
+func (c *collector) Pause() error {
+	c.stateMux.Lock()
+	c.paused = true
+	c.stateMux.Unlock()
+	return nil
+}
+
+// ---------------------------------------------------------------------------
+// Plan vs. sorted level
+// ---------------------------------------------------------------------------
+
+// level represents a sorted level created by sortedLevels below.
+type level struct {
+	freq int
+	name string
+}
+
+// Sort levels ascending by frequency.
+type byFreq []level
+
+func (a byFreq) Len() int           { return len(a) }
+func (a byFreq) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
+func (a byFreq) Less(i, j int) bool { return a[i].freq < a[j].freq }
+
+// sortedLevels returns a list of levels sorted (asc) by frequency. Sorted levels
+// are used in the main Run loop: for i := range c.levels. Sorted levels are
+// required because plan levels are unorded because the plan is a map. We could
+// check every level in the plan, but that's wasteful. With sorted levels, we
+// can precisely check which levels to collect at every 1s tick.
+//
+// Also, plan levels are abbreviated whereas sorted levels are complete.
+// For example, a plan says "collect X every 5s, and collect Y every 10s".
+// But the complete version of that is "collect X every 5s, and collect X + Y
+// every 10s." See "metric inheritance" in the docs.
+//
+// Also, we convert duration strings from the plan level to integers for sorted
+// levels in order to do modulo (%) in the main Run loop.
+func sortedLevels(plan blip.Plan) []level {
+	// Make a sorted level for each plan level
 	levels := make([]level, len(plan.Levels))
 	i := 0
 	for _, l := range plan.Levels {
-		d, _ := time.ParseDuration(l.Freq)
+		d, _ := time.ParseDuration(l.Freq) // "5s" -> 5 (for freq below)
 		levels[i] = level{
 			name: l.Name,
-			freq: d.Seconds(),
+			freq: int(d.Seconds()),
 		}
 		i++
 	}
+
+	// Sort levels by ascending frequency
 	sort.Sort(byFreq(levels))
 	blip.Debug("levels: %v", levels)
 
-	// Level N applies to N+(N+1)
+	// Metric inheritence: level N applies to N+(N+1)
 	for i := 0; i < len(levels); i++ {
+		// At level N
 		rootLevel := levels[i].name
 		root := plan.Levels[rootLevel]
 
+		// Add metrics from N to all N+1
 		for j := i + 1; j < len(levels); j++ {
 			leafLevel := levels[j].name
 			leaf := plan.Levels[leafLevel]
@@ -290,16 +346,8 @@ func LevelUp(plan *blip.Plan) []level {
 					leaf.Collect[domain] = dom
 				}
 			}
-
 		}
 	}
 
 	return levels
-}
-
-func (c *collector) Pause() error {
-	c.stateMux.Lock()
-	c.paused = true
-	c.stateMux.Unlock()
-	return nil
 }

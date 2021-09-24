@@ -47,7 +47,7 @@ type HTTPClientFactory interface {
 
 // Collector collects metrics for a single metric domain.
 type Collector interface {
-	// Domain returns Blip and Prometheus domain prefix.
+	// Domain returns the Blip domain prefix.
 	Domain() string
 
 	// Help returns information about using the collector.
@@ -118,7 +118,7 @@ const (
 var (
 	Strict    = false
 	Debugging = false
-	debugLog  = log.New(os.Stderr, "DEBUG ", log.LstdFlags|log.Lmicroseconds)
+	debugLog  = log.New(os.Stderr, "", log.LstdFlags|log.Lmicroseconds)
 )
 
 func init() {
@@ -130,7 +130,7 @@ func Debug(msg string, v ...interface{}) {
 		return
 	}
 	_, file, line, _ := runtime.Caller(1)
-	msg = fmt.Sprintf("%s:%d %s", path.Base(file), line, msg)
+	msg = fmt.Sprintf("DEBUG %s:%d %s", path.Base(file), line, msg)
 	debugLog.Printf(msg, v...)
 }
 

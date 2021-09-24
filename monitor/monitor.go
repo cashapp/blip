@@ -1,4 +1,9 @@
 // Package monitor provides the Monitor type that monitors one MySQL instnace.
+// All monitoring activity happens in the package. The rest of Blip is mostly
+// to set up and support Monitor instances.
+//
+// The most important types in this package are Engine, LevelCollector, and
+// LevelAdjuster.
 package monitor
 
 import (
@@ -14,41 +19,33 @@ import (
 	"github.com/square/blip/heartbeat"
 	"github.com/square/blip/plan"
 	"github.com/square/blip/prom"
-	"github.com/square/blip/sink"
 )
 
-type Factory struct {
-	dbMaker    blip.DbFactory
-	planLoader *plan.Loader
-}
-
-func NewFactory(dbMaker blip.DbFactory, planLoader *plan.Loader) Factory {
-	return Factory{
-		dbMaker:    dbMaker,
-		planLoader: planLoader,
-	}
-}
-
-func (f Factory) Make(cfg blip.ConfigMonitor) *Monitor {
-	return &Monitor{
-		monitorId:  blip.MonitorId(cfg),
-		config:     cfg,
-		dbMaker:    f.dbMaker,
-		planLoader: f.planLoader,
-	}
-}
-
-// Monitor monitors one MySQL instance.
+// Monitor monitors one MySQL instance. A monitor is completely self-contained;
+// monitors share nothing. Therefore, each monitor is completely indepedent, too.
+//
+// The Monitor type is just an "outer wrapper" that runs the core components
+// that do real work: Engine, LevelCollector (LPC), optional LevelAdjuster (LPA),
+// and optinoal Heartbeat (HB). You can view it like:
+//
+//   Blip -> Monitor[ Engine + LPA + LPC + HB ]
+//
+// Blip only calls/uses the Monitor; nothing outside the Monitor can access those
+// core components.
+//
+// Loading monitors (Loader type) is dyanmic, but individual Monitor are not.
+// You can start/stop a Monitor, but to change it, you must stop, discard, and
+// create a new Monitor via the monitor Loader.
 type Monitor struct {
-	// Factory values
 	monitorId  string
 	config     blip.ConfigMonitor
-	dbMaker    blip.DbFactory
 	planLoader *plan.Loader
+	sinks      []blip.Sink
+	dbMaker    blip.DbFactory
+	db         *sql.DB
 
-	// monitor and sub-components
+	// Core components
 	engine *Engine
-	db     *sql.DB
 	lpc    LevelCollector
 	lpa    LevelAdjuster
 	hbw    heartbeat.Writer
@@ -79,6 +76,10 @@ func (m *Monitor) Config() blip.ConfigMonitor {
 	return m.config
 }
 
+func (m *Monitor) Status() string {
+	return "todo"
+}
+
 // Start starts monitoring the database if no error is returned.
 func (m *Monitor) Start() error {
 	var err error
@@ -88,28 +89,13 @@ func (m *Monitor) Start() error {
 		return err // @todo
 	}
 
-	sinks := []blip.Sink{}
-	for sinkName, opts := range m.config.Sinks {
-		sink, err := sink.Make(sinkName, m.monitorId, opts)
-		if err != nil {
-			return err
-		}
-		sinks = append(sinks, sink)
-		blip.Debug("%s sends to %s", m.monitorId, sinkName)
-	}
-	if len(sinks) == 0 && !blip.Strict {
-		blip.Debug("using log sink")
-		sink, _ := sink.Make("log", m.monitorId, map[string]string{})
-		sinks = append(sinks, sink)
-	}
-
 	m.Mutex = &sync.Mutex{}
 	m.stopChan = make(chan struct{})
 	m.engine = NewEngine(m.monitorId, m.db)
 	m.lpc = NewLevelCollector(LevelCollectorArgs{
 		Engine:     m.engine,
 		PlanLoader: m.planLoader,
-		Sinks:      sinks,
+		Sinks:      m.sinks,
 	})
 	go m.run()
 	return nil
@@ -144,10 +130,9 @@ func (m *Monitor) run() {
 		}
 	}
 
-	// Run option level plan adjuster (lpa). When enabled, the lpa checks the
-	// state of MySQL . If the state changes,
-	// it calls lpc.ChangePlan to change the plan as configured by
-	// config.monitors.M.plans.adjust.<state>.
+	// Run option level plan adjuster (LPA). When enabled, the LPA checks the
+	// state of MySQL . If the state changes, it calls lpc.ChangePlan to change
+	// the plan as configured by config.monitors.M.plans.adjust.<state>.
 	if m.config.Plans.Adjust.Enabled() {
 		m.doneChanLPA = make(chan struct{})
 		m.lpa = NewLevelAdjuster(LevelAdjusterArgs{
