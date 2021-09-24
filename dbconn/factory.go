@@ -1,40 +1,29 @@
+// Package dbconn provides a Factory that makes *sql.DB to MySQL.
 package dbconn
 
 import (
 	"context"
 	"database/sql"
 	"fmt"
+	"io/fs"
 	"io/ioutil"
+	"os"
+	"os/exec"
 	"strings"
 	"time"
 
-	dsndriver "github.com/go-mysql/hotswap-dsn-driver"
 	_ "github.com/go-sql-driver/mysql"
 
 	"github.com/square/blip"
 	"github.com/square/blip/aws"
 )
 
-func init() {
-	dsndriver.SetHotswapFunc(Repo.ReloadPassword)
-}
-
-type Factory interface {
-	Make(blip.ConfigMonitor) (*sql.DB, error)
-}
-
-var _ Factory = factory{}
-
 type factory struct {
-	awsConfg aws.ConfigFactory
+	awsConfg blip.AWSConfigFactory
 	modifyDB func(*sql.DB)
 }
 
-var _ Factory = factory{}
-
-type repassFunc func() (string, error)
-
-func NewConnFactory(awsConfg aws.ConfigFactory, modifyDB func(*sql.DB)) factory {
+func NewConnFactory(awsConfg blip.AWSConfigFactory, modifyDB func(*sql.DB)) factory {
 	return factory{
 		awsConfg: awsConfg,
 		modifyDB: modifyDB,
@@ -150,4 +139,60 @@ func (f factory) Password(cfg blip.ConfigMonitor) (PasswordFunc, error) {
 	}
 
 	return nil, fmt.Errorf("no password")
+}
+
+// --------------------------------------------------------------------------
+
+const (
+	default_mysql_socket  = "/tmp/mysql.sock"
+	default_distro_socket = "/var/lib/mysql/mysql.sock"
+)
+
+func Sockets() []string {
+	sockets := []string{}
+	seen := map[string]bool{}
+	for _, socket := range strings.Split(socketList(), "\n") {
+		socket = strings.TrimSpace(socket)
+		if socket == "" {
+			continue
+		}
+		if seen[socket] {
+			continue
+		}
+		seen[socket] = true
+		if !isSocket(socket) {
+			continue
+		}
+		sockets = append(sockets, socket)
+	}
+
+	if len(sockets) == 0 {
+		blip.Debug("no sockets, using defaults")
+		if isSocket(default_mysql_socket) {
+			sockets = append(sockets, default_mysql_socket)
+		}
+		if isSocket(default_distro_socket) {
+			sockets = append(sockets, default_distro_socket)
+		}
+	}
+
+	blip.Debug("sockets: %v", sockets)
+	return sockets
+}
+
+func socketList() string {
+	cmd := exec.Command("sh", "-c", "netstat -f unix | grep mysql | grep -v mysqlx | awk '{print $NF}'")
+	output, err := cmd.Output()
+	if err != nil {
+		blip.Debug(err.Error())
+	}
+	return string(output)
+}
+
+func isSocket(file string) bool {
+	fi, err := os.Stat(file)
+	if err != nil {
+		return false
+	}
+	return fi.Mode()&fs.ModeSocket != 0
 }

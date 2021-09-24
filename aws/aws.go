@@ -15,14 +15,7 @@ import (
 	"github.com/square/blip"
 )
 
-type ConfigFactory interface {
-	Make(blip.ConfigAWS) (aws.Config, error)
-}
-
-type cfgFactory struct {
-}
-
-var _ ConfigFactory = cfgFactory{}
+type cfgFactory struct{}
 
 func NewConfigFactory() cfgFactory {
 	return cfgFactory{}

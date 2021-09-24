@@ -11,20 +11,20 @@ import (
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/stretchr/testify/assert"
 
-	"github.com/square/blip/collect"
+	"github.com/square/blip/sqlutil"
 )
 
-func createDomain(domainName string, metrics []string, sourceOption ...string) map[string]collect.Domain {
-	domainMap := make(map[string]collect.Domain)
+func createDomain(domainName string, metrics []string, sourceOption ...string) map[string]sqlutil.Domain {
+	domainMap := make(map[string]sqlutil.Domain)
 	if len(sourceOption) >= 1 {
-		domainMap[domainName] = collect.Domain{
+		domainMap[domainName] = sqlutil.Domain{
 			Name:    domainName,
 			Options: map[string]string{},
 			Metrics: metrics,
 		}
 		domainMap[domainName].Options["source"] = sourceOption[0]
 	} else {
-		domainMap[domainName] = collect.Domain{
+		domainMap[domainName] = sqlutil.Domain{
 			Name:    domainName,
 			Metrics: metrics,
 		}
@@ -32,20 +32,20 @@ func createDomain(domainName string, metrics []string, sourceOption ...string) m
 	return domainMap
 }
 
-func createLevel(levelName string, frequency string, domain map[string]collect.Domain) *collect.Level {
-	return &collect.Level{
+func createLevel(levelName string, frequency string, domain map[string]sqlutil.Domain) *sqlutil.Level {
+	return &sqlutil.Level{
 		Name:    levelName,
 		Freq:    frequency,
 		Collect: domain,
 	}
 }
 
-func createPlan(planName string, levelNames []string, levels []collect.Level) *collect.Plan {
-	lvls := make(map[string]collect.Level)
+func createPlan(planName string, levelNames []string, levels []sqlutil.Level) *blip.Plan {
+	lvls := make(map[string]sqlutil.Level)
 	for i, name := range levelNames {
 		lvls[name] = levels[i]
 	}
-	return &collect.Plan{
+	return &blip.Plan{
 		MonitorId: "test",
 		Name:      planName,
 		Levels:    lvls,
@@ -88,7 +88,7 @@ func TestPrepareForSingleLevelAndNoSource(t *testing.T) {
 
 	domain := createDomain("var.global", []string{"max_connections", "max_prepared_stmt_count", "innodb_log_file_size", "innodb_max_dirty_pages_pct"})
 	level := createLevel("vars", "10s", domain)
-	plan := createPlan("testPlan", []string{"vars"}, []collect.Level{*level})
+	plan := createPlan("testPlan", []string{"vars"}, []sqlutil.Level{*level})
 
 	err := globalCollector.Prepare(*plan)
 	if err != nil {
@@ -133,7 +133,7 @@ func TestPreparewithAllSources(t *testing.T) {
 	for src, query := range queries {
 		domain := createDomain("var.global", []string{"max_connections", "max_prepared_stmt_count", "innodb_log_file_size", "innodb_max_dirty_pages_pct"}, src)
 		level := createLevel("vars", "10s", domain)
-		plan := createPlan("testPlan", []string{"vars"}, []collect.Level{*level})
+		plan := createPlan("testPlan", []string{"vars"}, []sqlutil.Level{*level})
 		err := globalCollector.Prepare(*plan)
 		if err != nil {
 			assert.Fail(t, fmt.Sprint("Unable to prepare the collector for metric collection", globalCollector, err))
@@ -153,7 +153,7 @@ func TestPreparewithCustomInvalidSource(t *testing.T) {
 
 	domain := createDomain("var.global", []string{"max_connections", "max_prepared_stmt_count", "innodb_log_file_size", "innodb_max_dirty_pages_pct"}, "shadow")
 	level := createLevel("vars", "10s", domain)
-	plan := createPlan("testPlan", []string{"vars"}, []collect.Level{*level})
+	plan := createPlan("testPlan", []string{"vars"}, []sqlutil.Level{*level})
 	err := globalCollector.Prepare(*plan)
 	assert.Error(t, err)
 }
@@ -165,7 +165,7 @@ func TestPreparewithInvalidMetricName(t *testing.T) {
 
 	domain := createDomain("var.global", []string{"max_connections'); DROP TABLE students;--,", "max_prepared_stmt_count"})
 	level := createLevel("vars", "10s", domain)
-	plan := createPlan("testPlan", []string{"vars"}, []collect.Level{*level})
+	plan := createPlan("testPlan", []string{"vars"}, []sqlutil.Level{*level})
 	err := globalCollector.Prepare(*plan)
 	assert.Error(t, err)
 }
@@ -177,7 +177,7 @@ func TestCollectWithSingleLevelPlanAndNoSource(t *testing.T) {
 
 	domain := createDomain("var.global", []string{"max_connections", "max_prepared_stmt_count", "innodb_log_file_size", "innodb_max_dirty_pages_pct"})
 	level := createLevel("vars", "10s", domain)
-	plan := createPlan("testPlan", []string{"vars"}, []collect.Level{*level})
+	plan := createPlan("testPlan", []string{"vars"}, []sqlutil.Level{*level})
 
 	err := globalCollector.Prepare(*plan)
 
@@ -204,7 +204,7 @@ func TestCollectWithAllSources(t *testing.T) {
 	for _, src := range srcs {
 		domain := createDomain("var.global", []string{"max_connections", "max_prepared_stmt_count", "innodb_log_file_size", "innodb_max_dirty_pages_pct"}, src)
 		level := createLevel("vars", "10s", domain)
-		plan := createPlan("testPlan", []string{"vars"}, []collect.Level{*level})
+		plan := createPlan("testPlan", []string{"vars"}, []sqlutil.Level{*level})
 
 		err := globalCollector.Prepare(*plan)
 		if err != nil {
@@ -228,7 +228,7 @@ func TestCollectWithMultipleLevels(t *testing.T) {
 	domain2 := createDomain("var.global", []string{"innodb_log_file_size", "innodb_max_dirty_pages_pct"})
 	level1 := createLevel("vars1", "10s", domain1)
 	level2 := createLevel("vars2", "10s", domain2)
-	plan := createPlan("testPlan", []string{"vars1", "vars2"}, []collect.Level{*level1, *level2})
+	plan := createPlan("testPlan", []string{"vars1", "vars2"}, []sqlutil.Level{*level1, *level2})
 
 	err := globalCollector.Prepare(*plan)
 	if err != nil {
@@ -256,7 +256,7 @@ func TestCollectWithOneNonExistentMetric(t *testing.T) {
 
 	domain := createDomain("var.global", []string{"max_connections", "max_prepared_stmt_count", "non_existent_metric", "innodb_max_dirty_pages_pct"})
 	level := createLevel("vars", "10s", domain)
-	plan := createPlan("testPlan", []string{"vars"}, []collect.Level{*level})
+	plan := createPlan("testPlan", []string{"vars"}, []sqlutil.Level{*level})
 
 	err := globalCollector.Prepare(*plan)
 	if err != nil {

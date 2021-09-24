@@ -9,7 +9,7 @@ import (
 )
 
 type RetryBuffer struct {
-	sink        Sink
+	sink        blip.Sink
 	sendTimeout time.Duration
 
 	sendMux *sync.Mutex
@@ -21,7 +21,7 @@ type RetryBuffer struct {
 	top      int
 }
 
-func NewRetryBuffer(sink Sink, sendTimeout time.Duration, bufferSize int) *RetryBuffer {
+func NewRetryBuffer(sink blip.Sink, sendTimeout time.Duration, bufferSize int) *RetryBuffer {
 	if bufferSize < 0 {
 		bufferSize = 5
 	}

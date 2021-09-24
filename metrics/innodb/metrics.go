@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	"github.com/square/blip"
-	"github.com/square/blip/collect"
+	"github.com/square/blip/sqlutil"
 )
 
 const (
@@ -39,7 +39,7 @@ AVG_COUNT_RESET: NULL
 type Metrics struct {
 	monitorId string
 	db        *sql.DB
-	plans     collect.Plan
+	plans     blip.Plan
 	query     map[string]string
 }
 
@@ -58,11 +58,11 @@ func (c *Metrics) Domain() string {
 	return blip_domain
 }
 
-func (c *Metrics) Help() collect.Help {
-	return collect.Help{
+func (c *Metrics) Help() blip.CollectorHelp {
+	return blip.CollectorHelp{
 		Domain:      blip_domain,
 		Description: "Collect Metrics metrics (information_schema.innodb_metrics)",
-		Options: map[string]collect.HelpOption{
+		Options: map[string]blip.CollectorHelpOption{
 			OPT_ALL: {
 				Name:    OPT_ALL,
 				Desc:    "Collect all metrics",
@@ -82,7 +82,7 @@ const (
 )
 
 // Prepares queries for all levels in the plan that contain the "var.global" domain
-func (c *Metrics) Prepare(plan collect.Plan) error {
+func (c *Metrics) Prepare(plan blip.Plan) error {
 LEVEL:
 	for _, level := range plan.Levels {
 		dom, ok := level.Collect[blip_domain]
@@ -97,7 +97,7 @@ LEVEL:
 		case "enabled":
 			c.query[level.Name] = base + " WHERE status='enabled'"
 		default:
-			c.query[level.Name] = base + " WHERE name IN (" + collect.INList(dom.Metrics, "'") + ")"
+			c.query[level.Name] = base + " WHERE name IN (" + sqlutil.INList(dom.Metrics, "'") + ")"
 		}
 	}
 	return nil
@@ -129,7 +129,7 @@ func (c *Metrics) Collect(ctx context.Context, levelName string) ([]blip.MetricV
 		m.Name = strings.ToLower(name)
 		m.Tags = map[string]string{"subsystem": subsystem}
 
-		m.Value, ok = collect.Float64(val)
+		m.Value, ok = sqlutil.Float64(val)
 		if !ok {
 			// log.Printf("Error parsing the metric: %s value: %s as float %s", m.Name, val, err)
 			// Log error and continue to next row to retrieve next metric

@@ -1,4 +1,4 @@
-package level
+package monitor
 
 import (
 	"context"
@@ -13,20 +13,20 @@ import (
 
 var Now func() time.Time = time.Now
 
-// Adjuster changes the plan based on database instance state.
-type Adjuster interface {
+// LevelAdjuster changes the plan based on database instance state.
+type LevelAdjuster interface {
 	Run(stopChan, doneChan chan struct{}) error
 }
 
-type AdjusterArgs struct {
+type LevelAdjusterArgs struct {
 	MonitorId string
 	Config    blip.ConfigPlanAdjuster
 	DB        *sql.DB
-	LPC       Collector
+	LPC       LevelCollector
 	HA        ha.Manager
 }
 
-var _ Adjuster = &adjuster{}
+var _ LevelAdjuster = &adjuster{}
 
 type state struct {
 	state string
@@ -39,12 +39,12 @@ type change struct {
 	plan  string
 }
 
-// adjuster is the implementation of Adjuster.
+// adjuster is the implementation of LevelAdjuster.
 type adjuster struct {
 	cfg       blip.ConfigPlanAdjuster
 	monitorId string
 	db        *sql.DB
-	lpc       Collector
+	lpc       LevelCollector
 	ha        ha.Manager
 	// --
 	states  map[string]change
@@ -55,7 +55,7 @@ type adjuster struct {
 	event   event.MonitorSink
 }
 
-func NewAdjuster(args AdjusterArgs) *adjuster {
+func NewLevelAdjuster(args LevelAdjusterArgs) *adjuster {
 	states := map[string]change{}
 	d, _ := time.ParseDuration(args.Config.Offline.After)
 	states[blip.STATE_OFFLINE] = change{

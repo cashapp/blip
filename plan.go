@@ -1,4 +1,4 @@
-package collect
+package blip
 
 // Plan represents different levels of metrics collection.
 type Plan struct {
@@ -25,13 +25,6 @@ type Plan struct {
 	// When a monitor (M) loads plans from a table (config.monitors.M.plans.table),
 	// the table is filtered: WHERE monitorId = config.monitors.M.id.
 	MonitorId string `yaml:"-"`
-
-	// First is true for the first plan loaded from any source. PlanLoader uses
-	// this to return the first plan when there are multiple plans but no LPA to
-	// set plans based on state.
-	firstRow  bool
-	firstFile bool
-	internal  bool
 }
 
 // Level is one collection frequency in a plan.
@@ -49,15 +42,81 @@ type Domain struct {
 }
 
 // Help represents information about a collector.
-type Help struct {
+type CollectorHelp struct {
 	Domain      string
 	Description string
-	Options     map[string]HelpOption
+	Options     map[string]CollectorHelpOption
 }
 
-type HelpOption struct {
+type CollectorHelpOption struct {
 	Name    string
 	Desc    string            // describes Name
 	Default string            // key in Values
 	Values  map[string]string // value => description
+}
+
+// --------------------------------------------------------------------------
+
+func InternalLevelPlan() Plan {
+	return Plan{
+		Name: "blip",
+		Levels: map[string]Level{
+			"key-performance-indicators": Level{
+				Name: "key-performance-indicators",
+				Freq: "1s",
+				Collect: map[string]Domain{
+					"var.global": {
+						Name: "var.global",
+						Metrics: []string{
+							"read_only",
+						},
+					},
+				},
+			},
+			"sysvars": Level{
+				Name: "sysvars",
+				Freq: "5s",
+				Collect: map[string]Domain{
+					"var.global": {
+						Name: "var.global",
+						Metrics: []string{
+							"max_connections",
+						},
+					},
+				},
+			},
+		},
+	}
+}
+
+func PromPlan() Plan {
+	return Plan{
+		Name: "mysqld_exporter",
+		Levels: map[string]Level{
+			"all": Level{
+				Name: "all",
+				Freq: "", // none, pulled/scaped on demand
+				Collect: map[string]Domain{
+					"status.global": {
+						Name: "status.global",
+						Options: map[string]string{
+							"all": "yes",
+						},
+					},
+					"var.global": {
+						Name: "var.global",
+						Options: map[string]string{
+							"all": "yes",
+						},
+					},
+					"innodb": {
+						Name: "innodb",
+						Options: map[string]string{
+							"all": "enabled",
+						},
+					},
+				},
+			},
+		},
+	}
 }

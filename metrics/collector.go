@@ -1,13 +1,10 @@
 package metrics
 
 import (
-	"context"
-	"database/sql"
 	"fmt"
 	"sync"
 
 	"github.com/square/blip"
-	"github.com/square/blip/collect"
 	"github.com/square/blip/event"
 	"github.com/square/blip/metrics/innodb"
 	"github.com/square/blip/metrics/size"
@@ -15,35 +12,52 @@ import (
 	sysvar "github.com/square/blip/metrics/var"
 )
 
-// Collector collects metrics for a single metric domain.
-type Collector interface {
-	// Domain returns Blip and Prometheus domain prefix.
-	Domain() string
-
-	// Help returns information about using the collector.
-	Help() collect.Help
-
-	// Prepare prepares a plan for future calls to Collect.
-	Prepare(collect.Plan) error
-
-	// Collect collects metrics for the given in the previously prepared plan.
-	Collect(ctx context.Context, levelName string) ([]blip.MetricValue, error)
+func Register(domain string, f blip.CollectorFactory) error {
+	r.Lock()
+	defer r.Unlock()
+	_, ok := r.factory[domain]
+	if ok {
+		return fmt.Errorf("%s already registered", domain)
+	}
+	r.factory[domain] = f
+	event.Sendf(event.REGISTER_METRICS, domain)
+	return nil
 }
 
-type FactoryArgs struct {
-	MonitorId string
-	DB        *sql.DB
+func Make(domain string, args blip.CollectorFactoryArgs) (blip.Collector, error) {
+	r.Lock()
+	defer r.Unlock()
+	f, ok := r.factory[domain]
+	if !ok {
+		return nil, fmt.Errorf("%s not registeres", domain)
+	}
+	return f.Make(domain, args)
 }
 
-type CollectorFactory interface {
-	Make(domain string, args FactoryArgs) (Collector, error)
+// --------------------------------------------------------------------------
+
+func init() {
+	for _, mc := range defaultCollectors {
+		Register(mc, f)
+	}
+}
+
+// repo holds registered blip.CollectorFactory
+type repo struct {
+	*sync.Mutex
+	factory map[string]blip.CollectorFactory
+}
+
+var r = &repo{
+	Mutex:   &sync.Mutex{},
+	factory: map[string]blip.CollectorFactory{},
 }
 
 type factory struct{}
 
-var DefaultFactory = factory{}
+var f = factory{}
 
-func (f factory) Make(domain string, args FactoryArgs) (Collector, error) {
+func (f factory) Make(domain string, args blip.CollectorFactoryArgs) (blip.Collector, error) {
 	switch domain {
 	case "status.global":
 		mc := status.NewGlobal(args.DB)
@@ -70,44 +84,4 @@ var defaultCollectors = []string{
 	"size.data",
 	"size.binlogs",
 	"innodb",
-}
-
-func RegisterDefaults() {
-	for _, mc := range defaultCollectors {
-		Register(mc, DefaultFactory)
-	}
-}
-
-// --------------------------------------------------------------------------
-
-type repo struct {
-	*sync.Mutex
-	factory map[string]CollectorFactory
-}
-
-var collectorRepo = &repo{
-	Mutex:   &sync.Mutex{},
-	factory: map[string]CollectorFactory{},
-}
-
-func Register(domain string, f CollectorFactory) error {
-	collectorRepo.Lock()
-	defer collectorRepo.Unlock()
-	_, ok := collectorRepo.factory[domain]
-	if ok {
-		return fmt.Errorf("%s already registered", domain)
-	}
-	collectorRepo.factory[domain] = f
-	event.Sendf(event.REGISTER_METRICS, domain)
-	return nil
-}
-
-func Make(domain string, args FactoryArgs) (Collector, error) {
-	collectorRepo.Lock()
-	defer collectorRepo.Unlock()
-	f, ok := collectorRepo.factory[domain]
-	if !ok {
-		return nil, fmt.Errorf("%s not registeres", domain)
-	}
-	return f.Make(domain, args)
 }

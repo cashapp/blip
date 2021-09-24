@@ -10,7 +10,6 @@ import (
 	"github.com/prometheus/common/expfmt"
 
 	"github.com/square/blip"
-	"github.com/square/blip/collect"
 	"github.com/square/blip/metrics"
 	"github.com/square/blip/prom/tr"
 )
@@ -19,19 +18,17 @@ import (
 type Exporter struct {
 	monitorId    string
 	db           *sql.DB
-	mcMaker      metrics.CollectorFactory
 	promRegistry *prom.Registry
-	mcList       map[string]metrics.Collector // keyed on domain
+	mcList       map[string]blip.Collector // keyed on domain
 	levelName    string
 }
 
-func NewExporter(monitorId string, db *sql.DB, mcMaker metrics.CollectorFactory) *Exporter {
+func NewExporter(monitorId string, db *sql.DB) *Exporter {
 	e := &Exporter{
 		monitorId:    monitorId,
 		db:           db,
-		mcMaker:      mcMaker,
 		promRegistry: prom.NewRegistry(),
-		mcList:       map[string]metrics.Collector{},
+		mcList:       map[string]blip.Collector{},
 	}
 	e.promRegistry.MustRegister(e)
 	return e
@@ -41,7 +38,7 @@ func (e *Exporter) Status() error {
 	return nil
 }
 
-func (e *Exporter) Prepare(plan collect.Plan) error {
+func (e *Exporter) Prepare(plan blip.Plan) error {
 	if len(plan.Levels) != 1 {
 		return fmt.Errorf("multiple levels not supported")
 	}
@@ -54,9 +51,9 @@ func (e *Exporter) Prepare(plan collect.Plan) error {
 			mc, ok := e.mcList[domain]
 			if !ok {
 				var err error
-				mc, err = e.mcMaker.Make(
+				mc, err = metrics.Make(
 					domain,
-					metrics.FactoryArgs{
+					blip.CollectorFactoryArgs{
 						MonitorId: e.monitorId,
 						DB:        e.db,
 					},
