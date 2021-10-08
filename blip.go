@@ -19,6 +19,8 @@ const VERSION = "0.0.0"
 
 var SHA = ""
 
+// Plugins are function callbacks that let you override specific functionality of Blip.
+// Every plugin is optional: if specified, it overrides the built-in functionality.
 type Plugins struct {
 	LoadConfig       func(Config) (Config, error)
 	LoadLevelPlans   func(Config) ([]Plan, error)
@@ -27,6 +29,8 @@ type Plugins struct {
 	TransformMetrics func(*Metrics) error
 }
 
+// Factories are interfaces that let you override certain object creation of Blip.
+// Every factory is optional: if specified, it overrides the built-in factory.
 type Factories struct {
 	AWSConfig  AWSConfigFactory
 	DbConn     DbFactory
@@ -60,11 +64,21 @@ type Collector interface {
 	Collect(ctx context.Context, levelName string) ([]MetricValue, error)
 }
 
+// CollectorFactoryArgs are provided by Blip to a CollectorFactory when making
+// a Collector. The factory must use the args to create the collector.
 type CollectorFactoryArgs struct {
+	// MonitorId is the monitor identifier. The Collector must include
+	// this value in all errors, output, and so forth. Everything monitor-related
+	// in Blip is keyed on monitor ID.
 	MonitorId string
-	DB        *sql.DB
+
+	// DB is the connection to MySQL. It is safe for concurrent use, and it is
+	// used concurrently by other parts of a monitor. The Collector must not
+	// modify the connection, reconnect, and so forth--only use the connection.
+	DB *sql.DB
 }
 
+// A CollectorFactory makes one or more Collector.
 type CollectorFactory interface {
 	Make(domain string, args CollectorFactoryArgs) (Collector, error)
 }
@@ -80,11 +94,26 @@ type Metrics struct {
 	Values    map[string][]MetricValue // keyed on domain
 }
 
+// MetricValue is one metric and its name, type, value, and tags. Tags are optional;
+// the other fields are required and always set. This is the lowest-level data struct:
+// a Collector reports metric values, which the monitor.Engine organize into Metrics
+// by adding the appropriate metadata.
 type MetricValue struct {
-	Name  string
+	// Name is the domain-specific metric name, like threads_running from the
+	// status.global collector. Names are lowercase but otherwise not modified
+	// (for example, hyphens and underscores are not changed).
+	Name string
+
+	// Value is the value of the metric. String values are not supported.
+	// Boolean values are reported as 0 and 1.
 	Value float64
-	Type  byte
-	Tags  map[string]string
+
+	// Type is the metric type: COUNTER, COUNTER, and other const.
+	Type byte
+
+	// Tags are optional key-value pairs. This is used for tagging, dimensions,
+	// and so forth.
+	Tags map[string]string
 }
 
 // Sink sends metrics to an external destination.
@@ -99,6 +128,7 @@ type SinkFactory interface {
 	Make(name, monitorId string, opts map[string]string) (Sink, error)
 }
 
+// Metric types.
 const (
 	UNKNOWN byte = iota
 	COUNTER
@@ -107,6 +137,7 @@ const (
 	EVENT
 )
 
+// Monitor states used by level plan adjuster (LPA).
 const (
 	STATE_NONE      = ""
 	STATE_OFFLINE   = "offline"
