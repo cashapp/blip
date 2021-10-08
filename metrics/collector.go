@@ -12,10 +12,11 @@ import (
 	sysvar "github.com/square/blip/metrics/var"
 )
 
-// Register registers a factory that makes one or more metrics by domain name.
+// Register registers a factory that makes one or more collector by domain name.
 // This is function is one several integration points because it allows users
-// to plug in new metric collectors. Blip calls this function in an init function
-// to register the built-in metric collectors.
+// to plug in new metric collectors by providing a factory to make them.
+// Blip calls this function in an init function to register the built-in metric
+// collectors.
 //
 // See types in the blip package for more details.
 func Register(domain string, f blip.CollectorFactory) error {
