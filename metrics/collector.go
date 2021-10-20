@@ -7,6 +7,7 @@ import (
 	"github.com/square/blip"
 	"github.com/square/blip/event"
 	"github.com/square/blip/metrics/innodb"
+	"github.com/square/blip/metrics/percona"
 	"github.com/square/blip/metrics/size"
 	"github.com/square/blip/metrics/status"
 	sysvar "github.com/square/blip/metrics/var"
@@ -99,6 +100,9 @@ func (f factory) Make(domain string, args blip.CollectorFactoryArgs) (blip.Colle
 	case "innodb":
 		mc := innodb.NewMetrics(args.DB)
 		return mc, nil
+	case "percona.response-time":
+		mc := percona.NewQrt(args.DB)
+		return mc, nil
 	}
 	return nil, fmt.Errorf("collector for domain %s not registered", domain)
 }
@@ -111,4 +115,5 @@ var builtinCollectors = []string{
 	"size.data",
 	"size.binlogs",
 	"innodb",
+	"percona.response-time",
 }
