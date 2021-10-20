@@ -1,9 +1,10 @@
 package prom
 
 import (
+	"testing"
+
 	"github.com/square/blip"
 	"github.com/stretchr/testify/assert"
-	"testing"
 )
 
 func TestTransformToPromTxtFmt(t *testing.T) {
@@ -31,6 +32,7 @@ mysql_global_status_performance_schema_lost_total 5
 # TYPE mysql_global_variables_max_connections gauge
 mysql_global_variables_max_connections 512
 `
+	// TODO: Looks like the api has changed, fix this spec
 	var exporter = NewSink(blipMetrics)
 	buf, err := exporter.TransformToPromTxtFmt()
 	assert.Nil(t, err)
