@@ -34,16 +34,13 @@ Percona root@localhost:(none)> SELECT time, count, total FROM INFORMATION_SCHEMA
 */
 
 const (
-	default_percentile_option = "95"
-)
-
-const (
-	OPT_PERCENTILES = "percentiles"
-	OPT_OPTIONAL    = "optional"
-)
-
-const (
 	blip_domain = "percona.response-time"
+)
+
+const (
+	OPT_PERCENTILES           = "percentiles"
+	OPT_OPTIONAL              = "optional"
+	default_percentile_option = "95"
 )
 
 const (
@@ -52,7 +49,6 @@ const (
 )
 
 type Qrt struct {
-	monitorId   string
 	db          *sql.DB
 	available   bool
 	version     float64
@@ -99,15 +95,18 @@ func (c *Qrt) Help() blip.CollectorHelp {
 
 // Prepare Prepares options for all levels in the plan that contain the percona.response-time domain
 func (c *Qrt) Prepare(plan blip.Plan) error {
-	if c.available == false {
-		return fmt.Errorf("%s: qrt metrics not available")
+	if !c.available {
+		return fmt.Errorf("%s: qrt metrics not available", plan.Name)
 	}
 	// this is a bit inefficient, but should be ok as Prepare shouldn't be called often
 	_, err := c.db.Query(query)
 	if err != nil {
 		c.available = false
-		return fmt.Errorf("%s: qrt metrics not available")
+		return fmt.Errorf("%s: qrt metrics not available", plan.Name)
 	}
+
+	// get the version and store it, used in flushing qrt metrics
+	c.getVersion()
 
 LEVEL:
 	for _, level := range plan.Levels {
@@ -129,7 +128,7 @@ LEVEL:
 func (c *Qrt) Collect(ctx context.Context, levelName string) ([]blip.MetricValue, error) {
 	var metrics []blip.MetricValue
 	if !c.available {
-		if c.optional[levelName] != true {
+		if !c.optional[levelName] {
 			errorStr := fmt.Sprintf("%s: required qrt metrics couldn't be collected", levelName)
 			panic(errorStr)
 		} else {
@@ -144,13 +143,13 @@ func (c *Qrt) Collect(ctx context.Context, levelName string) ([]blip.MetricValue
 	}
 	defer rows.Close()
 
-	var h MysqlQrtHistogram
+	var h QRTHistogram
 
 	var time string
 	var count string
 	var total string
 	for rows.Next() {
-		if err = rows.Scan(&time, &count, &total); err != nil {
+		if err := rows.Scan(&time, &count, &total); err != nil {
 			continue
 		}
 
@@ -169,7 +168,7 @@ func (c *Qrt) Collect(ctx context.Context, levelName string) ([]blip.MetricValue
 			continue
 		}
 
-		h = append(h, NewMysqlQrtBucket(validatedTime, validatedCount, validatedTotal))
+		h = append(h, NewQRTBucket(validatedTime, validatedCount, validatedTotal))
 	}
 
 	for name, val := range c.percentiles[levelName] {
@@ -198,19 +197,19 @@ func (c *Qrt) prepareLevel(dom blip.Domain, level blip.Level) error {
 
 	c.percentiles[level.Name] = map[string]float64{}
 
-	var ensuredPercentilesOption string
+	var percentilesStr string
 	if percentilesOption, ok := dom.Options[OPT_PERCENTILES]; ok {
-		ensuredPercentilesOption = percentilesOption
+		percentilesStr = percentilesOption
 	} else {
-		ensuredPercentilesOption = default_percentile_option
+		percentilesStr = default_percentile_option
 	}
 
-	percentiles := strings.Split(strings.TrimSpace(ensuredPercentilesOption), ",")
+	percentilesList := strings.Split(strings.TrimSpace(percentilesStr), ",")
 
-	for _, percentileStr := range percentiles {
+	for _, percentileStr := range percentilesList {
 		f, err := strconv.ParseFloat(percentileStr, 64)
 		if err == nil {
-			percentile := f / 100.0 // percentiles are provided as whole percentage numbers (e.g. 50, 60)
+			percentile := f / 100.0 // percentilesStr are provided as whole percentage numbers (e.g. 50, 60)
 			percentileAsDigitString := strings.Replace(percentileStr, ".", "", -1)
 			percentileMetricName := fmt.Sprintf("query_response_pctl%s", percentileAsDigitString)
 			c.percentiles[level.Name][percentileMetricName] = percentile
@@ -224,9 +223,6 @@ func (c *Qrt) prepareLevel(dom blip.Domain, level blip.Level) error {
 // FlushQueryResponseTime flushes the Response Time Histogram
 func (c *Qrt) flushQueryResponseTime() error {
 	var flushQuery string
-	if c.version == 0 {
-		c.getVersion()
-	}
 	version := strconv.FormatFloat(c.version, 'f', -1, 64)[0:3]
 
 	switch version {
@@ -279,5 +275,4 @@ func (c *Qrt) getVersion() {
 	}
 	ver /= math.Pow(10.0, (float64(len(version)) - leading))
 	c.version = ver
-	return
 }
