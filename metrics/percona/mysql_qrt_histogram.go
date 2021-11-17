@@ -49,20 +49,25 @@ func (h QRTHistogram) Count() int64 {
 // Percentile is defined as the weighted of the percentiles of
 // the lowest bin that is greater than the requested percentile rank
 func (h QRTHistogram) Percentile(p float64) float64 {
-	var r float64
-	var curPctl int64
+	var pRank float64
+	var curRank int64
 	var pctl float64
 
-	// Order all of the values in the data set in ascending order (least to greatest).
+	// Order all the values in the data set in ascending order (least to greatest).
 	sort.Sort(QRTHistogram(h))
 
 	// Rank = N * P
-	r = float64(h.Count()) * p
+	// N is sample size, which is sum of all counts from all the buckets
+	pRank = float64(h.Count()) * p
 
-	// Find the target percentile, make it an average because using histogram buckets
+	// Find the bucket where our nearest Rank lies, then take the average qrt of that bucket
 	for i, v := range h {
-		curPctl += v.Count
-		if float64(curPctl) >= r {
+		// as each of our bucket can have >= 1 data points (queries), we have to move the curRank by v.Count in each iteration
+		curRank += v.Count
+
+		if float64(curRank) >= pRank {
+			// we have found the bucket where our target pRank lies
+			// we take the average qrt of this bucket with (Total Time / Number of Queries) to find target percentile
 			pctl = h[i].Total / float64(h[i].Count)
 			break
 		}
