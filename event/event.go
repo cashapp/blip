@@ -6,6 +6,8 @@ import (
 	"log"
 	"os"
 	"time"
+
+	"github.com/square/blip"
 )
 
 // Event is something that happened in Blip. Events replace traditional logging.
@@ -15,6 +17,7 @@ type Event struct {
 	Event     string
 	MonitorId string
 	Message   string
+	Error     bool
 }
 
 // A Sink sends events to a destination. Use Tee to send events to multiple destinations.
@@ -116,5 +119,15 @@ var stdout = log.New(os.Stdout, "", log.LstdFlags|log.Lmicroseconds)
 type stdoutSink struct{}
 
 func (s stdoutSink) Recv(e Event) {
-	stdout.Printf("[%s] [%s] %s", e.MonitorId, e.Event, e.Message)
+	if blip.Debugging {
+		blip.Debug("[%s] [%s] %s", e.MonitorId, e.Event, e.Message)
+		return
+	}
+
+	switch e.Event {
+	case SERVER_RUN_WAIT:
+		stdout.Printf("blip %s listening %s", blip.VERSION, e.Message)
+	case SERVER_RUN_STOP:
+		stdout.Printf("blip %s stopped: %s", blip.VERSION, e.Message)
+	}
 }

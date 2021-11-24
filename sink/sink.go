@@ -21,21 +21,32 @@ func Register(name string, f blip.SinkFactory) error {
 	return nil
 }
 
-func Make(name, monitorId string, opts map[string]string) (blip.Sink, error) {
+func List() []string {
+	r.Lock()
+	defer r.Unlock()
+	names := []string{}
+	for k := range r.factory {
+		names = append(names, k)
+	}
+	return names
+}
+
+func Make(name, monitorId string, opts, tags map[string]string) (blip.Sink, error) {
 	r.Lock()
 	defer r.Unlock()
 	f, ok := r.factory[name]
 	if !ok {
 		return nil, fmt.Errorf("%s not registered", name)
 	}
-	return f.Make(name, monitorId, opts)
+	return f.Make(name, monitorId, opts, tags)
 }
 
 // --------------------------------------------------------------------------
 
 func init() {
-	Register("log", f)
+	Register("chronosphere", f)
 	Register("signalfx", f)
+	Register("log", f)
 }
 
 type repo struct {
@@ -52,10 +63,12 @@ type factory struct{}
 
 var f = factory{}
 
-func (f factory) Make(name, monitorId string, opts map[string]string) (blip.Sink, error) {
+func (f factory) Make(name, monitorId string, opts, tags map[string]string) (blip.Sink, error) {
 	switch name {
+	case "chronosphere":
+		return NewChronosphere(monitorId, opts, tags)
 	case "signalfx":
-		sfx, err := NewSignalFxSink(monitorId, opts)
+		sfx, err := NewSignalFxSink(monitorId, opts, tags)
 		if err != nil {
 			return nil, err
 		}

@@ -9,7 +9,12 @@ import (
 )
 
 type InnoDBMetrics struct {
-	Domain string
+	Domain      string
+	ShortDomain string
+}
+
+func (tr InnoDBMetrics) Names() (string, string, string) {
+	return GENERIC_PREFIX, tr.Domain, tr.ShortDomain
 }
 
 // Copied from /percona/mysqld_exporter/collector/info_schema_innodb_metrics.go

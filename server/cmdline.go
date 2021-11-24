@@ -2,7 +2,6 @@ package server
 
 import (
 	"fmt"
-	"os"
 
 	"github.com/alexflint/go-arg"
 	"gopkg.in/yaml.v2"
@@ -12,7 +11,6 @@ import (
 
 // Options represents typical command line options: --addr, --config, etc.
 type Options struct {
-	BootCheck     bool   `arg:"--boot-check"`
 	Config        string `env:"BLIP_CONFIG" default:"blip.yaml"`
 	Debug         bool   `env:"BLIP_DEBUG"`
 	Help          bool
@@ -21,6 +19,7 @@ type Options struct {
 	PrintMonitors bool   `arg:"--print-monitors"`
 	PrintPlans    bool   `arg:"--print-plans"`
 	Strict        bool   `env:"BLIP_STRICT"`
+	Run           bool   `env:"BLIP_RUN" default:"true"`
 	Version       bool   `arg:"-v"`
 }
 
@@ -39,13 +38,13 @@ type CommandLine struct {
 // ParseCommandLine parses the command line and env vars. Command line options
 // override env vars. Default options are used unless overridden by env vars or
 // command line options. Defaults are usually parsed from config files.
-func ParseCommandLine() (CommandLine, error) {
+func ParseCommandLine(args []string) (CommandLine, error) {
 	var c CommandLine
 	p, err := arg.NewParser(arg.Config{Program: "blip"}, &c)
 	if err != nil {
 		return c, err
 	}
-	if err := p.Parse(os.Args); err != nil {
+	if err := p.Parse(args); err != nil {
 		switch err {
 		case arg.ErrHelp:
 			c.Help = true
@@ -62,15 +61,16 @@ func printHelp() {
 	fmt.Printf("Usage:\n"+
 		"  blip [options]\n\n"+
 		"Options:\n"+
-		"  --boot-check     Boot then exit\n"+
 		"  --config         Config file (default: %s)\n"+
 		"  --debug          Print debug to stderr\n"+
-		"  --help           Print help\n"+
+		"  --help           Print help and exit\n"+
 		"  --plans          Plans files (default: %s)\n"+
-		"  --print-config   Print config\n"+
-		"  --print-monitors Print monitors\n"+
-		"  --print-plans    Print level plans\n"+
-		"  --version        Print version\n"+
+		"  --print-config   Print config on boot\n"+
+		"  --print-monitors Print monitors on boot\n"+
+		"  --print-plans    Print level plans on boot\n"+
+		"  --run            Run Blip (if false, boot then exit)\n"+
+		"  --strict         Enable strict mode\n"+
+		"  --version        Print version and exit\n"+
 		"\n"+
 		"blip %s\n",
 		blip.DEFAULT_CONFIG_FILE, blip.DEFAULT_PLANS_FILES, blip.VERSION,

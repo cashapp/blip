@@ -10,6 +10,7 @@ import (
 	"os"
 	"path"
 	"runtime"
+	"strings"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -23,8 +24,8 @@ var SHA = ""
 // Every plugin is optional: if specified, it overrides the built-in functionality.
 type Plugins struct {
 	LoadConfig       func(Config) (Config, error)
-	LoadLevelPlans   func(Config) ([]Plan, error)
 	LoadMonitors     func(Config) ([]ConfigMonitor, error)
+	LoadLevelPlans   func(ConfigPlans) ([]Plan, error)
 	ModifyDB         func(*sql.DB)
 	TransformMetrics func(*Metrics) error
 }
@@ -37,12 +38,19 @@ type Factories struct {
 	HTTPClient HTTPClientFactory
 }
 
+// Env is the startup environment: command line args and environment variables.
+// This is mostly used for testing to override the defaults.
+type Env struct {
+	Args []string
+	Env  []string
+}
+
 type AWSConfigFactory interface {
 	Make(ConfigAWS) (aws.Config, error)
 }
 
 type DbFactory interface {
-	Make(ConfigMonitor) (*sql.DB, error)
+	Make(ConfigMonitor) (*sql.DB, string, error)
 }
 
 type HTTPClientFactory interface {
@@ -58,7 +66,7 @@ type Collector interface {
 	Help() CollectorHelp
 
 	// Prepare prepares a plan for future calls to Collect.
-	Prepare(Plan) error
+	Prepare(ctx context.Context, plan Plan) error
 
 	// Collect collects metrics for the given in the previously prepared plan.
 	Collect(ctx context.Context, levelName string) ([]MetricValue, error)
@@ -125,7 +133,7 @@ type Sink interface {
 }
 
 type SinkFactory interface {
-	Make(name, monitorId string, opts map[string]string) (Sink, error)
+	Make(name, monitorId string, opts, tags map[string]string) (Sink, error)
 }
 
 // Metric types.
@@ -176,6 +184,11 @@ func True(b *bool) bool {
 		return false
 	}
 	return *b
+}
+
+func Bool(s string) bool {
+	v := strings.ToLower(s)
+	return v == "true" || v == "yes" || v == "enable" || v == "enabled"
 }
 
 func MonitorId(cfg ConfigMonitor) string {

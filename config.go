@@ -297,6 +297,10 @@ func (c *ConfigMonitor) ApplyDefaults(b Config) {
 		c.Tags[bk] = bv
 	}
 
+	if c.Sinks == nil {
+		c.Sinks = ConfigSinks{}
+	}
+
 	c.AWS.ApplyDefaults(b)
 	c.Exporter.ApplyDefaults(b)
 	c.HA.ApplyDefaults(b)
@@ -733,10 +737,14 @@ func (c ConfigSinks) Validate() error {
 
 func (c ConfigSinks) ApplyDefaults(b Config) {
 	for bk, bv := range b.Sinks {
-		if _, ok := c[bk]; ok {
+		opts := c[bk]
+		if opts != nil {
 			continue
 		}
-		c[bk] = bv
+		c[bk] = map[string]string{}
+		for k, v := range bv {
+			c[bk][k] = v
+		}
 	}
 }
 

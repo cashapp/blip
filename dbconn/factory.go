@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	_ "github.com/go-sql-driver/mysql"
+	"github.com/go-sql-driver/mysql"
 
 	"github.com/square/blip"
 	"github.com/square/blip/aws"
@@ -20,20 +20,20 @@ import (
 
 type factory struct {
 	awsConfg blip.AWSConfigFactory
-	modifyDB func(*sql.DB)
+	modifyDB func(*sql.DB, string)
 }
 
-func NewConnFactory(awsConfg blip.AWSConfigFactory, modifyDB func(*sql.DB)) factory {
+func NewConnFactory(awsConfg blip.AWSConfigFactory, modifyDB func(*sql.DB, string)) factory {
 	return factory{
 		awsConfg: awsConfg,
 		modifyDB: modifyDB,
 	}
 }
 
-func (f factory) Make(cfg blip.ConfigMonitor) (*sql.DB, error) {
+func (f factory) Make(cfg blip.ConfigMonitor) (*sql.DB, string, error) {
 	passwordFunc, err := f.Password(cfg)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 
 	net := ""
@@ -51,7 +51,7 @@ func (f factory) Make(cfg blip.ConfigMonitor) (*sql.DB, error) {
 	defer cancel()
 	password, err := passwordFunc(ctx)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 
 	cred := cfg.Username
@@ -77,16 +77,24 @@ func (f factory) Make(cfg blip.ConfigMonitor) (*sql.DB, error) {
 
 	db, err := sql.Open("mysql-hotswap-dsn", dsn)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	db.SetMaxOpenConns(3)
 	db.SetMaxIdleConns(3)
 
 	if f.modifyDB != nil {
-		f.modifyDB(db)
+		f.modifyDB(db, dsn)
 	}
 
-	return db, nil
+	dsncfg, err := mysql.ParseDSN(dsn)
+	if err != nil {
+		// @todo
+	}
+	if dsncfg.Passwd != "" {
+		dsncfg.Passwd = "..."
+	}
+
+	return db, dsncfg.FormatDSN(), nil
 }
 
 func (f factory) Password(cfg blip.ConfigMonitor) (PasswordFunc, error) {

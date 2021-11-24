@@ -34,6 +34,18 @@ func Register(domain string, f blip.CollectorFactory) error {
 	return nil
 }
 
+// List lists all registered metric collectors. It is used by the server API
+// for GET /registered.
+func List() []string {
+	r.Lock()
+	defer r.Unlock()
+	names := []string{}
+	for k := range r.factory {
+		names = append(names, k)
+	}
+	return names
+}
+
 // Make makes a metric collector for the domain using a previously registered factory.
 //
 // See types in the blip package for more details.

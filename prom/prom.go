@@ -1,3 +1,4 @@
+// Package prom provides Prometheus emulation and translation.
 package prom
 
 import (
@@ -7,16 +8,20 @@ import (
 	"github.com/square/blip"
 )
 
+type Exporter interface {
+	Scrape() (string, error)
+}
+
 // API listens on a unique port and responds to GET /metrics for one exporter.
 type API struct {
 	addr      string
 	monitorId string
-	exp       *Exporter
+	exp       Exporter
 	// --
 	*http.Server
 }
 
-func NewAPI(addr string, monitorId string, exp *Exporter) *API {
+func NewAPI(addr string, monitorId string, exp Exporter) *API {
 	return &API{
 		addr: addr,
 		exp:  exp,

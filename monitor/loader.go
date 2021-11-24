@@ -11,6 +11,7 @@ import (
 	"gopkg.in/yaml.v2"
 
 	"github.com/square/blip"
+	"github.com/square/blip/aws"
 	"github.com/square/blip/dbconn"
 	"github.com/square/blip/event"
 	"github.com/square/blip/plan"
@@ -51,6 +52,8 @@ type Loader struct {
 	dbmon    map[string]*Monitor // keyed on monitorId
 	stopLoss float64             // @todo
 	*sync.Mutex
+	stopChan chan struct{}
+	doneChan chan struct{}
 }
 
 // NewLoader creates a new Loader singleton. It's called in Server.Boot.
@@ -61,17 +64,124 @@ func NewLoader(cfg blip.Config, loadFunc LoadFunc, dbMaker blip.DbFactory, planL
 		dbMaker:    dbMaker,
 		planLoader: planLoader,
 		// --
-		dbmon: map[string]*Monitor{},
-		Mutex: &sync.Mutex{},
+		dbmon:    map[string]*Monitor{},
+		Mutex:    &sync.Mutex{},
+		stopChan: make(chan struct{}),
+		doneChan: make(chan struct{}),
 	}
 }
 
+func (ml *Loader) Monitor(monitorId string) *Monitor {
+	ml.Lock()
+	defer ml.Unlock()
+	return ml.dbmon[monitorId]
+}
+
+func (ml *Loader) Run() error {
+	defer close(ml.doneChan)
+
+	if ml.cfg.MonitorLoader.Freq == "" {
+		return nil
+	}
+
+	var (
+		reloadTicker *time.Ticker
+		reloadChan   <-chan time.Time
+		timeout      time.Duration
+	)
+	if ml.cfg.MonitorLoader.Freq != "" {
+		reloadTime, _ := time.ParseDuration(ml.cfg.MonitorLoader.Freq)
+		reloadTicker = time.NewTicker(reloadTime)
+		defer reloadTicker.Stop()
+
+		reloadChan = reloadTicker.C
+		timeout = time.Duration(reloadTime / 2)
+	}
+
+	// Reload monitors every config.monitor-loader.freq
+	for {
+		select {
+		case <-ml.stopChan:
+			return nil
+		case <-reloadChan:
+			ctx, cancel := context.WithTimeout(context.Background(), timeout)
+			err := ml.Load(ctx)
+			cancel()
+			if err != nil {
+				// @todo
+			}
+		}
+	}
+}
+
+func (ml *Loader) Stop() {
+	close(ml.stopChan)
+	<-ml.doneChan
+}
+
 // Load loads all monitors specified and auto-detected, for all environments:
-// local, remote, cloud, etc. It returns Changes: monitors added, removed, and changed.
-// It's safe for concurrent use, but it's currently only called once in Server.Boot.
-func (ml *Loader) Load(ctx context.Context) (Changes, error) {
+// local, remote, cloud, etc. It's safe for concurrent use, but calls are
+// serialized. Server.Boot is the first (and primary) caller, which loads
+// monitors on startup.
+func (ml *Loader) Load(ctx context.Context) error {
+	ml.Lock()
+	defer ml.Unlock()
+
 	event.Send(event.MONITOR_LOADER_LOADING)
 
+	changes, err := ml.Changes(ctx)
+	if err != nil {
+		return err
+	}
+
+	// Don't change if >= StopLoss% of monitors are lost/don't load
+	if ml.stopLoss > 0 {
+		nBefore := float64(len(ml.dbmon))
+		nNow := float64(len(changes.Removed))
+		if nNow < nBefore && (nBefore-nNow)/nBefore >= ml.stopLoss {
+			return fmt.Errorf("stop-loss") // @todo
+		}
+	}
+
+	// ----------------------------------------------------------------------
+	// Now that all has all loaded monitors (for this call), update ml.dbmon,
+	// which is the official internal repo of loaded monitors
+
+	for _, mon := range changes.Removed {
+		mon.Stop()
+		delete(ml.dbmon, mon.MonitorId())
+	}
+
+	for _, mon := range changes.Changed {
+		mon.Stop()
+		delete(ml.dbmon, mon.MonitorId())
+	}
+
+	if len(changes.Added) > 0 {
+		// Space out monitors so their clocks don't tick at the same time.
+		// We don't want, for example, 25 monitors simultaneously waking up,
+		// connecting to MySQL, processing metrics. That'll make Blip
+		// CPU/net usage unnecessarily spiky.
+		var space time.Duration
+		if len(changes.Added) < 25 {
+			space = 20 * time.Millisecond
+		} else {
+			space = 10 * time.Millisecond
+		}
+		for _, mon := range changes.Added {
+			// Start database monitors, which starts metrics collection
+			time.Sleep(space)
+			go mon.Run()
+			ml.dbmon[mon.MonitorId()] = mon
+		}
+	}
+
+	return nil
+}
+
+// Changes returns which monitors have been added, changed, or removed since
+// the last call to Load. It is not safe for use by multiple goroutines.
+func (ml *Loader) Changes(ctx context.Context) (Changes, error) {
 	ch := Changes{
 		Added:   []*Monitor{},
 		Removed: []*Monitor{},
@@ -126,7 +236,7 @@ func (ml *Loader) Load(ctx context.Context) (Changes, error) {
 		}
 
 		// Third, monitors from the AWS RDS API
-		monitors, err = ml.loadAWS(ctx)
+		monitors, err = aws.LoadRDS(ctx, ml.cfg.MonitorLoader.AWS)
 		if err != nil {
 			return ch, err
 		}
@@ -136,7 +246,7 @@ func (ml *Loader) Load(ctx context.Context) (Changes, error) {
 
 		// Last, local monitors auto-detected
 		if len(all) == 0 {
-			monitors, err = ml.LoadLocal(ctx)
+			monitors, err = ml.loadLocal(ctx)
 			if err != nil {
 				return ch, err
 			}
@@ -146,65 +256,42 @@ func (ml *Loader) Load(ctx context.Context) (Changes, error) {
 		}
 	}
 
-	// Now that all has all loaded monitors (for this call), lock and update
-	// ml.dbmon, which is the official internal repo of loaded monitors
-	ml.Lock()
-	defer ml.Unlock()
-
-	// Don't change if >= StopLoss% of monitors are lost/don't load
-	if ml.stopLoss > 0 {
-		nBefore := float64(len(ml.dbmon))
-		nNow := float64(len(all))
-		if nNow < nBefore && (nBefore-nNow)/nBefore >= ml.stopLoss {
-			return ch, fmt.Errorf("stop-loss") // @tody
+	// Monitors that have been removed
+	for monitorId, mon := range ml.dbmon {
+		if _, ok := all[monitorId]; !ok {
+			ch.Removed = append(ch.Removed, mon)
 		}
 	}
 
-	// Make new monitors and swap changed monitors
 	for monitorId, cfg := range all {
-		oldMonitor := ml.dbmon[monitorId] // already loaded monitors
-
-		// New monitor? Yes, if not already loaded.
-		if oldMonitor == nil {
-			makeMonitor, err := ml.makeMonitor(cfg) // make new
+		// New monitor? Yes if it doesn't already exist.
+		existingMonitor := ml.dbmon[monitorId]
+		if existingMonitor == nil {
+			newMonitor, err := ml.makeMonitor(cfg)
 			if err != nil {
 				return ch, err
 			}
-			ch.Added = append(ch.Added, makeMonitor) // note new
-			ml.dbmon[monitorId] = makeMonitor        // save new
+			ch.Added = append(ch.Added, newMonitor) // note new
 			continue
 		}
 
-		// Changed monitor? To detect, we hash the entire config and compare
-		// the SHAs. Consequently, changing a single character anywhere in the
-		// config is a different (new) monitor. It's a dumb but safe approach
-		// because a "smart" approach would need a ton of non-trivial logic to
-		// detect what changed and what to do about it.
+		// Existing monitor, but has it changed?
+		// To detect, we hash the entire config and compare the SHAs.
+		// Consequently, changing a single character anywhere in the
+		// config is a different (new) monitor. It's a dumb but safe
+		// approach because a "smart" approach would need a lot of
+		// logic to detect what changed and what to do about it.
 		newHash := sha256.Sum256([]byte(fmt.Sprintf("%v", cfg)))
-		oldHash := sha256.Sum256([]byte(fmt.Sprintf("%v", oldMonitor.Config())))
-		if newHash != oldHash {
-			go oldMonitor.Stop()                        // stop prev
-			delete(ml.dbmon, monitorId)                 // remove prev
-			ch.Changed = append(ch.Changed, oldMonitor) // note prev
-			makeMonitor, err := ml.makeMonitor(cfg)     // make new
-			if err != nil {
-				return ch, err
-			}
-			ml.dbmon[monitorId] = makeMonitor // save new
-			continue
+		oldHash := sha256.Sum256([]byte(fmt.Sprintf("%v", existingMonitor.Config())))
+		if newHash == oldHash {
+			continue // no change
 		}
-
-		// Existing monitor, nothing to do
-	}
-
-	// Stop and remove monitors that have been removed
-	for monitorId, oldMonitor := range ml.dbmon {
-		if _, ok := all[monitorId]; ok {
-			continue
+		ch.Changed = append(ch.Changed, existingMonitor)
+		newMonitor, err := ml.makeMonitor(cfg)
+		if err != nil {
+			return ch, err
 		}
-		go oldMonitor.Stop()
-		ch.Removed = append(ch.Removed, oldMonitor)
-		delete(ml.dbmon, monitorId)
+		ch.Added = append(ch.Added, newMonitor) // note new
 	}
 
 	return ch, nil
@@ -242,12 +329,7 @@ func (ml *Loader) merge(new []blip.ConfigMonitor, all map[string]blip.ConfigMoni
 		// Blip is running, which is another reason we might see duplicate monitors
 		// on load.
 		if err := newcfg.Validate(); err != nil {
-			if blip.Strict {
-				return err
-			}
-			blip.Debug("invalid monitor config (ignore): %s", err)
-			changes.Invalid = append(changes.Invalid, err)
-			continue
+			return err
 		}
 
 		// Monitor config is valid; merge it. The does NOT create or run the
@@ -264,7 +346,7 @@ func (ml *Loader) makeMonitor(cfg blip.ConfigMonitor) (*Monitor, error) {
 	// Make sinks for this monitor. Each monitor has its own sinks.
 	sinks := []blip.Sink{}
 	for sinkName, opts := range cfg.Sinks {
-		sink, err := sink.Make(sinkName, cfg.MonitorId, opts)
+		sink, err := sink.Make(sinkName, cfg.MonitorId, opts, cfg.Tags)
 		if err != nil {
 			return nil, err
 		}
@@ -275,17 +357,17 @@ func (ml *Loader) makeMonitor(cfg blip.ConfigMonitor) (*Monitor, error) {
 	// If no sinks, default to printing metrics to stdout
 	if len(sinks) == 0 && !blip.Strict {
 		blip.Debug("using log sink")
-		sink, _ := sink.Make("log", cfg.MonitorId, map[string]string{})
+		sink, _ := sink.Make("log", cfg.MonitorId, map[string]string{}, cfg.Tags)
 		sinks = append(sinks, sink)
 	}
 
-	return &Monitor{
-		monitorId:  cfg.MonitorId,
-		config:     cfg,
-		dbMaker:    ml.dbMaker,
-		planLoader: ml.planLoader,
-		sinks:      sinks,
-	}, nil
+	mon := NewMonitor(MonitorArgs{
+		Config:     cfg,
+		DbMaker:    ml.dbMaker,
+		PlanLoader: ml.planLoader,
+		Sinks:      sinks,
+	})
+	return mon, nil
 }
 
 // loadFiles loads monitors from blip.ConfigMonitorLoader.Files, if any.
@@ -316,17 +398,8 @@ FILES:
 	return mons, nil
 }
 
-func (ml *Loader) loadAWS(ctx context.Context) ([]blip.ConfigMonitor, error) {
-	if ml.cfg.MonitorLoader.AWS.DisableAuto {
-		return nil, nil
-	}
-	status.Blip("monitor-loader", "loading from AWS")
-	// @todo auto-detect AWS stuff
-	return nil, nil
-}
-
-// LoadLocal auto-detects local MySQL instances.
-func (ml *Loader) LoadLocal(ctx context.Context) ([]blip.ConfigMonitor, error) {
+// loadLocal auto-detects local MySQL instances.
+func (ml *Loader) loadLocal(ctx context.Context) ([]blip.ConfigMonitor, error) {
 	// Do nothing if local auto-detect is explicitly disabled
 	if ml.cfg.MonitorLoader.Local.DisableAuto {
 		return nil, nil
@@ -388,7 +461,7 @@ USERS:
 }
 
 func (ml *Loader) testLocal(bg context.Context, moncfg blip.ConfigMonitor) error {
-	db, err := ml.dbMaker.Make(moncfg)
+	db, _, err := ml.dbMaker.Make(moncfg)
 	if err != nil {
 		return err
 	}
@@ -432,4 +505,10 @@ func (ml *Loader) Print() string {
 		return "error" // @todo
 	}
 	return string(bytes)
+}
+
+func (ml *Loader) Count() uint {
+	ml.Lock()
+	defer ml.Unlock()
+	return uint(len(ml.dbmon))
 }

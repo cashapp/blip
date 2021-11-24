@@ -1,0 +1,8 @@
+---
+kpi:
+  freq: 1s
+  timeout: 1s
+  collect:
+    var.global:
+      metrics:
+        - version

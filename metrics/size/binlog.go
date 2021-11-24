@@ -41,7 +41,7 @@ func (c *Binlogs) Help() blip.CollectorHelp {
 }
 
 // Prepares queries for all levels in the plan that contain the "var.global" domain
-func (c *Binlogs) Prepare(plan blip.Plan) error {
+func (c *Binlogs) Prepare(ctx context.Context, plan blip.Plan) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
 	defer cancel()
 	var val string
