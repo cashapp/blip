@@ -48,24 +48,25 @@ type Monitor struct {
 	sinks      []blip.Sink
 
 	// Core components
-	db     *sql.DB
-	dsn    string
-	engine *Engine
-	api    *prom.API
-	lpc    LevelCollector
-	lpa    LevelAdjuster
-	hbw    heartbeat.Writer
-	hbr    heartbeat.Reader
+	db      *sql.DB
+	dsn     string
+	engine  *Engine
+	promAPI *prom.API
+	lpc     LevelCollector
+	lpa     LevelAdjuster
+	hbw     heartbeat.Writer
+	hbr     heartbeat.Reader
 
 	ctx context.Context
 
 	// Control chans and sync
-	stopChan    chan struct{}
-	doneChanLPA chan struct{}
-	doneChanLPC chan struct{}
-	doneChanHBW chan struct{}
-	doneChanHBR chan struct{}
-	stopped     bool
+	stopChan     chan struct{}
+	doneChanLPA  chan struct{}
+	doneChanLPC  chan struct{}
+	doneChanHBW  chan struct{}
+	doneChanHBR  chan struct{}
+	doneChanProm chan struct{}
+	stopped      bool
 
 	errMux *sync.Mutex
 	err    error
@@ -186,26 +187,37 @@ func (m *Monitor) Run() {
 		time.Sleep(retry.NextBackOff())
 	}
 
+	m.runMux.Lock() // -- BOOT --------------------------------------------
+
 	// ----------------------------------------------------------------------
 	// Prometheus emulation
 
-	if m.config.Exporter.Bind != "" {
-		exp := NewExporter(NewEngine(m.monitorId, m.db))
-		m.api = prom.NewAPI(m.config.Exporter.Bind, m.monitorId, exp)
+	if m.config.Exporter.Mode != "" {
+		m.promAPI = prom.NewAPI(
+			m.config.Exporter,
+			m.monitorId,
+			NewExporter(m.config.Exporter, NewEngine(m.monitorId, m.db)),
+		)
+		m.doneChanProm = make(chan struct{})
 		go func() {
+			defer close(m.doneChanProm)
 			if err := recover(); err != nil {
 				b := make([]byte, 4096)
 				n := runtime.Stack(b, false)
 				log.Printf("PANIC: %s\n%s", err, string(b[0:n]))
 			}
 			for {
-				m.api.Run() // @todo control chans
-				// @todo don't leak this goroutine
-				// @todo log error
-				time.Sleep(2 * time.Second)
+				err := m.promAPI.Run()
+				if err == nil { // shutdown
+					blip.Debug("%s: prom api stopped", m.monitorId)
+					return
+				}
+				blip.Debug("%s: prom api error: %s", m.monitorId, err.Error())
+				time.Sleep(1 * time.Second)
+				continue
 			}
 		}()
-		if blip.True(m.config.Exporter.Legacy) {
+		if m.config.Exporter.Mode == blip.EXPORTER_MODE_LEGACY {
 			blip.Debug("legacy mode")
 			<-m.stopChan
 			return
@@ -229,8 +241,6 @@ func (m *Monitor) Run() {
 		status.Monitor(m.monitorId, "monitor", "error loading plans, sleep and retry: %s", err)
 		time.Sleep(retry.NextBackOff())
 	}
-
-	m.runMux.Lock() // -- BOOT --------------------------------------------
 
 	// ----------------------------------------------------------------------
 	// Heartbeat
@@ -354,6 +364,14 @@ func (m *Monitor) Stop() error {
 	}
 
 	timeout := time.After(4 * time.Second)
+
+	if m.promAPI != nil {
+		select {
+		case <-m.doneChanProm:
+		case <-timeout:
+			return fmt.Errorf("timeout waiting for prom API to stop")
+		}
+	}
 
 	if m.lpa != nil {
 		select {

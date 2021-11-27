@@ -224,6 +224,7 @@ func (e *Engine) Collect(ctx context.Context, levelName string) (*blip.Metrics, 
 	}
 
 	status.Monitor(e.monitorId, "engine", "collecting plan %s level %s", e.plan.Name, levelName)
+	blip.Debug("collecting plan %s level %s", e.plan.Name, levelName)
 
 	bm := &blip.Metrics{
 		Plan:      e.plan.Name,
@@ -249,7 +250,6 @@ func (e *Engine) Collect(ctx context.Context, levelName string) (*blip.Metrics, 
 					e.errMux.Lock()
 					e.mcError[mc.Domain()] = fmt.Errorf("PANIC: %s\n%s", err, string(b[0:n]))
 					e.errMux.Unlock()
-					status.Monitor(e.monitorId, "collector-panic", mc.Domain())
 					// @todo log or even the panic err?
 				}
 				wg.Done()
@@ -277,6 +277,7 @@ func (e *Engine) Collect(ctx context.Context, levelName string) (*blip.Metrics, 
 	wg.Wait()
 	bm.End = time.Now()
 
+	// @todo don't overwrite concurrent calls
 	status.Monitor(e.monitorId, "engine", "idle")
 
 	e.statusMux.Lock()

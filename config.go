@@ -40,6 +40,14 @@ func interpolateEnv(v string) string {
 	return envvar.ReplaceAllString(v, v2)
 }
 
+func setBool(c *bool, b *bool) *bool {
+	if c == nil && b != nil {
+		c = new(bool)
+		*c = *b
+	}
+	return c
+}
+
 func LoadConfig(filePath string, cfg Config) (Config, error) {
 	file, err := filepath.Abs(filePath)
 	if err != nil {
@@ -386,17 +394,7 @@ func (c *ConfigMonitor) fieldValue(f string) string {
 	}
 }
 
-// ///////////////////////////////////////////////////////////////////////////
-// Defaults for monitors
-// ///////////////////////////////////////////////////////////////////////////
-
-func setBool(c *bool, b *bool) *bool {
-	if c == nil && b != nil {
-		c = new(bool)
-		*c = *b
-	}
-	return c
-}
+// --------------------------------------------------------------------------
 
 type ConfigAWS struct {
 	AuthToken         *bool  `yaml:"auth-token,omitempty"`
@@ -440,9 +438,17 @@ func (c *ConfigAWS) InterpolateMonitor(m *ConfigMonitor) {
 
 // --------------------------------------------------------------------------
 
+const (
+	EXPORTER_MODE_DUAL   = "dual"   // Blip and exporter run together
+	EXPORTER_MODE_LEGACY = "legacy" // only exporter runs
+
+	DEFAULT_EXPORTER_LISTEN_ADDR = "127.0.0.1:9104"
+	DEFAULT_EXPORTER_PATH        = "/metrics"
+)
+
 type ConfigExporter struct {
-	Bind   string `yaml:"bind,omitempty"`
-	Legacy *bool  `yaml:"legacy,omitempty"`
+	Flags map[string]string `yaml:"flags,omitempty"`
+	Mode  string            `yaml:"mode,omitempty"`
 }
 
 func DefaultConfigExporter() ConfigExporter {
@@ -450,22 +456,38 @@ func DefaultConfigExporter() ConfigExporter {
 }
 
 func (c ConfigExporter) Validate() error {
+	if c.Mode != "" && (c.Mode != EXPORTER_MODE_DUAL && c.Mode != EXPORTER_MODE_LEGACY) {
+		return fmt.Errorf("invalid mode: %s; valid values: dual, legacy", c.Mode)
+	}
 	return nil
 }
 
 func (c *ConfigExporter) ApplyDefaults(b Config) {
-	if c.Bind == "" {
-		c.Bind = b.Exporter.Bind
+	if c.Mode == "" && b.Exporter.Mode != "" {
+		c.Mode = b.Exporter.Mode
 	}
-	c.Legacy = setBool(c.Legacy, b.Exporter.Legacy)
+	if len(b.Exporter.Flags) > 0 {
+		if c.Flags == nil {
+			c.Flags = map[string]string{}
+		}
+		for k, v := range b.Exporter.Flags {
+			c.Flags[k] = v
+		}
+	}
 }
 
 func (c *ConfigExporter) InterpolateEnvVars() {
-	c.Bind = interpolateEnv(c.Bind)
+	interpolateEnv(c.Mode)
+	for k := range c.Flags {
+		c.Flags[k] = interpolateEnv(c.Flags[k])
+	}
 }
 
 func (c *ConfigExporter) InterpolateMonitor(m *ConfigMonitor) {
-	c.Bind = m.interpolateMon(c.Bind)
+	m.interpolateMon(c.Mode)
+	for k := range c.Flags {
+		c.Flags[k] = m.interpolateMon(c.Flags[k])
+	}
 }
 
 // --------------------------------------------------------------------------

@@ -23,10 +23,7 @@ func Register(domain string, f blip.CollectorFactory) error {
 	r.Lock()
 	defer r.Unlock()
 	_, ok := r.factory[domain]
-	if ok {
-		// @todo This should probably be ignored so users can override built-in
-		//		 factories/collectors with their own, e.g. user-provided status.global
-		//		 replaces built-in one.
+	if ok && blip.Strict {
 		return fmt.Errorf("%s already registered", domain)
 	}
 	r.factory[domain] = f

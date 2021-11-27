@@ -84,6 +84,14 @@ func NewLevelCollector(args LevelCollectorArgs) *collector {
 	}
 }
 
+// TickerDuration sets the internal ticker duration for testing. This is only
+// called for testing; do not called outside testing.
+func TickerDuration(d time.Duration) {
+	tickerDuration = d
+}
+
+var tickerDuration = 1 * time.Second // used for testing
+
 func (c *collector) Run(stopChan, doneChan chan struct{}) error {
 	defer close(doneChan)
 
@@ -112,11 +120,11 @@ func (c *collector) Run(stopChan, doneChan chan struct{}) error {
 	// -----------------------------------------------------------------------
 	// LPC main loop: collect metrics on whole second ticks
 
-	s := 0 // number of whole second ticks
+	s := -1 // number of whole second ticks
 	level := -1
 	levelName := ""
 
-	ticker := time.NewTicker(1 * time.Second)
+	ticker := time.NewTicker(tickerDuration)
 	defer ticker.Stop()
 	for range ticker.C {
 		s = s + 1 // count seconds
@@ -144,14 +152,14 @@ func (c *collector) Run(stopChan, doneChan chan struct{}) error {
 
 		c.stateMux.Lock() // -- LOCK --
 		if c.paused {
-			s = 0               // reset count on pause
+			s = -1              // reset count on pause
 			c.stateMux.Unlock() // -- Unlock
 			continue
 		}
 
 		// Determine lowest level to collect
 		for i := range c.levels {
-			if i%c.levels[i].freq == 0 {
+			if s%c.levels[i].freq == 0 {
 				level = i
 			}
 		}
@@ -424,7 +432,7 @@ func sortedLevels(plan blip.Plan) []level {
 
 	// Sort levels by ascending frequency
 	sort.Sort(byFreq(levels))
-	blip.Debug("levels: %v", levels)
+	blip.Debug("%s levels: %v", plan.Name, levels)
 
 	// Metric inheritence: level N applies to N+(N+1)
 	for i := 0; i < len(levels); i++ {

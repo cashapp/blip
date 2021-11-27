@@ -14,8 +14,9 @@ import (
 	"github.com/square/blip/prom"
 )
 
-// Exporter is a pseudo-sink that emulates mysqld_exporter.
+// Exporter emulates a Prometheus mysqld_exporter. It implement prom.Exporter.
 type Exporter struct {
+	cfg    blip.ConfigExporter
 	engine *Engine
 	// --
 	promRegistry *prometheus.Registry
@@ -24,8 +25,9 @@ type Exporter struct {
 	prepared  bool
 }
 
-func NewExporter(engine *Engine) *Exporter {
+func NewExporter(cfg blip.ConfigExporter, engine *Engine) *Exporter {
 	e := &Exporter{
+		cfg:          cfg,
 		engine:       engine,
 		promRegistry: prometheus.NewRegistry(),
 		Mutex:        &sync.Mutex{},

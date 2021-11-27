@@ -2,6 +2,10 @@ package monitor_test
 
 import (
 	"context"
+	"database/sql"
+	"fmt"
+	"log"
+	"os"
 	"sync"
 	"testing"
 	"time"
@@ -14,11 +18,42 @@ import (
 	"github.com/square/blip/test/mock"
 )
 
-// --------------------------------------------------------------------------
-
 const (
 	monitorId1 = "testmon1"
 )
+
+var (
+	db *sql.DB
+)
+
+// First Method that gets run before all tests.
+func TestMain(m *testing.M) {
+	var err error
+
+	// Read plans from files
+
+	// Connect to MySQL
+	dsn := fmt.Sprintf(
+		"%s:%s@tcp(%s:%s)/?parseTime=true",
+		"root",
+		"test",
+		"localhost",
+		"33570",
+	)
+	db, err = sql.Open("mysql", dsn)
+	if err != nil {
+		log.Fatal(err)
+	}
+	err = db.Ping()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	code := m.Run() // run tests
+	os.Exit(code)
+}
+
+// --------------------------------------------------------------------------
 
 func TestMonitor(t *testing.T) {
 	//blip.Debugging = true

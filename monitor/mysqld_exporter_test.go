@@ -1,44 +1,34 @@
 package monitor_test
 
 import (
+	"strings"
 	"testing"
-
-	//	"github.com/stretchr/testify/assert"
 
 	"github.com/square/blip"
 	"github.com/square/blip/monitor"
 )
 
-func TestTransformToPromTxtFmt(t *testing.T) {
-	t.Skip("todo")
+func TestProm(t *testing.T) {
+	// Test that the Prometheus-emulating Exporter scrapes from MySQL
+	exp := monitor.NewExporter(
+		blip.ConfigExporter{},
+		monitor.NewEngine(monitorId1, db),
+	)
 
-	// Creates a new exporter with some domain mapped Blip Metrics and
-	// invokes `TransformToPromTxtFmt` to verify that Blip Metrics
-	// get converted to prometheus exposition text format successfully.
+	got, err := exp.Scrape()
+	if err != nil {
+		t.Error(err)
+	}
 
-	var blipMetrics = map[string][]blip.MetricValue{}
-	blipMetrics["global_variables"] = append(blipMetrics["global_variables"], blip.MetricValue{
-		Name:  "max_connections",
-		Value: 512,
-		Type:  blip.GAUGE,
-	})
-	blipMetrics["global_status"] = append(blipMetrics["global_status"], blip.MetricValue{
-		Name:  "performance_schema_lost_total",
-		Value: 5,
-		Type:  blip.COUNTER,
-	})
-	/*
-	   	expectedMetricOutput := `# HELP mysql_global_status_performance_schema_lost_total Generic counter metric
-	   # TYPE mysql_global_status_performance_schema_lost_total counter
-	   mysql_global_status_performance_schema_lost_total 5
-	   # HELP mysql_global_variables_max_connections Generic gauge metric
-	   # TYPE mysql_global_variables_max_connections gauge
-	   mysql_global_variables_max_connections 512
-	   `
-	*/
-	_ = monitor.NewExporter(monitor.NewEngine("", nil))
-	/*
-		assert.Nil(t, err)
-		assert.Equal(t, expectedMetricOutput, buf.String())
-	*/
+	// The real output is very long, but we can be certain the basic mechanics
+	// are working if it continas this exact snippet, which means it must have
+	// successfully queried MySQL and printed the output (the metrics in Exposition
+	// format native to Prometheus, not Blip).
+	expect := `# HELP mysql_global_variables_port Generic gauge metric.
+# TYPE mysql_global_variables_port gauge
+mysql_global_variables_port 3306`
+
+	if !strings.Contains(got, expect) {
+		t.Errorf("output does not contain:\n%s\n\n%s\n", expect, got)
+	}
 }

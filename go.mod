@@ -11,6 +11,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/rds v1.12.0
 	github.com/aws/aws-sdk-go-v2/service/secretsmanager v1.5.0
 	github.com/cenkalti/backoff/v4 v4.1.2
+	github.com/go-ini/ini v1.64.0
 	github.com/go-mysql/errors v0.0.0-20180603193453-03314bea68e0
 	github.com/go-mysql/hotswap-dsn-driver v1.0.0
 	github.com/go-sql-driver/mysql v1.6.0

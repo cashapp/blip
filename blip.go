@@ -202,3 +202,12 @@ func MonitorId(cfg ConfigMonitor) string {
 	}
 	return ""
 }
+
+// SetOrDefault returns a if not empty, else it returns b. This is a convenience
+// function to define variables with an explicit value or a DEFAULT_* value.
+func SetOrDefault(a, b string) string {
+	if a != "" {
+		return a
+	}
+	return b
+}
