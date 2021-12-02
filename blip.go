@@ -45,8 +45,12 @@ type Env struct {
 	Env  []string
 }
 
+type AWS struct {
+	Region string
+}
+
 type AWSConfigFactory interface {
-	Make(ConfigAWS) (aws.Config, error)
+	Make(AWS) (aws.Config, error)
 }
 
 type DbFactory interface {

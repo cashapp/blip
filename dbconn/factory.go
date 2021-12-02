@@ -1,4 +1,4 @@
-// Package dbconn provides a Factory that makes *sql.DB to MySQL.
+// Package dbconn provides a Factory that makes *sql.DB connections to MySQL.
 package dbconn
 
 import (
@@ -18,11 +18,14 @@ import (
 	"github.com/square/blip/aws"
 )
 
+// factory is the internal implementation of blip.DbFactory.
 type factory struct {
 	awsConfg blip.AWSConfigFactory
 	modifyDB func(*sql.DB, string)
 }
 
+// NewConnFactory returns a blip.NewConnFactory that connects to MySQL.
+// This is the only blip.NewConnFactor. It is created in Server.Defaults.
 func NewConnFactory(awsConfg blip.AWSConfigFactory, modifyDB func(*sql.DB, string)) factory {
 	return factory{
 		awsConfg: awsConfg,
@@ -30,6 +33,10 @@ func NewConnFactory(awsConfg blip.AWSConfigFactory, modifyDB func(*sql.DB, strin
 	}
 }
 
+// Make makes a *sql.DB for the given monitor config. On success, it also returns
+// a print-safe DSN (with any password replaced by "..."). The config must be
+// copmlete: defaults, env var, and monitor var interpolations already applied,
+// which is done by the monitor.Loader in its private merge method.
 func (f factory) Make(cfg blip.ConfigMonitor) (*sql.DB, string, error) {
 	passwordFunc, err := f.Password(cfg)
 	if err != nil {
@@ -104,7 +111,7 @@ func (f factory) Password(cfg blip.ConfigMonitor) (PasswordFunc, error) {
 		if !blip.True(cfg.AWS.DisableAutoTLS) {
 			aws.RegisterRDSCA()
 		}
-		awscfg, err := f.awsConfg.Make(cfg.AWS)
+		awscfg, err := f.awsConfg.Make(blip.AWS{Region: cfg.AWS.Region})
 		if err != nil {
 			return nil, err
 		}
@@ -117,7 +124,7 @@ func (f factory) Password(cfg blip.ConfigMonitor) (PasswordFunc, error) {
 		if !blip.True(cfg.AWS.DisableAutoTLS) {
 			aws.RegisterRDSCA()
 		}
-		awscfg, err := f.awsConfg.Make(cfg.AWS)
+		awscfg, err := f.awsConfg.Make(blip.AWS{Region: cfg.AWS.Region})
 		if err != nil {
 			return nil, err
 		}

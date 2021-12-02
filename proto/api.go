@@ -16,6 +16,7 @@ type Registered struct {
 type MonitorStatus struct {
 	MonitorId string
 	DSN       string
+	Started   bool
 	Engine    MonitorEngineStatus    `json:",omitempty"`
 	Collector MonitorLevelStatus     `json:",omitempty"`
 	Adjuster  *MonitorAdjusterStatus `json:",omitempty"`

@@ -26,6 +26,10 @@ func ControlChans() (stopChan, doneChan chan struct{}) {
 	return make(chan struct{}), make(chan struct{})
 }
 
+// Defaults returns the default environment, plugins, and factories. It is used
+// in main.go as the args to Server.Boot. Third-party integration will likely
+// _not_ call this function and, instead, provide its own environment, plugins,
+// or factories when calling Server.Boot.
 func Defaults() (blip.Env, blip.Plugins, blip.Factories) {
 	// Plugins are optional, but factories are required
 	awsConfig := aws.NewConfigFactory()
@@ -183,12 +187,13 @@ func (s *Server) Boot(env blip.Env, plugin blip.Plugins, factory blip.Factories)
 	// Database monitors
 
 	// Create, but don't start, database monitors. They're started later in Run.
-	s.monitorLoader = monitor.NewLoader(
-		s.cfg,
-		plugin.LoadMonitors,
-		factory.DbConn,
-		s.planLoader,
-	)
+	s.monitorLoader = monitor.NewLoader(monitor.LoaderArgs{
+		Config:       s.cfg,
+		LoadMonitors: plugin.LoadMonitors,
+		DbMaker:      factory.DbConn,
+		PlanLoader:   s.planLoader,
+		RDSLoader:    aws.RDSLoader{ClientFactory: aws.NewRDSClientFactory(factory.AWSConfig)},
+	})
 	if err := s.monitorLoader.Load(context.Background()); err != nil {
 		event.Sendf(event.BOOT_MONITORS_ERROR, err.Error())
 		return err
@@ -224,7 +229,11 @@ func (s *Server) Run(stopChan, doneChan chan struct{}) error {
 		event.Sendf(event.SERVER_RUN_STOP, stopReason)
 	}()
 
-	go s.monitorLoader.Run()
+	s.monitorLoader.Run() // all monitors
+	if s.cfg.MonitorLoader.Freq == "" {
+		doneChan := make(chan struct{})
+		go s.monitorLoader.Reload(stopChan, doneChan)
+	}
 
 	go s.api.Run()
 

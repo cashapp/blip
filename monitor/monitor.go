@@ -106,9 +106,9 @@ func (m *Monitor) MonitorId() string {
 }
 
 // DB returns the low-level database connection. This method implements *Monitor.
-func (m *Monitor) DB() *sql.DB {
-	return m.db
-}
+//func (m *Monitor) DB() *sql.DB {
+//	return m.db
+//}
 
 // Config returns the monitor config. This method implements *Monitor.
 func (m *Monitor) Config() blip.ConfigMonitor {

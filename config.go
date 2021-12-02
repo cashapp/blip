@@ -90,7 +90,7 @@ type Config struct {
 	//
 	// Defaults for monitors
 	//
-	AWS       ConfigAWS              `yaml:"aws,omitempty"`
+	AWS       ConfigAWSRDS           `yaml:"aws-rds,omitempty"`
 	Exporter  ConfigExporter         `yaml:"exporter,omitempty"`
 	HA        ConfigHighAvailability `yaml:"ha,omitempty"`
 	Heartbeat ConfigHeartbeat        `yaml:"heartbeat,omitempty"`
@@ -116,7 +116,7 @@ func DefaultConfig(strict bool) Config {
 		MonitorLoader: DefaultConfigMonitorLoader(),
 		Sinks:         DefaultConfigSinks(),
 
-		AWS:       DefaultConfigAWS(),
+		AWS:       DefaultConfigAWSRDS(),
 		Exporter:  DefaultConfigExporter(),
 		HA:        DefaultConfigHA(),
 		Heartbeat: DefaultConfigHeartbeat(),
@@ -210,7 +210,7 @@ type ConfigMonitorLoader struct {
 }
 
 type ConfigMonitorLoaderAWS struct {
-	DisableAuto bool `yaml:"disable-auto"`
+	Regions []string `yaml:"regions,omitempty"`
 }
 
 type ConfigMonitorLoaderLocal struct {
@@ -254,7 +254,7 @@ type ConfigMonitor struct {
 	// but these monitor.tags take precedent (are not overwritten by config.tags).
 	Tags map[string]string `yaml:"tags,omitempty"`
 
-	AWS       ConfigAWS              `yaml:"aws,omitempty"`
+	AWS       ConfigAWSRDS           `yaml:"aws-rds,omitempty"`
 	Exporter  ConfigExporter         `yaml:"exporter,omitempty"`
 	HA        ConfigHighAvailability `yaml:"ha,omitempty"`
 	Heartbeat ConfigHeartbeat        `yaml:"heartbeat,omitempty"`
@@ -270,7 +270,7 @@ func DefaultConfigMonitor() ConfigMonitor {
 
 		Tags: map[string]string{},
 
-		AWS:       DefaultConfigAWS(),
+		AWS:       DefaultConfigAWSRDS(),
 		Exporter:  DefaultConfigExporter(),
 		HA:        DefaultConfigHA(),
 		Heartbeat: DefaultConfigHeartbeat(),
@@ -295,7 +295,7 @@ func (c *ConfigMonitor) ApplyDefaults(b Config) {
 		c.Password = b.MySQL.Password
 	}
 	if c.TimeoutConnect == "" && b.MySQL.TimeoutConnect != "" {
-		c.MyCnf = b.MySQL.TimeoutConnect
+		c.TimeoutConnect = b.MySQL.TimeoutConnect
 	}
 
 	for bk, bv := range b.Tags {
@@ -396,7 +396,7 @@ func (c *ConfigMonitor) fieldValue(f string) string {
 
 // --------------------------------------------------------------------------
 
-type ConfigAWS struct {
+type ConfigAWSRDS struct {
 	AuthToken         *bool  `yaml:"auth-token,omitempty"`
 	PasswordSecret    string `yaml:"password-secret,omitempty"`
 	Region            string `yaml:"region,omitempty"`
@@ -404,15 +404,15 @@ type ConfigAWS struct {
 	DisableAutoTLS    *bool  `yaml:"disable-auto-tls,omitempty"`
 }
 
-func DefaultConfigAWS() ConfigAWS {
-	return ConfigAWS{}
+func DefaultConfigAWSRDS() ConfigAWSRDS {
+	return ConfigAWSRDS{}
 }
 
-func (c ConfigAWS) Validate() error {
+func (c ConfigAWSRDS) Validate() error {
 	return nil
 }
 
-func (c *ConfigAWS) ApplyDefaults(b Config) {
+func (c *ConfigAWSRDS) ApplyDefaults(b Config) {
 	if c.PasswordSecret == "" {
 		c.PasswordSecret = b.AWS.PasswordSecret
 	}
@@ -426,12 +426,12 @@ func (c *ConfigAWS) ApplyDefaults(b Config) {
 
 }
 
-func (c *ConfigAWS) InterpolateEnvVars() {
+func (c *ConfigAWSRDS) InterpolateEnvVars() {
 	c.PasswordSecret = interpolateEnv(c.PasswordSecret)
 	c.Region = interpolateEnv(c.Region)
 }
 
-func (c *ConfigAWS) InterpolateMonitor(m *ConfigMonitor) {
+func (c *ConfigAWSRDS) InterpolateMonitor(m *ConfigMonitor) {
 	c.PasswordSecret = m.interpolateMon(c.PasswordSecret)
 	c.Region = m.interpolateMon(c.Region)
 }
@@ -583,8 +583,7 @@ const (
 
 func DefaultConfigMySQL() ConfigMySQL {
 	return ConfigMySQL{
-		Username:       DEFAULT_MONITOR_USERNAME,
-		TimeoutConnect: DEFAULT_MONITOR_TIMEOUT_CONNECT,
+		Username: DEFAULT_MONITOR_USERNAME,
 	}
 }
 
