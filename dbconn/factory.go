@@ -43,6 +43,23 @@ func (f factory) Make(cfg blip.ConfigMonitor) (*sql.DB, string, error) {
 		return nil, "", err
 	}
 
+	// Set values in cfg blip.ConfigMonitor from values in my.cnf. This does
+	// not overwrite any values in cfg already set. For exmaple, if username
+	// is specified in both, the default my.cnf username is ignored and the
+	// explicit cfg.Username is kept/used.
+	if cfg.MyCnf != "" {
+		def, err := ParseMyCnf(cfg.MyCnf)
+		if err != nil {
+			return nil, "", err
+		}
+		tls := blip.ConfigTLS{
+			Cert: def.TLSCert, // ssl-cert in my.cnf
+			Key:  def.TLSKey,  // ssl-key in my.cnf
+			CA:   def.TLSCA,   // ssl-ca in my.cnf
+		}
+		cfg.ApplyDefaults(blip.Config{MySQL: def, TLS: tls})
+	}
+	blip.Debug("<< %+v", cfg)
 	net := ""
 	addr := ""
 	if cfg.Socket != "" {
@@ -52,7 +69,6 @@ func (f factory) Make(cfg blip.ConfigMonitor) (*sql.DB, string, error) {
 		net = "tcp"
 		addr = cfg.Hostname
 	}
-	Repo.Add(addr, passwordFunc)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 	defer cancel()
@@ -73,6 +89,7 @@ func (f factory) Make(cfg blip.ConfigMonitor) (*sql.DB, string, error) {
 	if blip.True(cfg.AWS.AuthToken) {
 		params = append(params, "allowCleartextPasswords=true")
 	}
+
 	if cfg.TLS.Cert != "" && cfg.TLS.Key != "" {
 		// @todo
 	}
@@ -86,6 +103,11 @@ func (f factory) Make(cfg blip.ConfigMonitor) (*sql.DB, string, error) {
 	if err != nil {
 		return nil, "", err
 	}
+
+	// Valid db/DSN, do not return error past here --------------------------
+
+	Repo.Add(addr, passwordFunc)
+
 	db.SetMaxOpenConns(3)
 	db.SetMaxIdleConns(3)
 
@@ -94,8 +116,8 @@ func (f factory) Make(cfg blip.ConfigMonitor) (*sql.DB, string, error) {
 	}
 
 	dsncfg, err := mysql.ParseDSN(dsn)
-	if err != nil {
-		// @todo
+	if err != nil { // ok to ignore
+		blip.Debug("mysql.ParseDSN error: %s", err)
 	}
 	if dsncfg.Passwd != "" {
 		dsncfg.Passwd = "..."
@@ -146,6 +168,17 @@ func (f factory) Password(cfg blip.ConfigMonitor) (PasswordFunc, error) {
 	if cfg.Password != "" {
 		blip.Debug("password from config")
 		return func(context.Context) (string, error) { return cfg.Password, nil }, nil
+	}
+
+	if cfg.MyCnf != "" {
+		blip.Debug("password from my.cnf %s", cfg.MyCnf)
+		return func(context.Context) (string, error) {
+			cfg, err := ParseMyCnf(cfg.MyCnf)
+			if err != nil {
+				return "", err
+			}
+			return cfg.Password, err
+		}, nil
 	}
 
 	if !blip.Strict {

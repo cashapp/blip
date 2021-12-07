@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 
 	"gopkg.in/yaml.v2"
 )
@@ -241,9 +242,10 @@ func (c *ConfigMonitorLoader) InterpolateEnvVars() {
 
 type ConfigMonitor struct {
 	MonitorId string `yaml:"id"`
-	Socket    string `yaml:"socket,omitempty"`
-	Hostname  string `yaml:"hostname,omitempty"`
+
 	// ConfigMySQL:
+	Socket         string `yaml:"socket,omitempty"`
+	Hostname       string `yaml:"hostname,omitempty"`
 	MyCnf          string `yaml:"mycnf,omitempty"`
 	Username       string `yaml:"username,omitempty"`
 	Password       string `yaml:"password,omitempty"`
@@ -285,6 +287,13 @@ func (c ConfigMonitor) Validate() error {
 }
 
 func (c *ConfigMonitor) ApplyDefaults(b Config) {
+	if c.Socket == "" {
+		c.Socket = b.MySQL.Socket
+	}
+	if c.Hostname == "" {
+		c.Hostname = b.MySQL.Hostname
+	}
+
 	if c.MyCnf == "" && b.MySQL.MyCnf != "" {
 		c.MyCnf = b.MySQL.MyCnf
 	}
@@ -493,12 +502,8 @@ func (c *ConfigExporter) InterpolateMonitor(m *ConfigMonitor) {
 // --------------------------------------------------------------------------
 
 type ConfigHeartbeat struct {
-	Table             string   `yaml:"table,omitempty"`
-	Source            []string `yaml:"source,omitempty"`
-	Disable           *bool    `yaml:"disable,omitempty"`
-	DisableRead       *bool    `yaml:"disable-read,omitempty"`
-	DisableWrite      *bool    `yaml:"disable-write,omitempty"`
-	DisableAutoSource *bool    `yaml:"disable-auto-source,omitempty"`
+	Freq  string `yaml:"freq,omitempty"`
+	Table string `yaml:"table,omitempty"`
 }
 
 const (
@@ -506,41 +511,42 @@ const (
 )
 
 func DefaultConfigHeartbeat() ConfigHeartbeat {
-	return ConfigHeartbeat{
-		Table: DEFAULT_HEARTBEAT_TABLE,
-	}
+	return ConfigHeartbeat{}
 }
 
 func (c ConfigHeartbeat) Validate() error {
+	if c.Freq != "" {
+		d, err := time.ParseDuration(c.Freq)
+		if err != nil {
+			return fmt.Errorf("invalid heartbeat.freq: %s: %s", c.Freq, err)
+		}
+		if d <= 0 {
+			return fmt.Errorf("invalid heartbeat.freq: %s (%d): value <= 0; must be >0", c.Freq, d)
+		}
+	}
 	return nil
 }
 
 func (c *ConfigHeartbeat) ApplyDefaults(b Config) {
+	if c.Freq == "" {
+		c.Freq = b.Heartbeat.Freq
+	}
 	if c.Table == "" {
 		c.Table = b.Heartbeat.Table
 	}
-	if len(c.Source) == 0 && len(b.Heartbeat.Source) > 0 {
-		c.Source = make([]string, len(b.Heartbeat.Source))
-		copy(c.Source, b.Heartbeat.Source)
+	if c.Freq != "" && c.Table == "" {
+		c.Table = DEFAULT_HEARTBEAT_TABLE
 	}
-	c.Disable = setBool(c.Disable, b.Heartbeat.Disable)
-	c.DisableRead = setBool(c.DisableRead, b.Heartbeat.DisableRead)
-	c.DisableWrite = setBool(c.DisableWrite, b.Heartbeat.DisableWrite)
-	c.DisableAutoSource = setBool(c.DisableAutoSource, b.Heartbeat.DisableAutoSource)
 }
 
 func (c *ConfigHeartbeat) InterpolateEnvVars() {
+	c.Freq = interpolateEnv(c.Freq)
 	c.Table = interpolateEnv(c.Table)
-	for i := range c.Source {
-		c.Source[i] = interpolateEnv(c.Source[i])
-	}
 }
 
 func (c *ConfigHeartbeat) InterpolateMonitor(m *ConfigMonitor) {
+	c.Freq = m.interpolateMon(c.Freq)
 	c.Table = m.interpolateMon(c.Table)
-	for i := range c.Source {
-		c.Source[i] = m.interpolateMon(c.Source[i])
-	}
 }
 
 // --------------------------------------------------------------------------
@@ -574,6 +580,13 @@ type ConfigMySQL struct {
 	Password       string `yaml:"password,omitempty"`
 	PasswordFile   string `yaml:"password-file,omitempty"`
 	TimeoutConnect string `yaml:"timeout-connect,omitempty"`
+
+	// Only from my.cnf:
+	Socket   string `yaml:"-"` // socket
+	Hostname string `yaml:"-"` // host
+	TLSCert  string `yaml:"-"` // ssl-cert
+	TLSKey   string `yaml:"-"` // ssl-key
+	TLSCA    string `yaml:"-"` // ssl-ca
 }
 
 const (
@@ -592,6 +605,12 @@ func (c ConfigMySQL) Validate() error {
 }
 
 func (c *ConfigMySQL) ApplyDefaults(b Config) {
+	if c.Socket == "" {
+		c.Socket = b.MySQL.Socket
+	}
+	if c.Hostname == "" {
+		c.Hostname = b.MySQL.Hostname
+	}
 	if c.MyCnf == "" {
 		c.MyCnf = b.MySQL.MyCnf
 	}

@@ -68,3 +68,30 @@ func TestConnect(t *testing.T) {
 		t.Errorf("modifDB callback was not called, expected Make to call it")
 	}
 }
+
+func TestMyCnf(t *testing.T) {
+	// Test that a my.cnf file (config.mysql.mycnf) provides defaults that are
+	// not overwritten by explicit values
+	f := dbconn.NewConnFactory(nil, nil)
+
+	// Minimal config: username, password, and address with the special test port
+	cfg := blip.ConfigMonitor{
+		MyCnf: "../test/mycnf/full-dsn",
+	}
+
+	// Make makes the connection (sql.DB) or returns an error
+	db, dsn, err := f.Make(cfg)
+	if err != nil {
+		t.Error(err)
+	}
+	if db == nil {
+		t.Fatal("got nil *sql.DB, execpted non-nil value (no return error)")
+	}
+	defer db.Close()
+
+	// Make returns a print-safe DSN: password ("test") replaced with "..."
+	expectDSN := fmt.Sprintf("U:...@tcp(H:33560)/")
+	if !strings.HasPrefix(dsn, expectDSN) {
+		t.Errorf("got DSN '%s', expected prefix '%s'", dsn, expectDSN)
+	}
+}

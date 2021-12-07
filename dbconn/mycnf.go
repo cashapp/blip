@@ -6,14 +6,14 @@ import (
 	"github.com/square/blip"
 )
 
-func ParseMyCnf(file string) (blip.ConfigMonitor, error) {
+func ParseMyCnf(file string) (blip.ConfigMySQL, error) {
 	opts := ini.LoadOptions{AllowBooleanKeys: true}
 	mycnf, err := ini.LoadSources(opts, file)
 	if err != nil {
-		return blip.ConfigMonitor{}, err
+		return blip.ConfigMySQL{}, err
 	}
 
-	cfg := blip.ConfigMonitor{
+	cfg := blip.ConfigMySQL{
 		Username: mycnf.Section("client").Key("user").String(),
 		Password: mycnf.Section("client").Key("password").String(),
 		Hostname: mycnf.Section("client").Key("host").String(),
@@ -29,11 +29,9 @@ func ParseMyCnf(file string) (blip.ConfigMonitor, error) {
 	cert := mycnf.Section("client").Key("ssl-cert").String()
 	key := mycnf.Section("client").Key("ssl-key").String()
 	if ca != "" || cert != "" || key != "" {
-		cfg.TLS = blip.ConfigTLS{
-			CA:   ca,
-			Cert: cert,
-			Key:  key,
-		}
+		cfg.TLSCA = ca
+		cfg.TLSCert = cert
+		cfg.TLSKey = key
 	}
 
 	return cfg, nil

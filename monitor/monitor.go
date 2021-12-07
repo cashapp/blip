@@ -54,8 +54,7 @@ type Monitor struct {
 	promAPI *prom.API
 	lpc     LevelCollector
 	lpa     LevelAdjuster
-	hbw     heartbeat.Writer
-	hbr     heartbeat.Reader
+	hbw     *heartbeat.BlipWriter
 
 	ctx context.Context
 
@@ -64,7 +63,6 @@ type Monitor struct {
 	doneChanLPA  chan struct{}
 	doneChanLPC  chan struct{}
 	doneChanHBW  chan struct{}
-	doneChanHBR  chan struct{}
 	doneChanProm chan struct{}
 	stopped      bool
 
@@ -248,38 +246,11 @@ func (m *Monitor) Run() {
 	// Run optional heartbeat monitor to monitor replication lag. When enabled,
 	// the heartbeat (hb) writes a high-resolution timestamp to a row in a table
 	// at the configured frequence: config.monitors.M.heartbeat.freq.
-	if !blip.True(m.config.Heartbeat.Disable) {
-
+	if m.config.Heartbeat.Freq != "" {
 		status.Monitor(m.monitorId, "monitor", "starting heartbeat")
-
-		if !blip.True(m.config.Heartbeat.DisableWrite) {
-			m.hbw = heartbeat.NewWriter(m.monitorId, m.db)
-			m.doneChanHBW = make(chan struct{})
-			go m.hbw.Write(m.stopChan, m.doneChanHBW)
-		}
-
-		if !!blip.True(m.config.Heartbeat.DisableRead) &&
-			(len(m.config.Heartbeat.Source) > 0 || !blip.True(m.config.Heartbeat.DisableAutoSource)) {
-			var sf heartbeat.SourceFinder
-			if len(m.config.Heartbeat.Source) > 0 {
-				sf = heartbeat.NewStaticSourceList(m.config.Heartbeat.Source, m.db)
-			} else if !blip.True(m.config.Heartbeat.DisableAutoSource) {
-				sf = heartbeat.NewAutoSourceFinder() // @todo
-			} else {
-				panic("no repl sources and auto-source disable")
-			}
-			m.hbr = heartbeat.NewReader(
-				m.config,
-				m.db,
-				heartbeat.NewSlowFastWaiter(),
-				sf,
-			)
-			m.doneChanHBR = make(chan struct{})
-			go m.hbr.Read(m.stopChan, m.doneChanHBR)
-		} else {
-			blip.Debug("heartbeat read disabled: no sources, auto-source dissabled")
-		}
-
+		m.hbw = heartbeat.NewBlipWriter(m.monitorId, m.db, m.config.Heartbeat)
+		m.doneChanHBW = make(chan struct{})
+		go m.hbw.Write(m.stopChan, m.doneChanHBW)
 	}
 
 	// ----------------------------------------------------------------------
@@ -388,14 +359,6 @@ func (m *Monitor) Stop() error {
 			return fmt.Errorf("timeout waiting for heartbeat writer to stop")
 		}
 
-	}
-
-	if m.doneChanHBR != nil {
-		select {
-		case <-m.doneChanHBR:
-		case <-timeout:
-			return fmt.Errorf("timeout waiting for heartbeat reader to stop")
-		}
 	}
 
 	select {
