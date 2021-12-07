@@ -7,9 +7,12 @@ import (
 	"sync"
 	"time"
 
+	"github.com/cenkalti/backoff/v4"
+
 	"github.com/square/blip"
 	"github.com/square/blip/event"
 	"github.com/square/blip/plan"
+	"github.com/square/blip/proto"
 	"github.com/square/blip/status"
 )
 
@@ -29,7 +32,10 @@ type LevelCollector interface {
 	ChangePlan(newState, newPlanName string) error
 
 	// Pause pauses metrics collection until ChangePlan is called.
-	Pause() error
+	Pause()
+
+	// Status returns detailed internal status.
+	Status() proto.MonitorLevelStatus
 }
 
 var _ LevelCollector = &collector{}
@@ -52,6 +58,7 @@ type collector struct {
 	event                event.MonitorSink
 	levels               []level
 	paused               bool
+	stopped              bool
 }
 
 type LevelCollectorArgs struct {
@@ -76,6 +83,14 @@ func NewLevelCollector(args LevelCollectorArgs) *collector {
 		paused:    true,
 	}
 }
+
+// TickerDuration sets the internal ticker duration for testing. This is only
+// called for testing; do not called outside testing.
+func TickerDuration(d time.Duration) {
+	tickerDuration = d
+}
+
+var tickerDuration = 1 * time.Second // used for testing
 
 func (c *collector) Run(stopChan, doneChan chan struct{}) error {
 	defer close(doneChan)
@@ -105,11 +120,11 @@ func (c *collector) Run(stopChan, doneChan chan struct{}) error {
 	// -----------------------------------------------------------------------
 	// LPC main loop: collect metrics on whole second ticks
 
-	s := 1 // number of whole second ticks
+	s := -1 // number of whole second ticks
 	level := -1
 	levelName := ""
 
-	ticker := time.NewTicker(1 * time.Second)
+	ticker := time.NewTicker(tickerDuration)
 	defer ticker.Stop()
 	for range ticker.C {
 		s = s + 1 // count seconds
@@ -117,19 +132,34 @@ func (c *collector) Run(stopChan, doneChan chan struct{}) error {
 		// Was Stop called?
 		select {
 		case <-stopChan: // yes, return immediately
+			// Stop changePlan goroutine (if any) and prevent new ones in the
+			// pathological case that the LPA calls ChangePlan while the LPC
+			// is terminating
+			c.changeMux.Lock()
+			c.stopped = true // prevent new changePlan goroutines
+			c.changeMux.Unlock()
+
+			c.stateMux.Lock()
+			changing := c.changing
+			c.stateMux.Unlock()
+			if changing {
+				c.changePlanCancelFunc() // stop changePlan goroutine
+			}
+
 			return nil
 		default: // no
 		}
 
 		c.stateMux.Lock() // -- LOCK --
 		if c.paused {
+			s = -1              // reset count on pause
 			c.stateMux.Unlock() // -- Unlock
 			continue
 		}
 
 		// Determine lowest level to collect
 		for i := range c.levels {
-			if i%c.levels[i].freq == 0 {
+			if s%c.levels[i].freq == 0 {
 				level = i
 			}
 		}
@@ -183,34 +213,57 @@ func (c *collector) collector(n int, col chan string, stopChan chan struct{}) {
 	}
 }
 
-// ChangePlan changes the level plan in the monitor based on database state.
-// This func is called only by the PlanAdjuster, which calls it sequentially.
-// If the state changes while changing plans, this func cancels the previous
-// plan change (changePlan goroutine) and starts changing to the new state plan.
-// Monitor.Prepare does not guard against concurrent calls; it relies on this
-// func to call it sequentially, never concurrently. In other words, this func
-// serializes calls to Monitor.Prepare.
+// ChangePlan changes the metrics collect plan based on database state.
+// It loads the plan from the plan.Loader, then it calls Engine.Prepare.
+// This is the only time and place taht Engine.Prepare is called.
+//
+// The caller is either LevelAdjuster.CheckState or Monitor.Start. The former
+// is the case when config.monitors.*.plans.adjust is set. In this case,
+// the LevelAdjuster (LPA) periodically checks database state and calls this
+// function when the database state changes. It trusts that this function
+// changes the state, so the LPA does not retry the call. The latter case,
+// called from Monitor.Start, happen when the LPA is not enabled, so the
+// monitor sets state=active, plan=<default>; then it trusts this function
+// to keep retrying.
+//
+// ChangePlan is safe to call by multiple goroutines because it serializes
+// plan changes, and the last plan wins. For example, if plan change 1 is in
+// progress, plan change 2 cancels it and is applied. If plan change 3 happens
+// while plan change 2 is in progress, then 3 cancels 2 and 3 is applied.
+// Since the LPA is the only periodic caller and it has delays (so plans don't
+// change too quickly), this shouldn't happen.
+//
+// Currently, the only way this function fails is if the plan cannot be loaded.
+// That shouldn't happen because plans are loaded on startup, but it might
+// happen in the future if Blip adds support for reloading plans via the API.
+// Then, plans and config.monitors.*.plans.adjust might become out of sync.
+// In this hypothetical error case, the plan change fails but the current plan
+// continues to work.
 func (c *collector) ChangePlan(newState, newPlanName string) error {
 	// Serialize access to this func
 	c.changeMux.Lock()
 	defer c.changeMux.Unlock()
+	if c.stopped {
+		return nil
+	}
 
 	// Check if changePlan goroutine from previous call is running
 	c.stateMux.Lock()
-	changing := c.changing
-	if changing {
-		c.stateMux.Unlock() // let changePlan goroutine return
-		c.changePlanCancelFunc()
-		<-c.changePlanDoneChan
+	if c.changing {
+		c.stateMux.Unlock()      // let changePlan goroutine return
+		c.changePlanCancelFunc() // stop --> changePlan goroutine
+		<-c.changePlanDoneChan   // wait for changePlan goroutine
 		c.stateMux.Lock()
 	}
-	c.changing = true
+
+	c.changing = true // changePlan sets c.changing=false on return, so flip it back
+
 	ctx, cancel := context.WithCancel(context.Background())
 	c.changePlanCancelFunc = cancel
 	c.changePlanDoneChan = make(chan struct{})
 	c.stateMux.Unlock()
 
-	// Don't block caller (LPA). If state changes again, LPA will call this
+	// Don't block caller. If state changes again, LPA will call this
 	// func again, in which case the code above will cancel the current
 	// changePlan goroutine (if it's still running) and re-change/re-prepare
 	// the plan for the latest state.
@@ -219,64 +272,119 @@ func (c *collector) ChangePlan(newState, newPlanName string) error {
 	return nil
 }
 
-func (c *collector) changePlan(ctx context.Context, newState, newPlanName string) error {
+const (
+	cpName = "lpc-change-plan" // only for changePlan
+)
+
+// changePlan is a gorountine run by ChangePlan It's potentially long-running
+// because it waits for Engine.Prepare. If that function returns an error
+// (e.g. MySQL is offline), then this function retires forever, or until canclled
+// by either another call to ChangePlan or Run is stopped (LPC is terminated).
+//
+// Never all this function directly; it's only called via ChangePlan, which
+// serializes access and guarantees only one changePlan goroutine at a time.
+func (c *collector) changePlan(ctx context.Context, newState, newPlanName string) {
 	defer func() {
-		c.changePlanCancelFunc()
 		c.stateMux.Lock()
-		close(c.changePlanDoneChan)
 		c.changing = false
 		c.stateMux.Unlock()
+		close(c.changePlanDoneChan) // signal that ChangePlan can lock stateMux
 	}()
 
+	oldState := c.state
+	oldPlanName := c.plan.Name
+	change := fmt.Sprintf("state:%s plan:%s -> state:%s plan:%s", oldState, oldPlanName, newState, newPlanName)
+	c.event.Sendf(event.CHANGE_PLAN_BEGIN, change)
+
 	// Load new plan from plan loader, which contains all plans
+	status.Monitor(c.monitorId, cpName, "loading new plan %s (state %s)", newPlanName, newState)
 	newPlan, err := c.planLoader.Plan(c.engine.MonitorId(), newPlanName, c.engine.DB())
 	if err != nil {
-		return err
+		status.Monitor(c.monitorId, cpName, "%s: error loading new plan: %s", change, err)
+		c.event.Sendf(event.CHANGE_PLAN_ERROR, "%s: error loading new plan: %s", change, err)
+		return
 	}
 
 	// Convert plan levels to sorted levels for efficient level calculation in Run;
-	// see code comments belows
+	// see code comments on sortedLevels.
 	levels := sortedLevels(newPlan)
 
-	// New plan is ready. Lock to prevent conflict with Run which is accessing
-	// the (current) plan every 1s. Run only locks when calculating which level
-	// (by name) to collect, then it unlocks and tells the Engine to collect that
-	// level.
-	c.stateMux.Lock()
-	c.paused = true
-	c.stateMux.Unlock()
+	// ----------------------------------------------------------------------
+	// Prepare the (new) plan
+	//
+	// This is two-phase commit:
+	//   0. LPC: pause Run loop
+	//   1. Engine: commit new plan
+	//   2. LPC: commit new plan
+	//   3. LPC: resume Run loop
+	// Below in call c.engine.Prepare(ctx, newPlan, c.Pause, after), Prepare
+	// does its work and, if successful, calls c.Pause, which is step 0;
+	// then Prepare does step 1, which won't be collected yet because it
+	// just paused LPC.Run which drives metrics collection; then Prepare calls
+	// the after func/callback defined below, which is step 2 and signals to
+	// this func that we commit the new plan and resume Run (step 3) to begin
+	// collecting that plan.
 
-	// Have engine prepare the plan, which really makes each metrics collector
-	// prepare for the plan
-	if err := c.engine.Prepare(ctx, newPlan); err != nil {
-		c.stateMux.Lock()
-		c.paused = false // plan did NOT change; resume current plan
-		c.stateMux.Unlock()
-		return err
+	after := func() {
+		c.stateMux.Lock() // -- X lock --
+		c.state = newState
+		c.plan = newPlan
+		c.levels = levels
+
+		// Changing state/plan always resumes (if paused); in fact, it's the
+		// only way to resume after Pause is called
+		c.paused = false
+		blip.Debug("%s: resume", c.monitorId)
+
+		c.stateMux.Unlock() // -- X unlock --
 	}
 
-	// collect new plan
-	c.stateMux.Lock() // -- X lock --
-	oldState := c.state
-	oldPlanName := c.plan.Name
-	c.state = newState
-	c.plan = newPlan
-	c.levels = levels
-	c.paused = false
-	c.stateMux.Unlock() // -- X unlock --
+	// Try forever, or until context is cancelled, because it could be that MySQL is
+	// temporarily offline. In the real world, this is not uncommon: Blip might be
+	// started before MySQL, for example. We're running in a goroutine from ChangePlan
+	// that already returned to its caller, so we're not blocking anything here.
+	// More importantly, as documented in several place: this is _the code_ that
+	// all other code relies on to try "forever" because a plan must be prepared
+	// before anything can be collected.
+	status.Monitor(c.monitorId, cpName, "preparing new plan %s (state %s)", newPlanName, newState)
+	retry := backoff.NewExponentialBackOff()
+	retry.MaxElapsedTime = 0
+	for {
+		err := c.engine.Prepare(ctx, newPlan, c.Pause, after)
+		if err == nil {
+			break // success
+		}
+		if ctx.Err() != nil {
+			return
+		}
+		status.Monitor(c.monitorId, cpName, "%s: error preparing new plan: %s", change, err)
+		c.event.Sendf(event.CHANGE_PLAN_ERROR, "%s: error preparing new plan: %s", change, err)
+		time.Sleep(retry.NextBackOff())
+	}
 
-	c.event.Sendf(event.CHANGE_PLAN, "state:%s plan:%s -> state:%s plan:%s",
-		oldState, oldPlanName, newState, newPlan.Name)
-
-	return nil
+	status.RemoveComponent(c.monitorId, cpName)
+	c.event.Sendf(event.CHANGE_PLAN_SUCCESS, change)
 }
 
-// Pause pauses metrics collection until ChangePlan is called.
-func (c *collector) Pause() error {
+// Pause pauses metrics collection until ChangePlan is called. Run still runs,
+// but it doesn't collect when paused. The only way to resume after pausing is
+// to call ChangePlan again.
+func (c *collector) Pause() {
 	c.stateMux.Lock()
+	blip.Debug("%s: pause", c.monitorId)
 	c.paused = true
 	c.stateMux.Unlock()
-	return nil
+}
+
+// Status returns the current state and plan name.
+func (c *collector) Status() proto.MonitorLevelStatus {
+	c.stateMux.Lock()
+	defer c.stateMux.Unlock()
+	return proto.MonitorLevelStatus{
+		State:  c.state,
+		Plan:   c.plan.Name,
+		Paused: c.paused,
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -324,7 +432,7 @@ func sortedLevels(plan blip.Plan) []level {
 
 	// Sort levels by ascending frequency
 	sort.Sort(byFreq(levels))
-	blip.Debug("levels: %v", levels)
+	blip.Debug("%s levels: %v", plan.Name, levels)
 
 	// Metric inheritence: level N applies to N+(N+1)
 	for i := 0; i < len(levels); i++ {

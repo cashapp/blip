@@ -1,17 +1,20 @@
-// Package monitor provides the Monitor type that monitors one MySQL instnace.
-// All monitoring activity happens in the package. The rest of Blip is mostly
-// to set up and support Monitor instances.
-//
-// The most important types in this package are Engine, LevelCollector, and
-// LevelAdjuster.
+// Package monitor provides core Blip components that, together, monitor one
+// MySQL instance. Most monitoring logic happens in the package, but package
+// metrics is closely related: this latter actually collect metrics, but it
+// is driven by this package. Other Blip packages are mostly set up and support
+// of monitors.
 package monitor
 
 import (
+	"context"
 	"database/sql"
+	"fmt"
 	"log"
 	"runtime"
 	"sync"
 	"time"
+
+	"github.com/cenkalti/backoff/v4"
 
 	"github.com/square/blip"
 	"github.com/square/blip/event"
@@ -19,46 +22,80 @@ import (
 	"github.com/square/blip/heartbeat"
 	"github.com/square/blip/plan"
 	"github.com/square/blip/prom"
+	"github.com/square/blip/proto"
+	"github.com/square/blip/status"
 )
 
 // Monitor monitors one MySQL instance. A monitor is completely self-contained;
-// monitors share nothing. Therefore, each monitor is completely indepedent, too.
+// monitors share nothing. Therefore, each monitor is completely independent, too.
 //
-// The Monitor type is just an "outer wrapper" that runs the core components
-// that do real work: Engine, LevelCollector (LPC), optional LevelAdjuster (LPA),
-// and optinoal Heartbeat (HB). You can view it like:
+// The Monitor type is a server that boots and runs the core components that do
+// the real work: Engine, LevelCollector (LPC), optional LevelAdjuster (LPA),
+// and optional Heartbeat (HB). You can view it like:
 //
-//   Blip -> Monitor[ Engine + LPA + LPC + HB ]
+//   Blip -> Monitor 1[ Engine + LPA + LPC + HB ] -> MySQL 1
+//        ...
+//        -> Monitor N[ Engine + LPA + LPC + HB ] -> MySQL N
 //
 // Blip only calls/uses the Monitor; nothing outside the Monitor can access those
 // core components.
-//
-// Loading monitors (Loader type) is dyanmic, but individual Monitor are not.
-// You can start/stop a Monitor, but to change it, you must stop, discard, and
-// create a new Monitor via the monitor Loader.
 type Monitor struct {
+	// Required to create; created in Loader.makeMonitor()
 	monitorId  string
 	config     blip.ConfigMonitor
+	dbMaker    blip.DbFactory
 	planLoader *plan.Loader
 	sinks      []blip.Sink
-	dbMaker    blip.DbFactory
-	db         *sql.DB
 
 	// Core components
-	engine *Engine
-	lpc    LevelCollector
-	lpa    LevelAdjuster
-	hbw    heartbeat.Writer
-	hbr    heartbeat.Reader
+	db      *sql.DB
+	dsn     string
+	engine  *Engine
+	promAPI *prom.API
+	lpc     LevelCollector
+	lpa     LevelAdjuster
+	hbw     *heartbeat.BlipWriter
+
+	ctx context.Context
 
 	// Control chans and sync
-	*sync.Mutex
-	stopChan    chan struct{}
-	doneChanLPA chan struct{}
-	doneChanLPC chan struct{}
-	doneChanHBW chan struct{}
-	doneChanHBR chan struct{}
-	stopped     bool
+	stopChan     chan struct{}
+	doneChanLPA  chan struct{}
+	doneChanLPC  chan struct{}
+	doneChanHBW  chan struct{}
+	doneChanProm chan struct{}
+	stopped      bool
+
+	errMux *sync.Mutex
+	err    error
+
+	runMux *sync.RWMutex
+}
+
+// MonitorArgs are required arguments to NewMonitor.
+type MonitorArgs struct {
+	Config     blip.ConfigMonitor
+	DbMaker    blip.DbFactory
+	PlanLoader *plan.Loader
+	Sinks      []blip.Sink
+}
+
+// NewMonitor creates a new Monitor with the given arguments. The caller must
+// call Boot then, if that does not return an error, Run to start monitoring
+// the MySQL instance.
+func NewMonitor(args MonitorArgs) *Monitor {
+	return &Monitor{
+		monitorId:  args.Config.MonitorId,
+		config:     args.Config,
+		dbMaker:    args.DbMaker,
+		planLoader: args.PlanLoader,
+		sinks:      args.Sinks,
+		// --
+		stopChan:    make(chan struct{}),
+		errMux:      &sync.Mutex{},
+		runMux:      &sync.RWMutex{},
+		doneChanLPC: make(chan struct{}),
+	}
 }
 
 // MonitorId returns the monitor ID. This method implements *Monitor.
@@ -67,72 +104,172 @@ func (m *Monitor) MonitorId() string {
 }
 
 // DB returns the low-level database connection. This method implements *Monitor.
-func (m *Monitor) DB() *sql.DB {
-	return m.db
-}
+//func (m *Monitor) DB() *sql.DB {
+//	return m.db
+//}
 
 // Config returns the monitor config. This method implements *Monitor.
 func (m *Monitor) Config() blip.ConfigMonitor {
 	return m.config
 }
 
-func (m *Monitor) Status() string {
-	return "todo"
-}
-
-// Start starts monitoring the database if no error is returned.
-func (m *Monitor) Start() error {
-	var err error
-
-	m.db, err = m.dbMaker.Make(m.config)
-	if err != nil {
-		return err // @todo
+// Status returns the real-time monitor status. See proto.MonitorStatus for details.
+func (m *Monitor) Status() proto.MonitorStatus {
+	m.runMux.RLock()
+	status := proto.MonitorStatus{
+		MonitorId: m.monitorId,
 	}
 
-	m.Mutex = &sync.Mutex{}
-	m.stopChan = make(chan struct{})
-	m.engine = NewEngine(m.monitorId, m.db)
-	m.lpc = NewLevelCollector(LevelCollectorArgs{
-		Engine:     m.engine,
-		PlanLoader: m.planLoader,
-		Sinks:      m.sinks,
-	})
-	go m.run()
-	return nil
+	if m.dsn != "" {
+		status.DSN = m.dsn
+	}
+	if m.lpc != nil {
+		status.Engine = m.engine.Status()
+		status.Collector = m.lpc.Status()
+	}
+	if m.lpa != nil {
+		lpaStatus := m.lpa.Status()
+		status.Adjuster = &lpaStatus
+	}
+	m.runMux.RUnlock()
+
+	m.errMux.Lock()
+	if m.err != nil {
+		status.Error = m.err.Error()
+	}
+	m.errMux.Unlock()
+
+	return status
 }
 
-func (m *Monitor) run() {
+func (m *Monitor) setErr(err error) {
+	m.errMux.Lock()
+	m.err = err
+	m.errMux.Unlock()
+}
+
+// Boot sets up the monitor. If it does not return an error, then the caller
+// should call Run to start monitoring. If it returns an error, do not call Run.
+func (m *Monitor) Run() {
+	blip.Debug("%s: Run called", m.monitorId)
+	defer blip.Debug("%s: Run return", m.monitorId)
+
+	defer m.Stop()
+
 	defer func() {
 		if err := recover(); err != nil {
 			b := make([]byte, 4096)
 			n := runtime.Stack(b, false)
 			log.Printf("PANIC: %s\n%s", err, string(b[0:n]))
 		}
-		m.Stop()
 	}()
 
-	if m.config.Exporter.Bind != "" {
-		exp := prom.NewExporter(
-			m.monitorId,
-			m.db,
-		)
-		if err := exp.Prepare(blip.PromPlan()); err != nil {
-			// @todo move to Boot
-			blip.Debug(err.Error())
+	retry := backoff.NewExponentialBackOff()
+	retry.MaxElapsedTime = 0
+
+	for {
+		status.Monitor(m.monitorId, "monitor", "making DB/DSN (not connecting)")
+		db, dsn, err := m.dbMaker.Make(m.config)
+		m.setErr(err)
+		if err == nil { // success
+			m.runMux.Lock()
+			m.db = db
+			m.dsn = dsn
+			m.runMux.Unlock()
+			break
+		}
+		if m.stop() {
 			return
 		}
-		api := prom.NewAPI(m.config.Exporter.Bind, m.monitorId, exp)
-		go api.Run()
-		if blip.True(m.config.Exporter.Legacy) {
+		status.Monitor(m.monitorId, "monitor", "error making DB/DSN, sleep and retry: %s", err)
+		time.Sleep(retry.NextBackOff())
+	}
+
+	m.runMux.Lock() // -- BOOT --------------------------------------------
+
+	// ----------------------------------------------------------------------
+	// Prometheus emulation
+
+	if m.config.Exporter.Mode != "" {
+		m.promAPI = prom.NewAPI(
+			m.config.Exporter,
+			m.monitorId,
+			NewExporter(m.config.Exporter, NewEngine(m.monitorId, m.db)),
+		)
+		m.doneChanProm = make(chan struct{})
+		go func() {
+			defer close(m.doneChanProm)
+			if err := recover(); err != nil {
+				b := make([]byte, 4096)
+				n := runtime.Stack(b, false)
+				log.Printf("PANIC: %s\n%s", err, string(b[0:n]))
+			}
+			for {
+				err := m.promAPI.Run()
+				if err == nil { // shutdown
+					blip.Debug("%s: prom api stopped", m.monitorId)
+					return
+				}
+				blip.Debug("%s: prom api error: %s", m.monitorId, err.Error())
+				time.Sleep(1 * time.Second)
+				continue
+			}
+		}()
+		if m.config.Exporter.Mode == blip.EXPORTER_MODE_LEGACY {
 			blip.Debug("legacy mode")
 			<-m.stopChan
 			return
 		}
 	}
 
-	// Run option level plan adjuster (LPA). When enabled, the LPA checks the
-	// state of MySQL . If the state changes, it calls lpc.ChangePlan to change
-	// the plan as configured by config.monitors.M.plans.adjust.<state>.
+	// ----------------------------------------------------------------------
+	// Level plans
+
+	retry.Reset()
+	for {
+		status.Monitor(m.monitorId, "monitor", "loading plans")
+		err := m.planLoader.LoadMonitor(m.config, m.dbMaker)
+		m.setErr(err)
+		if err == nil { // success
+			break
+		}
+		if m.stop() {
+			return
+		}
+		status.Monitor(m.monitorId, "monitor", "error loading plans, sleep and retry: %s", err)
+		time.Sleep(retry.NextBackOff())
+	}
+
+	// ----------------------------------------------------------------------
+	// Heartbeat
+
+	// Run optional heartbeat monitor to monitor replication lag. When enabled,
+	// the heartbeat (hb) writes a high-resolution timestamp to a row in a table
+	// at the configured frequence: config.monitors.M.heartbeat.freq.
+	if m.config.Heartbeat.Freq != "" {
+		status.Monitor(m.monitorId, "monitor", "starting heartbeat")
+		m.hbw = heartbeat.NewBlipWriter(m.monitorId, m.db, m.config.Heartbeat)
+		m.doneChanHBW = make(chan struct{})
+		go m.hbw.Write(m.stopChan, m.doneChanHBW)
+	}
+
+	// ----------------------------------------------------------------------
+	// Level plan collector (LPC)
+
+	m.engine = NewEngine(m.monitorId, m.db)
+	m.lpc = NewLevelCollector(LevelCollectorArgs{
+		MonitorId:  m.monitorId,
+		Engine:     m.engine,
+		PlanLoader: m.planLoader,
+		Sinks:      m.sinks,
+	})
+	go m.lpc.Run(m.stopChan, m.doneChanLPC)
+
+	// ----------------------------------------------------------------------
+	// Level plan adjuster (LPA)
+
+	status.Monitor(m.monitorId, "monitor", "setting first level")
+
 	if m.config.Plans.Adjust.Enabled() {
 		m.doneChanLPA = make(chan struct{})
 		m.lpa = NewLevelAdjuster(LevelAdjusterArgs{
@@ -142,6 +279,12 @@ func (m *Monitor) run() {
 			LPC:       m.lpc,
 			HA:        ha.Disabled,
 		})
+	}
+
+	// Run option level plan adjuster (LPA). When enabled, the LPA checks the
+	// state of MySQL . If the state changes, it calls lpc.ChangePlan to change
+	// the plan as configured by config.monitors.M.plans.adjust.<state>.
+	if m.lpa != nil {
 		go m.lpa.Run(m.stopChan, m.doneChanLPA)
 	} else {
 		// When the lpa is not enabled, we need to get the party started by
@@ -159,53 +302,26 @@ func (m *Monitor) run() {
 		}
 	}
 
-	// Run optional heartbeat monitor to monitor replication lag. When enabled,
-	// the heartbeat (hb) writes a high-resolution timestamp to a row in a table
-	// at the configured frequence: config.monitors.M.heartbeat.freq.
-	if !blip.True(m.config.Heartbeat.Disable) {
+	m.runMux.Unlock() // -- BOOT --------------------------------------------
 
-		if !blip.True(m.config.Heartbeat.DisableWrite) {
-			m.hbw = heartbeat.NewWriter(m.monitorId, m.db)
-			m.doneChanHBW = make(chan struct{})
-			go m.hbw.Write(m.stopChan, m.doneChanHBW)
-		}
-
-		if !!blip.True(m.config.Heartbeat.DisableRead) &&
-			(len(m.config.Heartbeat.Source) > 0 || !blip.True(m.config.Heartbeat.DisableAutoSource)) {
-			var sf heartbeat.SourceFinder
-			if len(m.config.Heartbeat.Source) > 0 {
-				sf = heartbeat.NewStaticSourceList(m.config.Heartbeat.Source, m.db)
-			} else if !blip.True(m.config.Heartbeat.DisableAutoSource) {
-				sf = heartbeat.NewAutoSourceFinder() // @todo
-			} else {
-				panic("no repl sources and auto-source disable")
-			}
-			m.hbr = heartbeat.NewReader(
-				m.config,
-				m.db,
-				heartbeat.NewSlowFastWaiter(),
-				sf,
-			)
-			m.doneChanHBR = make(chan struct{})
-			go m.hbr.Read(m.stopChan, m.doneChanHBR)
-		} else {
-			blip.Debug("heartbeat read disabled: no sources, aut-source dissabled")
-		}
-	}
-
-	// @todo inconsequential race condition
+	status.RemoveComponent(m.monitorId, "monitor")
 
 	// Run level plan collector (LPC)
-	m.doneChanLPC = make(chan struct{})
-	if err := m.lpc.Run(m.stopChan, m.doneChanLPC); err != nil {
-		blip.Debug(err.Error())
-		// @todo
+	select {
+	case <-m.stopChan:
+	case <-m.doneChanLPC:
 	}
 }
 
+func (m *Monitor) stop() bool {
+	m.runMux.Lock()
+	defer m.runMux.Unlock()
+	return m.stopped
+}
+
 func (m *Monitor) Stop() error {
-	m.Lock()
-	defer m.Unlock()
+	m.runMux.Lock()
+	defer m.runMux.Unlock()
 	if m.stopped {
 		return nil
 	}
@@ -214,46 +330,41 @@ func (m *Monitor) Stop() error {
 	defer event.Sendf(event.MONITOR_STOPPED, m.monitorId)
 
 	close(m.stopChan)
-	m.db.Close()
-
-	running := 0
-	if m.doneChanLPC != nil {
-		running += 1 // lpc
-	}
-	if m.doneChanLPA != nil {
-		running += 1 // lpa
-	}
-	if m.doneChanHBW != nil {
-		running += 1 // + Heartbeat writer
-	}
-	if m.doneChanHBR != nil {
-		running += 1 // + Heartbeat reader
+	if m.db != nil {
+		m.db.Close()
 	}
 
-WAIT_LOOP:
-	for running > 0 {
-		blip.Debug("%s: %d running", m.monitorId, running)
+	timeout := time.After(4 * time.Second)
+
+	if m.promAPI != nil {
+		select {
+		case <-m.doneChanProm:
+		case <-timeout:
+			return fmt.Errorf("timeout waiting for prom API to stop")
+		}
+	}
+
+	if m.lpa != nil {
 		select {
 		case <-m.doneChanLPA:
-			blip.Debug("%s: lpa done", m.monitorId)
-			m.doneChanLPA = nil
-			running -= 1
-		case <-m.doneChanLPC:
-			blip.Debug("%s: lpc done", m.monitorId)
-			m.doneChanLPC = nil
-			running -= 1
-		case <-m.doneChanHBW:
-			blip.Debug("%s: hb writer done", m.monitorId)
-			m.doneChanHBW = nil
-			running -= 1
-		case <-m.doneChanHBR:
-			blip.Debug("%s: hb reader done", m.monitorId)
-			m.doneChanHBR = nil
-			running -= 1
-		case <-time.After(2 * time.Second):
-			// @todo
-			break WAIT_LOOP
+		case <-timeout:
+			return fmt.Errorf("timeout waiting for level adjuster to stop")
 		}
+	}
+
+	if m.doneChanHBW != nil {
+		select {
+		case <-m.doneChanHBW:
+		case <-timeout:
+			return fmt.Errorf("timeout waiting for heartbeat writer to stop")
+		}
+
+	}
+
+	select {
+	case <-m.doneChanLPC:
+	case <-timeout:
+		return fmt.Errorf("timeout waiting for collector to stop")
 	}
 
 	return nil

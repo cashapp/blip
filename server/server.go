@@ -26,7 +26,11 @@ func ControlChans() (stopChan, doneChan chan struct{}) {
 	return make(chan struct{}), make(chan struct{})
 }
 
-func Defaults() (blip.Plugins, blip.Factories) {
+// Defaults returns the default environment, plugins, and factories. It is used
+// in main.go as the args to Server.Boot. Third-party integration will likely
+// _not_ call this function and, instead, provide its own environment, plugins,
+// or factories when calling Server.Boot.
+func Defaults() (blip.Env, blip.Plugins, blip.Factories) {
 	// Plugins are optional, but factories are required
 	awsConfig := aws.NewConfigFactory()
 	dbMaker := dbconn.NewConnFactory(awsConfig, nil)
@@ -35,7 +39,11 @@ func Defaults() (blip.Plugins, blip.Factories) {
 		DbConn:     dbMaker,
 		HTTPClient: httpClientFactory{},
 	}
-	return blip.Plugins{}, factories
+	env := blip.Env{
+		Args: os.Args,
+		Env:  os.Environ(),
+	}
+	return env, blip.Plugins{}, factories
 }
 
 type httpClientFactory struct{}
@@ -74,7 +82,7 @@ type Server struct {
 // sometimes is too wrong for Blip to run (for example, an invalid config).
 //
 // Boot must be called once before Run.
-func (s *Server) Boot(plugin blip.Plugins, factory blip.Factories) error {
+func (s *Server) Boot(env blip.Env, plugin blip.Plugins, factory blip.Factories) error {
 	event.Sendf(event.BOOT, "blip %s", blip.VERSION) // very first event
 	status.Blip("server", "booting")
 
@@ -82,17 +90,17 @@ func (s *Server) Boot(plugin blip.Plugins, factory blip.Factories) error {
 	// Parse commad line options
 
 	var err error
-	s.cmdline, err = ParseCommandLine()
+	s.cmdline, err = ParseCommandLine(env.Args)
 	if err != nil {
 		return err
 	}
 	if s.cmdline.Options.Version {
 		fmt.Println("blip", blip.VERSION)
-		os.Exit(0)
+		return nil
 	}
 	if s.cmdline.Options.Help {
 		printHelp()
-		os.Exit(0)
+		return nil
 	}
 
 	// Set debug and strict from env vars. Do this very first because all code
@@ -163,9 +171,9 @@ func (s *Server) Boot(plugin blip.Plugins, factory blip.Factories) error {
 	// Get the built-in level plan loader singleton. It's used in two places:
 	// here for initial plan loading, and level.Collector (LPC) to fetch the
 	// plan and set the Monitor to use it.
-	s.planLoader = plan.NewLoader(s.cfg, plugin.LoadLevelPlans)
-	err = s.planLoader.LoadPlans(factory.DbConn)
-	if err != nil {
+	s.planLoader = plan.NewLoader(plugin.LoadLevelPlans)
+
+	if err := s.planLoader.LoadShared(s.cfg.Plans, factory.DbConn); err != nil {
 		event.Sendf(event.BOOT_PLANS_ERROR, err.Error())
 		return err
 	}
@@ -179,13 +187,14 @@ func (s *Server) Boot(plugin blip.Plugins, factory blip.Factories) error {
 	// Database monitors
 
 	// Create, but don't start, database monitors. They're started later in Run.
-	s.monitorLoader = monitor.NewLoader(
-		s.cfg,
-		plugin.LoadMonitors,
-		factory.DbConn,
-		s.planLoader,
-	)
-	if _, err := s.monitorLoader.Load(context.Background()); err != nil {
+	s.monitorLoader = monitor.NewLoader(monitor.LoaderArgs{
+		Config:       s.cfg,
+		LoadMonitors: plugin.LoadMonitors,
+		DbMaker:      factory.DbConn,
+		PlanLoader:   s.planLoader,
+		RDSLoader:    aws.RDSLoader{ClientFactory: aws.NewRDSClientFactory(factory.AWSConfig)},
+	})
+	if err := s.monitorLoader.Load(context.Background()); err != nil {
 		event.Sendf(event.BOOT_MONITORS_ERROR, err.Error())
 		return err
 	}
@@ -196,17 +205,16 @@ func (s *Server) Boot(plugin blip.Plugins, factory blip.Factories) error {
 
 	// ----------------------------------------------------------------------
 	// API
-	s.api = NewAPI(cfg.API)
-
-	// Exit if boot check, else return and caller should call Run
-	if s.cmdline.Options.BootCheck || s.cmdline.Options.PrintConfig || s.cmdline.Options.PrintPlans || s.cmdline.Options.PrintMonitors {
-		os.Exit(0)
-	}
+	s.api = NewAPI(cfg.API, s.monitorLoader)
 
 	return nil
 }
 
 func (s *Server) Run(stopChan, doneChan chan struct{}) error {
+	if !s.cmdline.Options.Run {
+		return nil
+	}
+
 	status.Blip("server", "running")
 
 	defer close(doneChan)
@@ -215,38 +223,29 @@ func (s *Server) Run(stopChan, doneChan chan struct{}) error {
 	s.doneChan = doneChan
 
 	event.Send(event.SERVER_RUN)
-	defer event.Send(event.SERVER_RUN_STOP)
 
-	monitors := s.monitorLoader.Monitors()
+	stopReason := "unknown"
+	defer func() {
+		event.Sendf(event.SERVER_RUN_STOP, stopReason)
+	}()
 
-	// Space out monitors so their clocks don't tick at the same time.
-	// We don't want, for example, 25 monitors simultaneously waking up,
-	// connecting to MySQL, processing metrics. That'll make Blip
-	// CPU/net usage unnecessarily spiky.
-	var space time.Duration
-	if len(monitors) < 25 {
-		space = 20 * time.Millisecond
-	} else {
-		space = 10 * time.Millisecond
-	}
-
-	// Start database monitors, which starts metrics collection
-	for _, m := range monitors {
-		time.Sleep(space)
-		if err := m.Start(); err != nil {
-			return err // @todo
-		}
+	s.monitorLoader.Run() // all monitors
+	if s.cfg.MonitorLoader.Freq == "" {
+		doneChan := make(chan struct{})
+		go s.monitorLoader.Reload(stopChan, doneChan)
 	}
 
 	go s.api.Run()
 
 	// Run until stopped by Shutdown or signal
-	event.Send(event.SERVER_RUN_WAIT)
+	event.Sendf(event.SERVER_RUN_WAIT, s.cfg.API.Bind)
 	signalChan := make(chan os.Signal)
 	signal.Notify(signalChan, os.Interrupt, syscall.SIGTERM)
 	select {
 	case <-stopChan:
+		stopReason = "Server.Shutdown called"
 	case <-signalChan:
+		stopReason = "caught signal"
 	}
 	return nil
 }

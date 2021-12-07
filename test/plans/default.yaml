@@ -6,6 +6,7 @@ kpi:
     var.global:
       metrics:
         - read_only
+      options: {}  # Needed so tests don't get a nil map
     status.global:
       options:
         source: auto

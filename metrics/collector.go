@@ -23,15 +23,24 @@ func Register(domain string, f blip.CollectorFactory) error {
 	r.Lock()
 	defer r.Unlock()
 	_, ok := r.factory[domain]
-	if ok {
-		// @todo This should probably be ignored so users can override built-in
-		//		 factories/collectors with their own, e.g. user-provided status.global
-		//		 replaces built-in one.
+	if ok && blip.Strict {
 		return fmt.Errorf("%s already registered", domain)
 	}
 	r.factory[domain] = f
 	event.Sendf(event.REGISTER_METRICS, domain)
 	return nil
+}
+
+// List lists all registered metric collectors. It is used by the server API
+// for GET /registered.
+func List() []string {
+	r.Lock()
+	defer r.Unlock()
+	names := []string{}
+	for k := range r.factory {
+		names = append(names, k)
+	}
+	return names
 }
 
 // Make makes a metric collector for the domain using a previously registered factory.

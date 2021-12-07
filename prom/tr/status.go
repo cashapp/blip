@@ -9,7 +9,12 @@ import (
 )
 
 type StatusGlobal struct {
-	Domain string
+	Domain      string
+	ShortDomain string
+}
+
+func (tr StatusGlobal) Names() (string, string, string) {
+	return GENERIC_PREFIX, tr.Domain, tr.ShortDomain
 }
 
 // Copied from /percona/mysqld_exporter/collector/global_status.go
@@ -35,7 +40,7 @@ func (tr StatusGlobal) Translate(values []blip.MetricValue, ch chan<- prom.Metri
 		if match == nil {
 			ch <- prom.MustNewConstMetric(
 				prom.NewDesc(
-					prom.BuildFQName("mysql", tr.Domain, validPrometheusName(values[i].Name)),
+					prom.BuildFQName(GENERIC_PREFIX, tr.Domain, validPrometheusName(values[i].Name)),
 					help,
 					nil, nil,
 				),
@@ -49,7 +54,7 @@ func (tr StatusGlobal) Translate(values []blip.MetricValue, ch chan<- prom.Metri
 		case "com":
 			ch <- prom.MustNewConstMetric(
 				prom.NewDesc(
-					prom.BuildFQName("mysql", tr.Domain, "commands_total"),
+					prom.BuildFQName(GENERIC_PREFIX, tr.Domain, "commands_total"),
 					"Total number of executed MySQL commands.",
 					[]string{"command"}, nil,
 				),
@@ -60,7 +65,7 @@ func (tr StatusGlobal) Translate(values []blip.MetricValue, ch chan<- prom.Metri
 		case "handler":
 			ch <- prom.MustNewConstMetric(
 				prom.NewDesc(
-					prom.BuildFQName("mysql", tr.Domain, "handlers_total"),
+					prom.BuildFQName(GENERIC_PREFIX, tr.Domain, "handlers_total"),
 					"Total number of executed MySQL handlers.",
 					[]string{"handler"}, nil,
 				),
@@ -71,7 +76,7 @@ func (tr StatusGlobal) Translate(values []blip.MetricValue, ch chan<- prom.Metri
 		case "connection_errors":
 			ch <- prom.MustNewConstMetric(
 				prom.NewDesc(
-					prom.BuildFQName("mysql", tr.Domain, "connection_errors_total"),
+					prom.BuildFQName(GENERIC_PREFIX, tr.Domain, "connection_errors_total"),
 					"Total number of MySQL connection errors.",
 					[]string{"error"}, nil,
 				),
@@ -84,7 +89,7 @@ func (tr StatusGlobal) Translate(values []blip.MetricValue, ch chan<- prom.Metri
 			case "data", "free", "misc", "old":
 				ch <- prom.MustNewConstMetric(
 					prom.NewDesc(
-						prom.BuildFQName("mysql", tr.Domain, "buffer_pool_pages"),
+						prom.BuildFQName(GENERIC_PREFIX, tr.Domain, "buffer_pool_pages"),
 						"Innodb buffer pool pages by state.",
 						[]string{"state"}, nil,
 					),
@@ -95,7 +100,7 @@ func (tr StatusGlobal) Translate(values []blip.MetricValue, ch chan<- prom.Metri
 			case "dirty":
 				ch <- prom.MustNewConstMetric(
 					prom.NewDesc(
-						prom.BuildFQName("mysql", tr.Domain, "buffer_pool_dirty_pages"),
+						prom.BuildFQName(GENERIC_PREFIX, tr.Domain, "buffer_pool_dirty_pages"),
 						"Innodb buffer pool dirty pages.",
 						[]string{}, nil,
 					),
@@ -107,7 +112,7 @@ func (tr StatusGlobal) Translate(values []blip.MetricValue, ch chan<- prom.Metri
 			default:
 				ch <- prom.MustNewConstMetric(
 					prom.NewDesc(
-						prom.BuildFQName("mysql", tr.Domain, "buffer_pool_page_changes_total"),
+						prom.BuildFQName(GENERIC_PREFIX, tr.Domain, "buffer_pool_page_changes_total"),
 						"Innodb buffer pool page state changes.",
 						[]string{"operation"}, nil,
 					),
@@ -119,7 +124,7 @@ func (tr StatusGlobal) Translate(values []blip.MetricValue, ch chan<- prom.Metri
 		case "innodb_rows":
 			ch <- prom.MustNewConstMetric(
 				prom.NewDesc(
-					prom.BuildFQName("mysql", tr.Domain, "innodb_row_ops_total"),
+					prom.BuildFQName(GENERIC_PREFIX, tr.Domain, "innodb_row_ops_total"),
 					"Total number of MySQL InnoDB row operations.",
 					[]string{"operation"}, nil,
 				),
@@ -130,7 +135,7 @@ func (tr StatusGlobal) Translate(values []blip.MetricValue, ch chan<- prom.Metri
 		case "performance_schema":
 			ch <- prom.MustNewConstMetric(
 				prom.NewDesc(
-					prom.BuildFQName("mysql", tr.Domain, "performance_schema_lost_total"),
+					prom.BuildFQName(GENERIC_PREFIX, tr.Domain, "performance_schema_lost_total"),
 					"Total number of MySQL instrumentations that could not be loaded or created due to memory constraints.",
 					[]string{"instrumentation"}, nil,
 				),

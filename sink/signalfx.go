@@ -22,7 +22,7 @@ type sfxSink struct {
 	event       event.MonitorSink
 }
 
-func NewSignalFxSink(monitorId string, opts map[string]string) (*sfxSink, error) {
+func NewSignalFxSink(monitorId string, opts, tags map[string]string) (*sfxSink, error) {
 	sink := sfxclient.NewHTTPSink()
 	s := &sfxSink{
 		sink:      sink,

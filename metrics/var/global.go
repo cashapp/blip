@@ -81,7 +81,7 @@ func (c *Global) Help() blip.CollectorHelp {
 }
 
 // Prepares queries for all levels in the plan that contain the "var.global" domain
-func (c *Global) Prepare(plan blip.Plan) error {
+func (c *Global) Prepare(ctx context.Context, plan blip.Plan) error {
 LEVEL:
 	for levelName, level := range plan.Levels {
 		dom, ok := level.Collect[blip_domain]
@@ -105,7 +105,7 @@ func (c *Global) Collect(ctx context.Context, levelName string) ([]blip.MetricVa
 	case SOURCE_SHOW:
 		return c.collectRows(ctx, levelName)
 	}
-
+	// @todo: panic happens if levelName is wrong (but it never should be)
 	errorStr := fmt.Sprintf("invalid source in Collect %s", c.sourceIn[levelName])
 	panic(errorStr)
 }
@@ -194,7 +194,7 @@ func (c *Global) prepareSELECT(levelName string) error {
 	}
 	globalMetricString := strings.Join(globalMetrics, ", ")
 
-	c.queryIn[levelName] = fmt.Sprintf("SELECT CONCAT_WS(',', %s) v;", globalMetricString)
+	c.queryIn[levelName] = fmt.Sprintf("SELECT CONCAT_WS(',', %s) v", globalMetricString)
 	c.sourceIn[levelName] = SOURCE_SELECT
 
 	// Try collecting, discard metrics
@@ -206,7 +206,7 @@ func (c *Global) preparePFS(levelName string) error {
 	var metricString string
 	metricString = strings.Join(c.metrics[levelName], "', '")
 
-	query := fmt.Sprintf("SELECT variable_name, variable_value from performance_schema.global_variables WHERE variable_name in ('%s');",
+	query := fmt.Sprintf("SELECT variable_name, variable_value from performance_schema.global_variables WHERE variable_name in ('%s')",
 		metricString,
 	)
 	c.queryIn[levelName] = query
@@ -223,7 +223,7 @@ func (c *Global) prepareSHOW(levelName string, all bool) error {
 		query = "SHOW GLOBAL VARIABLES"
 	} else {
 		metricString := strings.Join(c.metrics[levelName], "', '")
-		query = fmt.Sprintf("SHOW GLOBAL VARIABLES WHERE variable_name in ('%s');", metricString)
+		query = fmt.Sprintf("SHOW GLOBAL VARIABLES WHERE variable_name in ('%s')", metricString)
 	}
 
 	c.queryIn[levelName] = query

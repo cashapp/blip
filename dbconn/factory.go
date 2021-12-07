@@ -1,4 +1,4 @@
-// Package dbconn provides a Factory that makes *sql.DB to MySQL.
+// Package dbconn provides a Factory that makes *sql.DB connections to MySQL.
 package dbconn
 
 import (
@@ -12,30 +12,54 @@ import (
 	"strings"
 	"time"
 
-	_ "github.com/go-sql-driver/mysql"
+	"github.com/go-sql-driver/mysql"
 
 	"github.com/square/blip"
 	"github.com/square/blip/aws"
 )
 
+// factory is the internal implementation of blip.DbFactory.
 type factory struct {
 	awsConfg blip.AWSConfigFactory
-	modifyDB func(*sql.DB)
+	modifyDB func(*sql.DB, string)
 }
 
-func NewConnFactory(awsConfg blip.AWSConfigFactory, modifyDB func(*sql.DB)) factory {
+// NewConnFactory returns a blip.NewConnFactory that connects to MySQL.
+// This is the only blip.NewConnFactor. It is created in Server.Defaults.
+func NewConnFactory(awsConfg blip.AWSConfigFactory, modifyDB func(*sql.DB, string)) factory {
 	return factory{
 		awsConfg: awsConfg,
 		modifyDB: modifyDB,
 	}
 }
 
-func (f factory) Make(cfg blip.ConfigMonitor) (*sql.DB, error) {
+// Make makes a *sql.DB for the given monitor config. On success, it also returns
+// a print-safe DSN (with any password replaced by "..."). The config must be
+// copmlete: defaults, env var, and monitor var interpolations already applied,
+// which is done by the monitor.Loader in its private merge method.
+func (f factory) Make(cfg blip.ConfigMonitor) (*sql.DB, string, error) {
 	passwordFunc, err := f.Password(cfg)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 
+	// Set values in cfg blip.ConfigMonitor from values in my.cnf. This does
+	// not overwrite any values in cfg already set. For exmaple, if username
+	// is specified in both, the default my.cnf username is ignored and the
+	// explicit cfg.Username is kept/used.
+	if cfg.MyCnf != "" {
+		def, err := ParseMyCnf(cfg.MyCnf)
+		if err != nil {
+			return nil, "", err
+		}
+		tls := blip.ConfigTLS{
+			Cert: def.TLSCert, // ssl-cert in my.cnf
+			Key:  def.TLSKey,  // ssl-key in my.cnf
+			CA:   def.TLSCA,   // ssl-ca in my.cnf
+		}
+		cfg.ApplyDefaults(blip.Config{MySQL: def, TLS: tls})
+	}
+	blip.Debug("<< %+v", cfg)
 	net := ""
 	addr := ""
 	if cfg.Socket != "" {
@@ -45,13 +69,12 @@ func (f factory) Make(cfg blip.ConfigMonitor) (*sql.DB, error) {
 		net = "tcp"
 		addr = cfg.Hostname
 	}
-	Repo.Add(addr, passwordFunc)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 	defer cancel()
 	password, err := passwordFunc(ctx)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 
 	cred := cfg.Username
@@ -66,6 +89,7 @@ func (f factory) Make(cfg blip.ConfigMonitor) (*sql.DB, error) {
 	if blip.True(cfg.AWS.AuthToken) {
 		params = append(params, "allowCleartextPasswords=true")
 	}
+
 	if cfg.TLS.Cert != "" && cfg.TLS.Key != "" {
 		// @todo
 	}
@@ -77,16 +101,29 @@ func (f factory) Make(cfg blip.ConfigMonitor) (*sql.DB, error) {
 
 	db, err := sql.Open("mysql-hotswap-dsn", dsn)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
+
+	// Valid db/DSN, do not return error past here --------------------------
+
+	Repo.Add(addr, passwordFunc)
+
 	db.SetMaxOpenConns(3)
 	db.SetMaxIdleConns(3)
 
 	if f.modifyDB != nil {
-		f.modifyDB(db)
+		f.modifyDB(db, dsn)
 	}
 
-	return db, nil
+	dsncfg, err := mysql.ParseDSN(dsn)
+	if err != nil { // ok to ignore
+		blip.Debug("mysql.ParseDSN error: %s", err)
+	}
+	if dsncfg.Passwd != "" {
+		dsncfg.Passwd = "..."
+	}
+
+	return db, dsncfg.FormatDSN(), nil
 }
 
 func (f factory) Password(cfg blip.ConfigMonitor) (PasswordFunc, error) {
@@ -96,7 +133,7 @@ func (f factory) Password(cfg blip.ConfigMonitor) (PasswordFunc, error) {
 		if !blip.True(cfg.AWS.DisableAutoTLS) {
 			aws.RegisterRDSCA()
 		}
-		awscfg, err := f.awsConfg.Make(cfg.AWS)
+		awscfg, err := f.awsConfg.Make(blip.AWS{Region: cfg.AWS.Region})
 		if err != nil {
 			return nil, err
 		}
@@ -109,7 +146,7 @@ func (f factory) Password(cfg blip.ConfigMonitor) (PasswordFunc, error) {
 		if !blip.True(cfg.AWS.DisableAutoTLS) {
 			aws.RegisterRDSCA()
 		}
-		awscfg, err := f.awsConfg.Make(cfg.AWS)
+		awscfg, err := f.awsConfg.Make(blip.AWS{Region: cfg.AWS.Region})
 		if err != nil {
 			return nil, err
 		}
@@ -131,6 +168,17 @@ func (f factory) Password(cfg blip.ConfigMonitor) (PasswordFunc, error) {
 	if cfg.Password != "" {
 		blip.Debug("password from config")
 		return func(context.Context) (string, error) { return cfg.Password, nil }, nil
+	}
+
+	if cfg.MyCnf != "" {
+		blip.Debug("password from my.cnf %s", cfg.MyCnf)
+		return func(context.Context) (string, error) {
+			cfg, err := ParseMyCnf(cfg.MyCnf)
+			if err != nil {
+				return "", err
+			}
+			return cfg.Password, err
+		}, nil
 	}
 
 	if !blip.Strict {
