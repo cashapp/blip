@@ -5,8 +5,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/square/blip"
-	"github.com/square/blip/dbconn"
+	"github.com/cashapp/blip"
+	"github.com/cashapp/blip/dbconn"
 )
 
 func TestParseMyCnf(t *testing.T) {

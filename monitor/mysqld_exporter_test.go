@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/square/blip"
-	"github.com/square/blip/monitor"
+	"github.com/cashapp/blip"
+	"github.com/cashapp/blip/monitor"
 )
 
 func TestProm(t *testing.T) {

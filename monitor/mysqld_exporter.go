@@ -10,8 +10,8 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/common/expfmt"
 
-	"github.com/square/blip"
-	"github.com/square/blip/prom"
+	"github.com/cashapp/blip"
+	"github.com/cashapp/blip/prom"
 )
 
 // Exporter emulates a Prometheus mysqld_exporter. It implement prom.Exporter.

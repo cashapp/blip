@@ -8,11 +8,11 @@ import (
 
 	"github.com/cenkalti/backoff/v4"
 
-	"github.com/square/blip"
-	"github.com/square/blip/event"
-	"github.com/square/blip/ha"
-	"github.com/square/blip/proto"
-	"github.com/square/blip/status"
+	"github.com/cashapp/blip"
+	"github.com/cashapp/blip/event"
+	"github.com/cashapp/blip/ha"
+	"github.com/cashapp/blip/proto"
+	"github.com/cashapp/blip/status"
 )
 
 var Now func() time.Time = time.Now

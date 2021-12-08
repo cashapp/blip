@@ -5,8 +5,8 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/service/rds"
 
-	"github.com/square/blip"
-	blipAWS "github.com/square/blip/aws"
+	"github.com/cashapp/blip"
+	blipAWS "github.com/cashapp/blip/aws"
 )
 
 type RDSClient struct {

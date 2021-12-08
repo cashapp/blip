@@ -7,8 +7,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/square/blip"
-	"github.com/square/blip/status"
+	"github.com/cashapp/blip"
+	"github.com/cashapp/blip/status"
 )
 
 type BlipReader struct {

@@ -6,12 +6,12 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/square/blip"
-	"github.com/square/blip/metrics"
-	"github.com/square/blip/monitor"
-	"github.com/square/blip/proto"
-	"github.com/square/blip/sink"
-	"github.com/square/blip/status"
+	"github.com/cashapp/blip"
+	"github.com/cashapp/blip/metrics"
+	"github.com/cashapp/blip/monitor"
+	"github.com/cashapp/blip/proto"
+	"github.com/cashapp/blip/sink"
+	"github.com/cashapp/blip/status"
 )
 
 type API struct {

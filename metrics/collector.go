@@ -4,12 +4,12 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/square/blip"
-	"github.com/square/blip/event"
-	"github.com/square/blip/metrics/innodb"
-	"github.com/square/blip/metrics/size"
-	"github.com/square/blip/metrics/status"
-	sysvar "github.com/square/blip/metrics/var"
+	"github.com/cashapp/blip"
+	"github.com/cashapp/blip/event"
+	"github.com/cashapp/blip/metrics/innodb"
+	"github.com/cashapp/blip/metrics/size"
+	"github.com/cashapp/blip/metrics/status"
+	sysvar "github.com/cashapp/blip/metrics/var"
 )
 
 // Register registers a factory that makes one or more collector by domain name.

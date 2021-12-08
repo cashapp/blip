@@ -6,7 +6,7 @@ import (
 
 	//"github.com/stretchr/testify/assert"
 
-	"github.com/square/blip"
+	"github.com/cashapp/blip"
 )
 
 func TestMain(m *testing.M) {

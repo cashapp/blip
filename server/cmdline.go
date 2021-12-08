@@ -6,7 +6,7 @@ import (
 	"github.com/alexflint/go-arg"
 	"gopkg.in/yaml.v2"
 
-	"github.com/square/blip"
+	"github.com/cashapp/blip"
 )
 
 // Options represents typical command line options: --addr, --config, etc.

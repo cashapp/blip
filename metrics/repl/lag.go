@@ -5,8 +5,8 @@ import (
 	"database/sql"
 	"time"
 
-	"github.com/square/blip"
-	"github.com/square/blip/heartbeat"
+	"github.com/cashapp/blip"
+	"github.com/cashapp/blip/heartbeat"
 )
 
 type LagReader interface {

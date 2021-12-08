@@ -3,7 +3,7 @@ package server_test
 import (
 	"testing"
 
-	"github.com/square/blip/server"
+	"github.com/cashapp/blip/server"
 )
 
 func TestServerBootDefault(t *testing.T) {

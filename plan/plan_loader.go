@@ -13,9 +13,9 @@ import (
 
 	"gopkg.in/yaml.v2"
 
-	"github.com/square/blip"
-	"github.com/square/blip/proto"
-	"github.com/square/blip/sqlutil"
+	"github.com/cashapp/blip"
+	"github.com/cashapp/blip/proto"
+	"github.com/cashapp/blip/sqlutil"
 )
 
 // planMeta is a blip.Plan plus metadata.

@@ -6,7 +6,7 @@ import (
 	"io"
 	"net/http"
 
-	"github.com/square/blip"
+	"github.com/cashapp/blip"
 )
 
 // Exporter emulates a Prometheus mysqld_exporter.

@@ -7,7 +7,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/square/blip"
+	"github.com/cashapp/blip"
 )
 
 // Event is something that happened in Blip. Events replace traditional logging.

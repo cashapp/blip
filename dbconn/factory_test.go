@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/square/blip"
-	"github.com/square/blip/dbconn"
+	"github.com/cashapp/blip"
+	"github.com/cashapp/blip/dbconn"
 )
 
 func sysvar(db *sql.DB, name string) (string, error) {

@@ -5,8 +5,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/square/blip"
-	"github.com/square/blip/event"
+	"github.com/cashapp/blip"
+	"github.com/cashapp/blip/event"
 )
 
 func Register(name string, f blip.SinkFactory) error {
