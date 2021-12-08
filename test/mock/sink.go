@@ -3,7 +3,7 @@ package mock
 import (
 	"context"
 
-	"github.com/square/blip"
+	"github.com/cashapp/blip"
 )
 
 type Sink struct {

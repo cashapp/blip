@@ -1,8 +1,9 @@
 package main
 
 import (
-	"github.com/square/blip/server"
 	"log"
+
+	"github.com/cashapp/blip/server"
 )
 
 func main() {

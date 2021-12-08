@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/square/blip"
-	"github.com/square/blip/prom"
-	"github.com/square/blip/test/mock"
+	"github.com/cashapp/blip"
+	"github.com/cashapp/blip/prom"
+	"github.com/cashapp/blip/test/mock"
 )
 
 func TestAPI(t *testing.T) {

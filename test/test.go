@@ -9,8 +9,8 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/square/blip"
-	"github.com/square/blip/plan"
+	"github.com/cashapp/blip"
+	"github.com/cashapp/blip/plan"
 )
 
 // blip.Confg* bool are *bool, so test.True is a convenience var

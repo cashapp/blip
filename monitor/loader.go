@@ -10,13 +10,13 @@ import (
 
 	"gopkg.in/yaml.v2"
 
-	"github.com/square/blip"
-	"github.com/square/blip/aws"
-	"github.com/square/blip/dbconn"
-	"github.com/square/blip/event"
-	"github.com/square/blip/plan"
-	"github.com/square/blip/sink"
-	"github.com/square/blip/status"
+	"github.com/cashapp/blip"
+	"github.com/cashapp/blip/aws"
+	"github.com/cashapp/blip/dbconn"
+	"github.com/cashapp/blip/event"
+	"github.com/cashapp/blip/plan"
+	"github.com/cashapp/blip/sink"
+	"github.com/cashapp/blip/status"
 )
 
 // LoadFunc is a function callback that matches blip.Plugin.LoadMonitors.

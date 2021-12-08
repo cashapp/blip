@@ -11,7 +11,7 @@ import (
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/stretchr/testify/assert"
 
-	"github.com/square/blip/test"
+	"github.com/cashapp/blip/test"
 )
 
 var (

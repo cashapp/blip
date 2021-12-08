@@ -6,7 +6,7 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 
-	"github.com/square/blip"
+	"github.com/cashapp/blip"
 )
 
 const GENERIC_PREFIX = "mysql"

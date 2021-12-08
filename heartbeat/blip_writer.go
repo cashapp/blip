@@ -8,9 +8,9 @@ import (
 
 	my "github.com/go-mysql/errors"
 
-	"github.com/square/blip"
-	"github.com/square/blip/sqlutil"
-	"github.com/square/blip/status"
+	"github.com/cashapp/blip"
+	"github.com/cashapp/blip/sqlutil"
+	"github.com/cashapp/blip/status"
 )
 
 type BlipWriter struct {

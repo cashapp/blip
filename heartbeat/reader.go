@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/square/blip"
+	"github.com/cashapp/blip"
 )
 
 // Reader reads heartbeats from a writer. It runs in a separate goroutine and

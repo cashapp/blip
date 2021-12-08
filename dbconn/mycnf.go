@@ -3,7 +3,7 @@ package dbconn
 import (
 	"github.com/go-ini/ini"
 
-	"github.com/square/blip"
+	"github.com/cashapp/blip"
 )
 
 func ParseMyCnf(file string) (blip.ConfigMySQL, error) {

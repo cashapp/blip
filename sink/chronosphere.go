@@ -13,9 +13,9 @@ import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	"github.com/square/blip"
-	om "github.com/square/blip/openmetrics"
-	"github.com/square/blip/prom"
+	"github.com/cashapp/blip"
+	om "github.com/cashapp/blip/openmetrics"
+	"github.com/cashapp/blip/prom"
 )
 
 const DEFAULT_CHRONOSPHERE_URL = "http://127.0.0.1:3030/openmetrics/write"

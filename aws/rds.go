@@ -6,7 +6,7 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/service/rds"
 
-	"github.com/square/blip"
+	"github.com/cashapp/blip"
 )
 
 type RDSClient interface {

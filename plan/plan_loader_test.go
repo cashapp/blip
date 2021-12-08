@@ -6,11 +6,11 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/square/blip"
-	//"github.com/square/blip/dbconn"
-	"github.com/square/blip/plan"
-	"github.com/square/blip/proto"
-	//	"github.com/square/blip/test"
+	"github.com/cashapp/blip"
+	//"github.com/cashapp/blip/dbconn"
+	"github.com/cashapp/blip/plan"
+	"github.com/cashapp/blip/proto"
+	//	"github.com/cashapp/blip/test"
 )
 
 // --------------------------------------------------------------------------

@@ -1,0 +1,8 @@
+[client]
+user     = U
+password = P
+host     = H
+port     = 33560
+ssl-ca   = CA
+ssl-cert = CERT
+ssl-key  = KEY

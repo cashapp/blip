@@ -14,8 +14,8 @@ import (
 
 	"github.com/go-sql-driver/mysql"
 
-	"github.com/square/blip"
-	"github.com/square/blip/aws"
+	"github.com/cashapp/blip"
+	"github.com/cashapp/blip/aws"
 )
 
 // factory is the internal implementation of blip.DbFactory.

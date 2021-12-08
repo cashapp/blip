@@ -9,13 +9,13 @@ import (
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/stretchr/testify/assert"
 
-	"github.com/square/blip"
-	"github.com/square/blip/dbconn"
-	"github.com/square/blip/metrics"
-	"github.com/square/blip/monitor"
-	"github.com/square/blip/plan"
-	"github.com/square/blip/test"
-	"github.com/square/blip/test/mock"
+	"github.com/cashapp/blip"
+	"github.com/cashapp/blip/dbconn"
+	"github.com/cashapp/blip/metrics"
+	"github.com/cashapp/blip/monitor"
+	"github.com/cashapp/blip/plan"
+	"github.com/cashapp/blip/test"
+	"github.com/cashapp/blip/test/mock"
 )
 
 // --------------------------------------------------------------------------

@@ -5,7 +5,7 @@ import (
 
 	prom "github.com/prometheus/client_golang/prometheus"
 
-	"github.com/square/blip"
+	"github.com/cashapp/blip"
 )
 
 type StatusGlobal struct {

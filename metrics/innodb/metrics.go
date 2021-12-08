@@ -5,8 +5,8 @@ import (
 	"database/sql"
 	"strings"
 
-	"github.com/square/blip"
-	"github.com/square/blip/sqlutil"
+	"github.com/cashapp/blip"
+	"github.com/cashapp/blip/sqlutil"
 )
 
 const (

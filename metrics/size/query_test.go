@@ -3,7 +3,7 @@ package size_test
 import (
 	"testing"
 
-	"github.com/square/blip/metrics/size"
+	"github.com/cashapp/blip/metrics/size"
 )
 
 func TestDataSizeQuery(t *testing.T) {

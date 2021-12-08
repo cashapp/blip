@@ -12,7 +12,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/feature/ec2/imds"
 	"github.com/go-sql-driver/mysql"
 
-	"github.com/square/blip"
+	"github.com/cashapp/blip"
 )
 
 type cfgFactory struct{}
