@@ -20,18 +20,29 @@ func TestRDSClient(t *testing.T) {
 		Out: rds.DescribeDBInstancesOutput{
 			DBInstances: []types.DBInstance{
 				{
+					// Need ALL these fields else a debug statement will panic
 					DBInstanceIdentifier: aws.String("rds1"),
+					DBClusterIdentifier:  aws.String("rds-001"),
 					Endpoint: &types.Endpoint{
 						Address: aws.String("rds1"),
 						Port:    3306,
 					},
+
+					EngineVersion:    aws.String("v8.0.0"),
+					AvailabilityZone: aws.String("us-west-2a"),
+					DBInstanceStatus: aws.String("fantastic"),
 				},
 				{
 					DBInstanceIdentifier: aws.String("rds2"),
+					DBClusterIdentifier:  aws.String("rds-001"),
 					Endpoint: &types.Endpoint{
 						Address: aws.String("rds2"),
 						Port:    3307,
 					},
+
+					EngineVersion:    aws.String("v8.0.0"),
+					AvailabilityZone: aws.String("us-west-2a"),
+					DBInstanceStatus: aws.String("fantastic"),
 				},
 			},
 		},

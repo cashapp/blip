@@ -57,6 +57,29 @@ type CollectorHelpOption struct {
 
 // --------------------------------------------------------------------------
 
+func (p *Plan) InterpolateEnvVars() {
+	for levelName := range p.Levels {
+		for domainName := range p.Levels[levelName].Collect {
+			for k, v := range p.Levels[levelName].Collect[domainName].Options {
+				p.Levels[levelName].Collect[domainName].Options[k] = interpolateEnv(v)
+			}
+		}
+	}
+}
+
+func (p *Plan) InterpolateMonitor(mon *ConfigMonitor) {
+	for levelName := range p.Levels {
+		for domainName := range p.Levels[levelName].Collect {
+			for k, v := range p.Levels[levelName].Collect[domainName].Options {
+				p.Levels[levelName].Collect[domainName].Options[k] = mon.interpolateMon(v)
+			}
+		}
+	}
+
+}
+
+// --------------------------------------------------------------------------
+
 const internalPlans = `
 Key_Performance_Indicators:
   freq: 5s

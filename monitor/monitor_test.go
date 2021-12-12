@@ -14,7 +14,6 @@ import (
 	"github.com/cashapp/blip/dbconn"
 	"github.com/cashapp/blip/monitor"
 	"github.com/cashapp/blip/plan"
-	"github.com/cashapp/blip/test"
 	"github.com/cashapp/blip/test/mock"
 )
 
@@ -63,9 +62,6 @@ func TestMonitor(t *testing.T) {
 		Username:  "root",
 		Password:  "test",
 		Hostname:  "127.0.0.1:33560", // 5.6
-		Heartbeat: blip.ConfigHeartbeat{
-			Disable: test.True,
-		},
 	}
 	cfg := blip.Config{
 		Plans:    blip.ConfigPlans{Files: []string{"../test/plans/version.yaml"}},

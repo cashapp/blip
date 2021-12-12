@@ -13,6 +13,12 @@ import (
 	"github.com/cashapp/blip/status"
 )
 
+const BLIP_TABLE_DDL = `CREATE TABLE IF NOT EXISTS heartbeat (
+  monitor_id varchar(500)      NOT NULL PRIMARY KEY,  -- source
+  ts         timestamp(3)      NOT NULL,              -- heartbeat
+  freq       smallint unsigned NOT NULL               -- milliseconds
+) ENGINE=InnoDB`
+
 type BlipWriter struct {
 	monitorId string
 	db        *sql.DB

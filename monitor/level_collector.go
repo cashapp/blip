@@ -42,12 +42,13 @@ var _ LevelCollector = &collector{}
 
 // collector is the implementation of LevelCollector.
 type collector struct {
-	monitorId        string
+	cfg              blip.ConfigMonitor
 	engine           *Engine
 	planLoader       *plan.Loader
 	sinks            []blip.Sink
 	transformMetrics func(*blip.Metrics) error
 	// --
+	monitorId            string
 	state                string
 	plan                 blip.Plan
 	changing             bool
@@ -62,7 +63,7 @@ type collector struct {
 }
 
 type LevelCollectorArgs struct {
-	MonitorId        string
+	Config           blip.ConfigMonitor
 	Engine           *Engine
 	PlanLoader       *plan.Loader
 	Sinks            []blip.Sink
@@ -71,15 +72,15 @@ type LevelCollectorArgs struct {
 
 func NewLevelCollector(args LevelCollectorArgs) *collector {
 	return &collector{
-		monitorId:        args.MonitorId,
 		engine:           args.Engine,
 		planLoader:       args.PlanLoader,
 		sinks:            args.Sinks,
 		transformMetrics: args.TransformMetrics,
 		// --
+		monitorId: args.Config.MonitorId,
 		changeMux: &sync.Mutex{},
 		stateMux:  &sync.Mutex{},
-		event:     event.MonitorSink{MonitorId: args.MonitorId},
+		event:     event.MonitorSink{MonitorId: args.Config.MonitorId},
 		paused:    true,
 	}
 }
@@ -304,6 +305,9 @@ func (c *collector) changePlan(ctx context.Context, newState, newPlanName string
 		c.event.Sendf(event.CHANGE_PLAN_ERROR, "%s: error loading new plan: %s", change, err)
 		return
 	}
+
+	newPlan.InterpolateEnvVars()
+	newPlan.InterpolateMonitor(&c.cfg)
 
 	// Convert plan levels to sorted levels for efficient level calculation in Run;
 	// see code comments on sortedLevels.

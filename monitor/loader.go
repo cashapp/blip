@@ -265,7 +265,10 @@ func (ml *Loader) Changes(ctx context.Context) (Changes, error) {
 		// Third, monitors from the AWS RDS API
 		monitors, err = ml.rdsLoader.Load(ctx, ml.cfg)
 		if err != nil {
-			return ch, err
+			if !ml.cfg.MonitorLoader.AWS.Automatic() {
+				return ch, err
+			}
+			blip.Debug("failed auto-AWS loading, ignoring: %s", err)
 		}
 		if err := ml.merge(monitors, all, &ch); err != nil {
 			return ch, err
