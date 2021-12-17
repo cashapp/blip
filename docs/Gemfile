@@ -1,3 +1,6 @@
 source "https://rubygems.org"
 gem "github-pages", group: :jekyll_plugins
 gem "just-the-docs"
+
+gem "kramdown", ">= 2.3.1"
+gem "nokogiri", ">= 1.12.5"
