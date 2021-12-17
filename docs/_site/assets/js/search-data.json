@@ -2,175 +2,175 @@
     "doc": "API",
     "title": "API",
     "content": " ",
-    "url": "http://localhost:4000/blip/v1.0/api",
+    "url": "/blip/v1.0/api",
     "relUrl": "/v1.0/api"
   },"1": {
     "doc": "Blip",
     "title": "Blip",
     "content": "In the simplest setup, a single Blip instance monitors (collect metrics from) a single MySQL instance: . But a single instnace of Blip—a single running blip binary—can monitor any number of MySQL instances: . In Blip lingo (and source code), a monitor collects metrics from a single instance of MySQL, as shown above. In short, “a monitor monitors MySQL.” . Monitors are the central concept in Blip, so let’s zoom in on one monitor to see what makes it ticks: . A monitor has more parts than shown above, but three parts are most important: . Sinks Sinks send metrics to some graphing system. A monitor can send metrics to more than one sink. Blip has built-in sinks for SignalFx and Chronosphere, and it’s easy to write your own sink, which means Blip can send metrics anywhere. Plan A plan determines which metrics to collect. Blip has a default plan that collects more than 60 of the most important MySQL metrics. Plans can be customized. Engine The engine is the core part of a monitor that collects metrics from MySQL (according to the plan). There are many more parts to a monitor, but sinks and plans are the two you are most likely to customize—more on this later. You can’t customize the engine, but you can customize the plan that determines which metrics the engine collects. Let’s zoom in on the engine: . Inside the engine, another part called a metrics collector (or collector for short) collects metrics for one domain: a logical group of MySQL metrics. Above, the engine has four collectors that correspond to four domains: . | Domain | Logical Group | . | status.global | SHOW GLOBAL STATUS | . | var.global | SHOW GLOBAL VARIABLES | . | repl | SHOW REPLICA STATUS, … | . | aws | CloudWatch Metrics | . First, you might notice that a collector is not required required to collect metrics from MySQL. An AWS collector, for example, collects related MySQL metrics from Amazon CloudWatch. But most collectors collect metrics from various outputs of MySQL. Second, why a new abstraction—why “domains”? Because MySQL metrics are unorganized, and some metrics can be obtained from multiple outpus. For example, you can obtain the global system variable max_connections from three different outputs (or commands): . | SHOW GLOBAL VARIABLES LIKE 'max_connections'; | SELECT @@GLOBAL.max_connections; | SELECT * FROM global_variables WHERE variable_name='max_connections'; | . That’s a trivial exmaple. Metric domains become important—practically necessary—when you account for the MySQL Performance Schema (and sometimes the MySQL sys Schema), various command and output changes from MySQL 5.6 to 5.7 to 8.0, subtle differences between distributions (Oracle vs. Percona vs. MariaDB), and cloud providers (like Amazon RDS). Metric domains simplify how metrics are collected. As a user, you shouldn’t care how metrics are collected; you should only care which metrics are collected. Domains and plans make that possible… . A level plan (or plan for short) configures which metrics to collect—by domain. Here’s a snippet of a plan that collects two metrics every 5 seconds: . key-perf-indicators: freq: 5s collect: status.global: metrics: - Queries - Threads_running . First of all, don’t worry: Blip has a built-in plan that collects every common and important MySQL metric, including meta-metrics like database and table sizes. You never have to specify a plan, but chances are that you’ll eventually write your own custom plans, espcially when you learn what other Blip features plans make possible. In the plan snippet above (which is YAML syntax), there is a single level called key-perf-indicators collected every 5 seconds (more on levels in a moment). At this level, Blip collects everything configured under collect:, which is just two metrics in the status.global domain: Queries and Threads_running. Real plans a much larger, listing tens (or hunrdeds) of metrics from various domains. Now the quesiton burning in your mind: what are “levels”? A level is a group of metrics collected at a unique frequency. key-perf-indicators metrics are collected every 5 seconds: 5s, 10s, 15s, and so forth. That’s not very fancy! Every metrics collector collects metrics at some frequency. But consider this: . key-perf-indicators: freq: 5s collect: status.global: metrics: - Queries - Threads_running database-sizes: freq: 60s collect: size.data: options: exclude: test_db,dba_stuff metrics: # Automatic . Now the plan has two levels: the original key-perf-indicators plus database-sizes every 60 seconds. (The domain size.data “collects” [calculatues] data size metrics for databases and tables.) Blip combines levels automatically: at 55 seconds, Blip collects only key-perf-indicators metrics; but at 60 seconds, it collects key-perf-indicators metrics and database-sizes metrics. In technical terms, it collects every level where freq % T == 0, where T is the number of seconds elapsed. Now that’s fancy: with level plans, Blip collects different metrics at different frequencies. Levels aren’t just fancy, they’re more efficient and (potentially) less expensive. For example, calculating table sizes when there are thousands of tables can be relatively slow. Consequently, it’s neither wise nor necessary to collect them every few seconds like regular metrics. By relegating table size collection to a slower frequency, regular metrics collection remains fast and efficient. And if you pay for a hosted metrics graphhing solution, then table size metrics every few seconds is a waste of money (because table sizes don’t usually change that fast). Speaking of paying for a hosted metrics graphhing solution, you need to send the metrics somewhere, and anywhere is possible with pluggable metric sinks (or sinks for short). Blip has built-in sinks for SignalFx and Chronosphere, but the sink is an interface, which means its trivial to write a new sink for wherever you send your metrics. Even better: domains make it possible to programmatically transform and rename metrics from Blip to any data format or protocol because Blip metrics have a consistent naming schema: lowercase domain.metric For example, status.global.threads_running. Your sink might strip the domain prefix, or rename it. It could also add labels, dimensions, and so forth—there are no limits. After collecting metrics specified by the plan, Blip passes them (in a simple data structure) to each sink, which are free to do anything (or nothing) with the metrics. You’ve reached the end of this introduction; now the real work begins. Depending on your infrastructure, you probably want to . ",
-    "url": "http://localhost:4000/blip/v1.0/intro/concepts.html",
+    "url": "/blip/v1.0/intro/concepts.html",
     "relUrl": "/v1.0/intro/concepts.html"
   },"2": {
     "doc": "Config File",
     "title": "Config File",
     "content": " ",
-    "url": "http://localhost:4000/blip/v1.0/config/config-file.html",
+    "url": "/blip/v1.0/config/config-file.html",
     "relUrl": "/v1.0/config/config-file.html"
   },"3": {
     "doc": "Config File",
     "title": "Blip Server",
     "content": "api . API config . api: bind: 127.1:7090 disable: false http: proxy: &lt;addr&gt; monitor-loader: freq: 60s files: [one.yaml, two.yaml] stop-loss: 50% aws: regions: [\"auto\",\"us-east-1\"] local: disable-auto: true disable-auto-root: true strict: true . ",
-    "url": "http://localhost:4000/blip/v1.0/config/config-file.html#blip-server",
+    "url": "/blip/v1.0/config/config-file.html#blip-server",
     "relUrl": "/v1.0/config/config-file.html#blip-server"
   },"4": {
     "doc": "Config File",
     "title": "Defaults for Monitors",
     "content": "Defaults that apply to monitors . aws-rds: iam-auth-token: true password-secret: \"arn::::\" region: \"us-east-1\" disable-auto-region: false disable-auto-tls: false exporter: mode: dual|legacy flags: web.listen-address: :9001 heartbeat: freq: 1s table: blip.heartbeat create-table: try mysql: mycnf: my.cnf username: blip password: blip password-file: \"\" timeout-connect: 5s plans: files: - foo.yaml - bar.yaml table: blip.plans monitor: &lt;monitor&gt; adjust: offline: after: 1s plan: \"\" # collect nothing standby: after: 1s plan: \"\" # collect nothing read-only: after: 1s plan: ro-plan active: after: 1s plan: active-plan sinks: signalfx: auth-token: \"\" auth-token-file: \"\" send-timeout: 2s log: # No options tags: env: ${ENVIRONMENT:-dev} dc: ${DATACENTER:-local} hostname: %{monitor.hostname} tls: ca: square.ca cert: /app/secrets/$%{monitor.hostname}.crt key: /app/secrets/%{monitor.hostname}.key . ",
-    "url": "http://localhost:4000/blip/v1.0/config/config-file.html#defaults-for-monitors",
+    "url": "/blip/v1.0/config/config-file.html#defaults-for-monitors",
     "relUrl": "/v1.0/config/config-file.html#defaults-for-monitors"
   },"5": {
     "doc": "Config File",
     "title": "Monitors",
     "content": "MySQL instances to monitor . monitors: - id: host1 hostname: host1.local socket: /tmp/mysql.sock # mysql: mycnf: my.cnf username: metrics password: foo password-file: /dev/shm/mypasswd timeout-connect: 5s aws-rds: password-secret: \"arn::::\" iam-auth-token: true exporter: bind: 127.0.0.1:9001 legacy: false heartbeat: freq: 1s table: blip.heartbeat create-table: try ha: # Reserved plans: table: \"blip.plans\" #monitor: &lt;monitor&gt; adjust: readonly: after: 2s plan: ro.yaml active: after: 1s plan: rw.yaml sinks: signalfx: auth-token: \"\" auth-token-file: \"\" send-timeout: 2s log: # No options chronosphere: url: http://127.0.0.1:3030/openmetrics/write tags: env: staging monitor-id: %{monitor.id} tls: ca: my-ca cert: ${SECRETS}/%{monitor.hostname}.cert key: ${SECRETS}/%{monitor.hostname}.key meta: source: host2.local canary: no . ",
-    "url": "http://localhost:4000/blip/v1.0/config/config-file.html#monitors",
+    "url": "/blip/v1.0/config/config-file.html#monitors",
     "relUrl": "/v1.0/config/config-file.html#monitors"
   },"6": {
     "doc": "Configure",
     "title": "Configure",
     "content": "Blip configuration is specified in a single YAML file. There are 3 ways to specify the Blip config file. By default, Blip uses blip.yaml in the current working directory: . $ blip . You can specify a config file with the --config command-line option: . $ blip --config FILE . Or, you can specify a config file with the BLIP_CONFIG environment variable: . $ export BLIP_CONFIG=FILE $ blip . The command-line option takes precedent over the environment variable. In the following example, Blip uses only FILE_2: . $ export BLIP_CONFIG=FILE_1 $ blip --config FILE_2 . ",
-    "url": "http://localhost:4000/blip/v1.0/config",
+    "url": "/blip/v1.0/config",
     "relUrl": "/v1.0/config"
   },"7": {
     "doc": "Deploy",
     "title": "Deploy",
     "content": "… . ",
-    "url": "http://localhost:4000/blip/v1.0/operate/deploy.html",
+    "url": "/blip/v1.0/operate/deploy.html",
     "relUrl": "/v1.0/operate/deploy.html"
   },"8": {
     "doc": "Deploy",
     "title": "System Requirements",
     "content": ". | Go 1.17 or newer | MySQL 5.6 or newer | An intern turn IC turn EM who likes to swim in dangerous waters | . ",
-    "url": "http://localhost:4000/blip/v1.0/operate/deploy.html#system-requirements",
+    "url": "/blip/v1.0/operate/deploy.html#system-requirements",
     "relUrl": "/v1.0/operate/deploy.html#system-requirements"
   },"9": {
     "doc": "Deploy",
     "title": "Building",
     "content": "… . ",
-    "url": "http://localhost:4000/blip/v1.0/operate/deploy.html#building",
+    "url": "/blip/v1.0/operate/deploy.html#building",
     "relUrl": "/v1.0/operate/deploy.html#building"
   },"10": {
     "doc": "Deploy",
     "title": "Deploying",
     "content": "… . ",
-    "url": "http://localhost:4000/blip/v1.0/operate/deploy.html#deploying",
+    "url": "/blip/v1.0/operate/deploy.html#deploying",
     "relUrl": "/v1.0/operate/deploy.html#deploying"
   },"11": {
     "doc": "Endpoints",
     "title": "Endpoints",
     "content": ". | Requests . | Create and start a new request | Get a request | Stop a request | Get all job logs for a request | Get logs for a specific job in a request | Get status of all running jobs and requests | Find requests that match certain conditions | Get list of all available requests | . | . ",
-    "url": "http://localhost:4000/blip/v1.0/api/endpoints.html",
+    "url": "/blip/v1.0/api/endpoints.html",
     "relUrl": "/v1.0/api/endpoints.html"
   },"12": {
     "doc": "Endpoints",
     "title": "Requests",
     "content": "All things related to Spin Cycle requests. Create and start a new request . POST . /api/v1/requests . Request Parameters . | Parameter | Type | Description | . | type | string | The type of request to create | . | args | object | The arguments for the request | . Sample Request Body . { \"type\": \"test\", \"args\": { \"sleepTime\": \"1000\" } } . Sample Response . { \"id\": \"bafebl1ddiob71ka5bag\", \"type\": \"test\", \"state\": 1 \"user\": \"kristen\", \"args\": { \"sleepTime\": \"1000\" }, \"createdAt\": \"2019-03-15T16:49:59Z\", \"startedAt\": \"2019-03-15T16:49:59Z\", \"finishedAt\": \"2019-03-15T16:55:42Z\", \"totalJobs\": 2, \"finishedJobs\": 0 } . Response Status Codes . 201: Successful operation. 400: Invalid request. Either the request type does not exist, or the args are invalid. 401: Unauthorized operation. 503: The Request Manager (RM) API server is in the process of shutting down. Get a request . GET . /api/v1/requests/${requestId} . Sample Response . { \"id\": \"bihqongkp0sg00cq9vo0\", \"type\": \"test\", \"state\": 3, \"user\": \"kristen\", \"args\": [ { \"Pos\": 0, \"Name\": \"sleepTime\", \"Desc\": \"How long to sleep (milliseconds) during the request. Useful to verify how RM and JR respond before request has finished.\", \"Type\": \"optional\", \"Given\": true, \"Default\": \"1000\", \"Value\": \"1000\" } ], \"createdAt\": \"2019-04-02T18:39:26Z\", \"startedAt\": \"2019-04-02T18:39:26Z\", \"finishedAt\": \"2019-04-02T18:39:27Z\", \"JobChain\": { \"requestId\": \"bihqongkp0sg00cq9vo0\", \"jobs\": { \"3RNT\": { \"id\": \"3RNT\", \"name\": \"wait\", \"type\": \"sleep\", \"bytes\": \"eyJkdXJhdGlvbiI6MTAwMDAwMDAwMH0=\", \"state\": 1, \"args\": { \"duration\": \"1000\" }, \"retry\": 0, \"sequenceId\": \"FDbP\", \"sequenceRetry\": 0 }, \"eSTn\": { \"id\": \"eSTn\", \"name\": \"wait\", \"type\": \"sleep\", \"bytes\": \"eyJkdXJhdGlvbiI6MTAwMDAwMDAwMH0=\", \"state\": 1, \"args\": { \"duration\": \"1000\" }, \"retry\": 0, \"sequenceId\": \"cDNR\", \"sequenceRetry\": 0 } }, \"adjacencyList\": { \"3RNT\": [ \"eSTn\" ] } }, \"totalJobs\": 2, \"finishedJobs\": 2 } . Response Status Codes . 200: Successful operation. 401: Unauthorized operation. 404: Request not found. Stop a request . PUT . /api/v1/requests/${requestId}/stop . Response Status Codes . 200: Successful operation. 401: Unauthorized operation. 404: Request not found. Get all job logs for a request . GET . /api/v1/requests/${requestId}/log . Sample Response . [ { \"requestId\": \"bihqongkp0sg00cq9vo0\", \"jobId\": \"3RNT\", \"try\": 1, \"name\": \"wait\", \"type\": \"sleep\", \"startedAt\": 1554230366094196500, \"finishedAt\": 1554230367094791700, \"state\": 3, \"exit\": 0, \"error\": \"\", \"stdout\": \"\", \"stderr\": \"\" }, { \"requestId\": \"bihqongkp0sg00cq9vo0\", \"jobId\": \"eSTn\", \"try\": 1, \"name\": \"wait\", \"type\": \"sleep\", \"startedAt\": 1554230366095376600, \"finishedAt\": 1554230367096359700, \"state\": 3, \"exit\": 0, \"error\": \"\", \"stdout\": \"\", \"stderr\": \"\" } ] . Response Status Codes . 200: Successful operation. 401: Unauthorized operation. 404: Request not found. Get logs for a specific job in a request . GET . /api/v1/requests/${requestId}/log/${jobId} . Sample Response . { \"requestId\": \"bihqongkp0sg00cq9vo0\", \"jobId\": \"3RNT\", \"try\": 1, \"name\": \"wait\", \"type\": \"sleep\", \"startedAt\": 1554230366094196500, \"finishedAt\": 1554230367094791700, \"state\": 3, \"exit\": 0, \"error\": \"\", \"stdout\": \"\", \"stderr\": \"\" } . Response Status Codes . 200: Successful operation. 401: Unauthorized operation. 404: Request or job not found. Get status of all running jobs and requests . GET . /api/v1/status/running . Sample Response . { \"jobs\": [ { \"requestId\": \"bihr0sgkp0sg00cq9vog\", \"jobId\": \"96i7\", \"type\": \"sleep\", \"name\": \"wait\", \"startedAt\": 1554231410126312200, \"state\": 2, \"status\": \"sleeping\", \"try\": 1 }, { \"requestId\": \"bihr0tgkp0sg00cq9vp0\", \"jobId\": \"4avk\", \"type\": \"sleep\", \"name\": \"wait\", \"startedAt\": 1554231414572741000, \"state\": 2, \"status\": \"sleeping\", \"try\": 1 } ], \"requests\": { \"bihr0sgkp0sg00cq9vog\": { \"id\": \"bihr0sgkp0sg00cq9vog\", \"type\": \"test\", \"state\": 2, \"user\": \"\", \"createdAt\": \"2019-04-02T18:56:50Z\", \"startedAt\": \"2019-04-02T18:56:50Z\", \"finishedAt\": null, \"totalJobs\": 2, \"finishedJobs\": 0 }, \"bihr0tgkp0sg00cq9vp0\": { \"id\": \"bihr0tgkp0sg00cq9vp0\", \"type\": \"test\", \"state\": 2, \"user\": \"\", \"createdAt\": \"2019-04-02T18:56:55Z\", \"startedAt\": \"2019-04-02T18:56:55Z\", \"finishedAt\": null, \"totalJobs\": 2, \"finishedJobs\": 0 } } } . Response Status Codes . 200: Successful operation. 401: Unauthorized operation. Find requests that match certain conditions . GET . /api/v1/requests . Requests are returned in descending order by create time (i.e. most recently created first). Optional Query Parameters . | Parameter | Description | Notes | . | type | The type of request |   | . | user | The user who created the request |   | . | state | The state of the request | See proto.go — the string name of the state, not the byte. Specify this parameter multiple times to search for multiple states. | . | since | Return only requests which were running after this time | Format: 2006-01-02T15:04:05.999999Z07:00 | . | until | Return only requests which were running before this time | Format: 2006-01-02T15:04:05.999999Z07:00 | . | limit | Maximum number of requests to return |   | . | offset | Skip this number of requests | Use with limit for pagination of results. | . Sample Response . [ { \"id\": \"bihr0sgkp0sg00cq9vog\", \"type\": \"test\", \"state\": 2, \"user\": \"Bob\", \"createdAt\": \"2019-04-02T18:56:50Z\", \"startedAt\": \"2019-04-02T18:56:50Z\", \"finishedAt\": null, \"totalJobs\": 2, \"finishedJobs\": 0 }, { \"id\": \"bihr0tgkp0sg00cq9vp0\", \"type\": \"test\", \"state\": 3, \"user\": \"Alice\", \"createdAt\": \"2019-04-02T18:56:55Z\", \"startedAt\": \"2019-04-02T18:56:55Z\", \"finishedAt\": \"2019-04-02T18:57:55Z\", \"totalJobs\": 2, \"finishedJobs\": 2 } ] . Response Status Codes . 200: Successful operation. 400: Invalid parameters. 401: Unauthorized operation. Get list of all available requests . GET . /api/v1/request-list . Sample Response . [ { \"Name\": \"test\", \"Args\": [ { \"Pos\": 0, \"Name\": \"sleepTime\", \"Desc\": \"How long to sleep (milliseconds) during the request. Useful to verify how RM and JR respond before request has finished.\", \"Type\": \"optional\", \"Given\": false, \"Default\": \"1000\", \"Value\": null } ] } ] . Response Status Codes . 200: Successful operation. 401: Unauthorized operation. ",
-    "url": "http://localhost:4000/blip/v1.0/api/endpoints.html#requests",
+    "url": "/blip/v1.0/api/endpoints.html#requests",
     "relUrl": "/v1.0/api/endpoints.html#requests"
   },"13": {
     "doc": "Home",
     "title": "Get Started",
     "content": "💡 Blip Concepts . | Configure | . ",
-    "url": "http://localhost:4000/blip/#get-started",
+    "url": "/blip/#get-started",
     "relUrl": "/#get-started"
   },"14": {
     "doc": "Home",
     "title": "Operate",
     "content": ". | Deploy | . ",
-    "url": "http://localhost:4000/blip/#operate",
+    "url": "/blip/#operate",
     "relUrl": "/#operate"
   },"15": {
     "doc": "Home",
     "title": "Develop (Customize)",
     "content": ". | Integrations | . ",
-    "url": "http://localhost:4000/blip/#develop-customize",
+    "url": "/blip/#develop-customize",
     "relUrl": "/#develop-customize"
   },"16": {
     "doc": "Home",
     "title": "Support",
     "content": "For bugs and general issues, please create a new GitHub issue. If submitting code changes, please also see the contributing guide. ",
-    "url": "http://localhost:4000/blip/#support",
+    "url": "/blip/#support",
     "relUrl": "/#support"
   },"17": {
     "doc": "Home",
     "title": "Release Notes",
     "content": ". | Release Notes | . ",
-    "url": "http://localhost:4000/blip/#release-notes",
+    "url": "/blip/#release-notes",
     "relUrl": "/#release-notes"
   },"18": {
     "doc": "Home",
     "title": "Home",
     "content": ". Blip is the most advanced MySQL metrics collector ever built. ⚡ Blip in 5 Seconds . ",
-    "url": "http://localhost:4000/blip/",
+    "url": "/blip/",
     "relUrl": "/"
   },"19": {
     "doc": "Release Notes",
     "title": "Release Notes",
     "content": " ",
-    "url": "http://localhost:4000/blip/release-notes",
+    "url": "/blip/release-notes",
     "relUrl": "/release-notes"
   },"20": {
     "doc": "Release Notes",
     "title": "v1.0",
     "content": "v1.0.0 (not released yet) . | First GA, production-ready release. | . ",
-    "url": "http://localhost:4000/blip/release-notes#v10",
+    "url": "/blip/release-notes#v10",
     "relUrl": "/release-notes#v10"
   },"21": {
     "doc": "Introduction",
     "title": "Introduction to Blip",
     "content": " ",
-    "url": "http://localhost:4000/blip/v1.0/intro#introduction-to-blip",
+    "url": "/blip/v1.0/intro#introduction-to-blip",
     "relUrl": "/v1.0/intro#introduction-to-blip"
   },"22": {
     "doc": "Introduction",
     "title": "Introduction",
     "content": " ",
-    "url": "http://localhost:4000/blip/v1.0/intro",
+    "url": "/blip/v1.0/intro",
     "relUrl": "/v1.0/intro"
   },"23": {
     "doc": "Monitors",
     "title": "Monitors",
     "content": "… . ",
-    "url": "http://localhost:4000/blip/v1.0/intro/monitors.html",
+    "url": "/blip/v1.0/intro/monitors.html",
     "relUrl": "/v1.0/intro/monitors.html"
   },"24": {
     "doc": "Operate",
     "title": "Operate",
     "content": " ",
-    "url": "http://localhost:4000/blip/v1.0/operate",
+    "url": "/blip/v1.0/operate",
     "relUrl": "/v1.0/operate"
   },"25": {
     "doc": "Plans",
     "title": "Plans",
     "content": "… . ",
-    "url": "http://localhost:4000/blip/v1.0/intro/plans.html",
+    "url": "/blip/v1.0/intro/plans.html",
     "relUrl": "/v1.0/intro/plans.html"
   },"26": {
     "doc": "Quick Reference",
     "title": "Quick Reference",
     "content": "Interpolation . $ENV_VAR %{monitor.hostname} . Config File . Following is a full Blip config file (YAML syntax). This is only a reference to show all configuration variables. --- # --------------------------------------------------------------------------- # Blip server # --------------------------------------------------------------------------- api: bind: 127.1:7090 disable: false http: proxy: &lt;addr&gt; monitor-loader: freq: 60s files: [one.yaml, two.yaml] stop-loss: 50% aws: regions: [\"auto\",\"us-east-1\"] local: disable-auto: true disable-auto-root: true strict: true # --------------------------------------------------------------------------- # Defaults for monitors # --------------------------------------------------------------------------- aws-rds: iam-auth-token: true password-secret: \"arn::::\" region: \"us-east-1\" disable-auto-region: false disable-auto-tls: false exporter: mode: dual|legacy flags: web.listen-address: :9001 heartbeat: freq: 1s table: blip.heartbeat create-table: try mysql: mycnf: my.cnf username: blip password: blip password-file: \"\" timeout-connect: 5s plans: files: - foo.yaml - bar.yaml table: blip.plans monitor: &lt;monitor&gt; adjust: offline: after: 1s plan: \"\" # collect nothing standby: after: 1s plan: \"\" # collect nothing read-only: after: 1s plan: ro-plan active: after: 1s plan: active-plan sinks: signalfx: auth-token: \"\" auth-token-file: \"\" send-timeout: 2s log: # No options tags: env: ${ENVIRONMENT:-dev} dc: ${DATACENTER:-local} hostname: %{monitor.hostname} tls: ca: square.ca cert: /app/secrets/$%{monitor.hostname}.crt key: /app/secrets/%{monitor.hostname}.key # --------------------------------------------------------------------------- # MySQL instances to monitor # --------------------------------------------------------------------------- monitors: - id: host1 hostname: host1.local socket: /tmp/mysql.sock # mysql: mycnf: my.cnf username: metrics password: foo password-file: /dev/shm/mypasswd timeout-connect: 5s aws-rds: password-secret: \"arn::::\" iam-auth-token: true exporter: bind: 127.0.0.1:9001 legacy: false heartbeat: freq: 1s table: blip.heartbeat create-table: try ha: # Reserved plans: table: \"blip.plans\" #monitor: &lt;monitor&gt; adjust: readonly: after: 2s plan: ro.yaml active: after: 1s plan: rw.yaml sinks: signalfx: auth-token: \"\" auth-token-file: \"\" send-timeout: 2s log: # No options chronosphere: url: http://127.0.0.1:3030/openmetrics/write tags: env: staging monitor-id: %{monitor.id} tls: ca: my-ca cert: ${SECRETS}/%{monitor.hostname}.cert key: ${SECRETS}/%{monitor.hostname}.key meta: source: host2.local canary: no . ",
-    "url": "http://localhost:4000/blip/v1.0/config/quick-ref.html",
+    "url": "/blip/v1.0/config/quick-ref.html",
     "relUrl": "/v1.0/config/quick-ref.html"
   },"27": {
     "doc": "Quick Reference",
     "title": "Environment Variables",
     "content": "Most config options have a corresponding environment variable, like SPINCYCLE_RM_CLIENT_URL for rm_client.url. Exceptions are noted. Take a config option, change . to _, upper-case everything, and add SPINCYCLE_ prefix. ",
-    "url": "http://localhost:4000/blip/v1.0/config/quick-ref.html#environment-variables",
+    "url": "/blip/v1.0/config/quick-ref.html#environment-variables",
     "relUrl": "/v1.0/config/quick-ref.html#environment-variables"
   },"28": {
     "doc": "Sinks",
     "title": "Sinks",
     "content": "NOTE: You can skip this part of the introduction if: . | You use SignalFx, or | You use Chronosphere, or | You plan to use Blip to emulate and replace Prometheus `mysqld_exporter` | . Blip has built-in support for these three use cases. … . ",
-    "url": "http://localhost:4000/blip/v1.0/intro/sinks.html",
+    "url": "/blip/v1.0/intro/sinks.html",
     "relUrl": "/v1.0/intro/sinks.html"
   }
 }
