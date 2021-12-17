@@ -230,7 +230,7 @@ func (s *Server) Run(stopChan, doneChan chan struct{}) error {
 	}()
 
 	s.monitorLoader.Run() // all monitors
-	if s.cfg.MonitorLoader.Freq == "" {
+	if s.cfg.MonitorLoader.Freq != "" {
 		doneChan := make(chan struct{})
 		go s.monitorLoader.Reload(stopChan, doneChan)
 	}

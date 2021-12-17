@@ -23,5 +23,8 @@ type RDSClientFactory struct {
 }
 
 func (f RDSClientFactory) Make(ba blip.AWS) (blipAWS.RDSClient, error) {
-	return f.MakeFunc(ba)
+	if f.MakeFunc != nil {
+		return f.MakeFunc(ba)
+	}
+	return RDSClient{}, nil
 }

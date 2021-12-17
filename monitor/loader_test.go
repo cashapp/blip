@@ -2,16 +2,25 @@ package monitor_test
 
 import (
 	"context"
-	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 
 	"github.com/cashapp/blip"
+	"github.com/cashapp/blip/aws"
 	"github.com/cashapp/blip/dbconn"
 	"github.com/cashapp/blip/monitor"
 	"github.com/cashapp/blip/plan"
+	"github.com/cashapp/blip/test/mock"
 )
+
+func monitorIds(monitors []*monitor.Monitor) []string {
+	ids := make([]string, len(monitors))
+	for i := range monitors {
+		ids[i] = monitors[i].MonitorId()
+	}
+	return ids
+}
 
 // --------------------------------------------------------------------------
 
@@ -33,24 +42,13 @@ func TestLoaderLoadOne(t *testing.T) {
 		Monitors: []blip.ConfigMonitor{moncfg},
 	}
 
-	// Optional Loader callback to yay or nay running a Monitor. For this test,
-	// it's nay: we don't need to run the monitor, just see that it's loaded.
-	mux := &sync.Mutex{}
-	gotMonitors := []*monitor.Monitor{}
-	runMonitor := func(mon *monitor.Monitor) bool {
-		mux.Lock()
-		gotMonitors = append(gotMonitors, mon)
-		mux.Unlock()
-		return false // do not run Monitor
-	}
-
 	// Create a new Loader and call its main method: Load.
 	args := monitor.LoaderArgs{
 		Config:       cfg,
 		DbMaker:      dbconn.NewConnFactory(nil, nil),
 		PlanLoader:   plan.NewLoader(nil),
 		LoadMonitors: nil,
-		RunMonitor:   runMonitor,
+		RDSLoader:    aws.RDSLoader{ClientFactory: mock.RDSClientFactory{}},
 	}
 	loader := monitor.NewLoader(args)
 	err := loader.Load(context.Background())
@@ -59,12 +57,7 @@ func TestLoaderLoadOne(t *testing.T) {
 	}
 
 	// Verify that it loaded the one monitor
-	gotIds := []string{}
-	mux.Lock()
-	for _, mon := range gotMonitors {
-		gotIds = append(gotIds, mon.MonitorId())
-	}
-	mux.Unlock()
+	gotIds := monitorIds(loader.Monitors())
 	expectIds := []string{moncfg.MonitorId}
 	assert.ElementsMatch(t, gotIds, expectIds)
 }

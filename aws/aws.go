@@ -22,22 +22,31 @@ func NewConfigFactory() cfgFactory {
 }
 
 func (f cfgFactory) Make(ba blip.AWS) (aws.Config, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
-	defer cancel()
 	if ba.Region == "auto" {
-		ba.Region = Region(ctx)
-		blip.Debug("auto-detect region %s", ba.Region)
+		ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+		defer cancel()
+		var err error
+		ba.Region, err = Region(ctx)
+		if err != nil {
+			return aws.Config{}, err
+		}
 	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
 	return config.LoadDefaultConfig(ctx, config.WithRegion(ba.Region))
 }
 
 // Region auto-detects the region. Currently, the function relies on IMDS v2:
 // https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ec2-instance-metadata.html
 // If the region cannot be detect, it returns an empty string.
-func Region(ctx context.Context) string {
+func Region(ctx context.Context) (string, error) {
 	client := imds.New(imds.Options{})
-	ec2, _ := client.GetInstanceIdentityDocument(ctx, &imds.GetInstanceIdentityDocumentInput{})
-	return ec2.Region
+	ec2, err := client.GetInstanceIdentityDocument(ctx, &imds.GetInstanceIdentityDocumentInput{})
+	if err != nil {
+		return "", err
+	}
+	return ec2.Region, nil
 }
 
 var once sync.Once

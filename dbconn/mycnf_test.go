@@ -16,7 +16,7 @@ func TestParseMyCnf(t *testing.T) {
 	}
 	expect := blip.ConfigMySQL{
 		Username: "U",
-		Password: "P",
+		Password: "", // correct, see code comments in ParseMyCnf
 		Hostname: "H:33560",
 		TLSCA:    "CA",
 		TLSCert:  "CERT",

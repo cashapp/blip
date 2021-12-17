@@ -10,12 +10,14 @@ import (
 	//"github.com/stretchr/testify/assert"
 
 	"github.com/cashapp/blip"
+	"github.com/cashapp/blip/aws"
 	"github.com/cashapp/blip/dbconn"
 	"github.com/cashapp/blip/monitor"
 	"github.com/cashapp/blip/plan"
 	"github.com/cashapp/blip/proto"
 	"github.com/cashapp/blip/server"
 	"github.com/cashapp/blip/test"
+	"github.com/cashapp/blip/test/mock"
 )
 
 type testAPI struct {
@@ -27,9 +29,13 @@ type testAPI struct {
 
 func setup(t *testing.T) testAPI {
 	cfg := blip.DefaultConfig(false)
-	dbMaker := dbconn.NewConnFactory(nil, nil)
-	pl := plan.NewLoader(nil)
-	ml := monitor.NewLoader(cfg, nil, dbMaker, pl)
+	blip.Debugging = true
+	ml := monitor.NewLoader(monitor.LoaderArgs{
+		Config:     cfg,
+		DbMaker:    dbconn.NewConnFactory(nil, nil),
+		PlanLoader: plan.NewLoader(nil),
+		RDSLoader:  aws.RDSLoader{ClientFactory: mock.RDSClientFactory{}},
+	})
 	api := server.NewAPI(cfg.API, ml)
 
 	ts := httptest.NewServer(api)

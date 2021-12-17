@@ -19,7 +19,6 @@ const (
 	OPT_SOURCE = "source"
 )
 
-// Lag collects global system variables for the var.global domain.
 type Lag struct {
 	db      *sql.DB
 	atLevel map[string]LagReader
@@ -33,7 +32,7 @@ func NewLag(db *sql.DB) *Lag {
 }
 
 const (
-	blip_domain = "repl.lag"
+	blip_domain = "repl"
 )
 
 func (c *Lag) Domain() string {
@@ -43,17 +42,17 @@ func (c *Lag) Domain() string {
 func (c *Lag) Help() blip.CollectorHelp {
 	return blip.CollectorHelp{
 		Domain:      blip_domain,
-		Description: "Replication lag",
+		Description: "Replication metrics",
 		Options: map[string]blip.CollectorHelpOption{
 			OPT_WRITER: {
 				Name:    OPT_WRITER,
 				Desc:    "Type of heartbeat writer",
 				Default: "blip",
 				Values: map[string]string{
-					"blip":         "Native Blip replication lag",
-					"pt-heartbeat": "Percona pt-heartbeat",
-					"pfs":          "MySQL Performance Schema",
-					"legacy":       "Second_Behind_Slave|Replica from SHOW SHOW|REPLICA STATUS",
+					"blip": "Native Blip replication lag",
+					//"pt-heartbeat": "Percona pt-heartbeat",
+					"pfs":    "MySQL Performance Schema",
+					"legacy": "Second_Behind_Slave|Replica from SHOW SHOW|REPLICA STATUS",
 				},
 			},
 			OPT_TABLE: {
@@ -92,7 +91,12 @@ LEVEL:
 
 		switch dom.Options[OPT_WRITER] {
 		case "blip":
-			r := heartbeat.NewBlipReader(c.db, table, source)
+			r := heartbeat.NewBlipReader(
+				c.db,
+				table,
+				source,
+				&heartbeat.SlowFastWaiter{NetworkLatency: 50 * time.Millisecond}, // todo OPT_NETWORK_LATENCY
+			)
 			c.atLevel[level.Name] = r
 			go r.Start()
 			heartbeat.AddReader(r, c.db, plan.Name, level.Name, dom.Options[OPT_WRITER])
@@ -112,6 +116,7 @@ func (c *Lag) Collect(ctx context.Context, levelName string) ([]blip.MetricValue
 		return nil, err
 	}
 	m := blip.MetricValue{
+		Name:  "lag_ms",
 		Type:  blip.GAUGE,
 		Value: float64(lagMs),
 	}

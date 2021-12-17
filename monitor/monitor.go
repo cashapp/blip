@@ -6,7 +6,6 @@
 package monitor
 
 import (
-	"context"
 	"database/sql"
 	"fmt"
 	"log"
@@ -42,7 +41,7 @@ import (
 type Monitor struct {
 	// Required to create; created in Loader.makeMonitor()
 	monitorId  string
-	config     blip.ConfigMonitor
+	cfg        blip.ConfigMonitor
 	dbMaker    blip.DbFactory
 	planLoader *plan.Loader
 	sinks      []blip.Sink
@@ -55,8 +54,6 @@ type Monitor struct {
 	lpc     LevelCollector
 	lpa     LevelAdjuster
 	hbw     *heartbeat.BlipWriter
-
-	ctx context.Context
 
 	// Control chans and sync
 	stopChan     chan struct{}
@@ -86,7 +83,7 @@ type MonitorArgs struct {
 func NewMonitor(args MonitorArgs) *Monitor {
 	return &Monitor{
 		monitorId:  args.Config.MonitorId,
-		config:     args.Config,
+		cfg:        args.Config,
 		dbMaker:    args.DbMaker,
 		planLoader: args.PlanLoader,
 		sinks:      args.Sinks,
@@ -103,14 +100,9 @@ func (m *Monitor) MonitorId() string {
 	return m.monitorId
 }
 
-// DB returns the low-level database connection. This method implements *Monitor.
-//func (m *Monitor) DB() *sql.DB {
-//	return m.db
-//}
-
-// Config returns the monitor config. This method implements *Monitor.
+// Config returns the monitor config.
 func (m *Monitor) Config() blip.ConfigMonitor {
-	return m.config
+	return m.cfg
 }
 
 // Status returns the real-time monitor status. See proto.MonitorStatus for details.
@@ -169,7 +161,7 @@ func (m *Monitor) Run() {
 
 	for {
 		status.Monitor(m.monitorId, "monitor", "making DB/DSN (not connecting)")
-		db, dsn, err := m.dbMaker.Make(m.config)
+		db, dsn, err := m.dbMaker.Make(m.cfg)
 		m.setErr(err)
 		if err == nil { // success
 			m.runMux.Lock()
@@ -190,11 +182,11 @@ func (m *Monitor) Run() {
 	// ----------------------------------------------------------------------
 	// Prometheus emulation
 
-	if m.config.Exporter.Mode != "" {
+	if m.cfg.Exporter.Mode != "" {
 		m.promAPI = prom.NewAPI(
-			m.config.Exporter,
+			m.cfg.Exporter,
 			m.monitorId,
-			NewExporter(m.config.Exporter, NewEngine(m.monitorId, m.db)),
+			NewExporter(m.cfg.Exporter, NewEngine(m.monitorId, m.db)),
 		)
 		m.doneChanProm = make(chan struct{})
 		go func() {
@@ -215,7 +207,7 @@ func (m *Monitor) Run() {
 				continue
 			}
 		}()
-		if m.config.Exporter.Mode == blip.EXPORTER_MODE_LEGACY {
+		if m.cfg.Exporter.Mode == blip.EXPORTER_MODE_LEGACY {
 			blip.Debug("legacy mode")
 			<-m.stopChan
 			return
@@ -228,7 +220,7 @@ func (m *Monitor) Run() {
 	retry.Reset()
 	for {
 		status.Monitor(m.monitorId, "monitor", "loading plans")
-		err := m.planLoader.LoadMonitor(m.config, m.dbMaker)
+		err := m.planLoader.LoadMonitor(m.cfg, m.dbMaker)
 		m.setErr(err)
 		if err == nil { // success
 			break
@@ -245,10 +237,10 @@ func (m *Monitor) Run() {
 
 	// Run optional heartbeat monitor to monitor replication lag. When enabled,
 	// the heartbeat (hb) writes a high-resolution timestamp to a row in a table
-	// at the configured frequence: config.monitors.M.heartbeat.freq.
-	if m.config.Heartbeat.Freq != "" {
+	// at the configured frequence: cfg.monitors.M.heartbeat.freq.
+	if m.cfg.Heartbeat.Freq != "" {
 		status.Monitor(m.monitorId, "monitor", "starting heartbeat")
-		m.hbw = heartbeat.NewBlipWriter(m.monitorId, m.db, m.config.Heartbeat)
+		m.hbw = heartbeat.NewBlipWriter(m.monitorId, m.db, m.cfg.Heartbeat)
 		m.doneChanHBW = make(chan struct{})
 		go m.hbw.Write(m.stopChan, m.doneChanHBW)
 	}
@@ -258,7 +250,7 @@ func (m *Monitor) Run() {
 
 	m.engine = NewEngine(m.monitorId, m.db)
 	m.lpc = NewLevelCollector(LevelCollectorArgs{
-		MonitorId:  m.monitorId,
+		Config:     m.cfg,
 		Engine:     m.engine,
 		PlanLoader: m.planLoader,
 		Sinks:      m.sinks,
@@ -270,11 +262,11 @@ func (m *Monitor) Run() {
 
 	status.Monitor(m.monitorId, "monitor", "setting first level")
 
-	if m.config.Plans.Adjust.Enabled() {
+	if m.cfg.Plans.Adjust.Enabled() {
 		m.doneChanLPA = make(chan struct{})
 		m.lpa = NewLevelAdjuster(LevelAdjusterArgs{
 			MonitorId: m.monitorId,
-			Config:    m.config.Plans.Adjust,
+			Config:    m.cfg.Plans.Adjust,
 			DB:        m.db,
 			LPC:       m.lpc,
 			HA:        ha.Disabled,
@@ -283,7 +275,7 @@ func (m *Monitor) Run() {
 
 	// Run option level plan adjuster (LPA). When enabled, the LPA checks the
 	// state of MySQL . If the state changes, it calls lpc.ChangePlan to change
-	// the plan as configured by config.monitors.M.plans.adjust.<state>.
+	// the plan as configured by cfg.monitors.M.plans.adjust.<state>.
 	if m.lpa != nil {
 		go m.lpa.Run(m.stopChan, m.doneChanLPA)
 	} else {

@@ -14,7 +14,6 @@ import (
 	"github.com/cashapp/blip/metrics"
 	"github.com/cashapp/blip/monitor"
 	"github.com/cashapp/blip/plan"
-	"github.com/cashapp/blip/test"
 	"github.com/cashapp/blip/test/mock"
 )
 
@@ -64,9 +63,6 @@ func TestLevelCollector(t *testing.T) {
 		Username:  "root",
 		Password:  "test",
 		Hostname:  "127.0.0.1:33560", // 5.6
-		Heartbeat: blip.ConfigHeartbeat{
-			Disable: test.True,
-		},
 	}
 	cfg := blip.Config{
 		Plans:    blip.ConfigPlans{Files: []string{planName}},
@@ -92,7 +88,7 @@ func TestLevelCollector(t *testing.T) {
 	// Create LPC and and run it, but it starts paused until ChangePlan is called
 	// starts working once a plan is set.
 	lpc := monitor.NewLevelCollector(monitor.LevelCollectorArgs{
-		MonitorId:  monitorId1,
+		Config:     moncfg,
 		Engine:     monitor.NewEngine(monitorId1, db),
 		PlanLoader: pl,
 		Sinks:      []blip.Sink{mock.Sink{}},

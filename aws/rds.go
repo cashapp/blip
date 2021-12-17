@@ -48,9 +48,10 @@ type RDSLoader struct {
 func (rl RDSLoader) Load(ctx context.Context, cfg blip.Config) ([]blip.ConfigMonitor, error) {
 	loaderCfg := cfg.MonitorLoader.AWS
 	if len(loaderCfg.Regions) == 0 {
-		if blip.Strict {
+		if loaderCfg.DisableAuto {
 			return nil, nil
 		}
+		blip.Debug("auto-detect AWS region")
 		loaderCfg.Regions = []string{"auto"}
 	}
 

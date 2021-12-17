@@ -211,7 +211,12 @@ type ConfigMonitorLoader struct {
 }
 
 type ConfigMonitorLoaderAWS struct {
-	Regions []string `yaml:"regions,omitempty"`
+	Regions     []string `yaml:"regions,omitempty"`
+	DisableAuto bool     `yaml:"disable-auto"`
+}
+
+func (c ConfigMonitorLoaderAWS) Automatic() bool {
+	return len(c.Regions) == 0 && c.DisableAuto == false
 }
 
 type ConfigMonitorLoaderLocal struct {
@@ -263,6 +268,8 @@ type ConfigMonitor struct {
 	Plans     ConfigPlans            `yaml:"plans,omitempty"`
 	Sinks     ConfigSinks            `yaml:"sinks,omitempty"`
 	TLS       ConfigTLS              `yaml:"tls,omitempty"`
+
+	Meta map[string]string `yaml:"meta,omitempty"`
 }
 
 func DefaultConfigMonitor() ConfigMonitor {
@@ -339,6 +346,9 @@ func (c *ConfigMonitor) InterpolateEnvVars() {
 	for k, v := range c.Tags {
 		c.Tags[k] = interpolateEnv(v)
 	}
+	for k, v := range c.Meta {
+		c.Meta[k] = interpolateEnv(v)
+	}
 	c.AWS.InterpolateEnvVars()
 	c.Exporter.InterpolateEnvVars()
 	c.HA.InterpolateEnvVars()
@@ -357,7 +367,12 @@ func (c *ConfigMonitor) InterpolateMonitor() {
 	c.Password = c.interpolateMon(c.Password)
 	c.PasswordFile = c.interpolateMon(c.PasswordFile)
 	c.TimeoutConnect = c.interpolateMon(c.TimeoutConnect)
-
+	for k, v := range c.Tags {
+		c.Tags[k] = c.interpolateMon(v)
+	}
+	for k, v := range c.Meta {
+		c.Meta[k] = c.interpolateMon(v)
+	}
 	c.AWS.InterpolateMonitor(c)
 	c.Exporter.InterpolateMonitor(c)
 	c.HA.InterpolateMonitor(c)
@@ -367,7 +382,7 @@ func (c *ConfigMonitor) InterpolateMonitor() {
 	c.TLS.InterpolateMonitor(c)
 }
 
-var monvar = regexp.MustCompile(`%{([\w_-]+)\.([\w_-]+)}`)
+var monvar = regexp.MustCompile(`%{([\w_-]+)\.([\w_.-]+)}`)
 
 func (c *ConfigMonitor) interpolateMon(v string) string {
 	if !strings.Contains(v, "%{monitor.") {
@@ -377,6 +392,20 @@ func (c *ConfigMonitor) interpolateMon(v string) string {
 	if len(m) != 3 {
 		// @todo error
 	}
+	if strings.HasPrefix(m[2], "tags.") {
+		if c.Tags == nil {
+			return ""
+		}
+		s := strings.SplitN(m[2], ".", 2)
+		return c.Tags[s[1]]
+	} else if strings.HasPrefix(m[2], "meta.") {
+		if c.Meta == nil {
+			return ""
+		}
+		s := strings.SplitN(m[2], ".", 2)
+		return c.Meta[s[1]]
+	}
+
 	return monvar.ReplaceAllString(v, c.fieldValue(m[2]))
 }
 
@@ -394,9 +423,9 @@ func (c *ConfigMonitor) fieldValue(f string) string {
 		return c.Username
 	case "password":
 		return c.Password
-	case "passwordfile", "password-file":
+	case "password-file":
 		return c.PasswordFile
-	case "timeoutconnect", "timeout-connect":
+	case "timeout-connect":
 		return c.TimeoutConnect
 	default:
 		return ""

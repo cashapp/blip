@@ -1,0 +1,53 @@
+
+// https://ben.balter.com/2014/03/13/pages-anchor-links/
+.header-link {
+	position: absolute;
+	left: -1.0em;
+	opacity: 0;
+	\-webkit-transition: opacity 0.2s ease-in-out 0.1s;
+	\-moz-transition: opacity 0.2s ease-in-out 0.1s;
+	\-ms-transition: opacity 0.2s ease-in-out 0.1s;
+}
+h2:hover .header-link,
+h3:hover .header-link,
+h4:hover .header-link,
+h5:hover .header-link,
+h6:hover .header-link {
+	text-decoration: none;
+	opacity: 1;
+}
+
+div pre.highlight {
+	line-height: 1em;
+}
+
+// Used for http response statuses in the API docs.
+.good-response {
+  border-radius: 2px;
+  padding: 10px;
+  background-color: rgba(0, 170, 19, 0.1);
+}
+
+// Used for http response statuses in the API docs.
+.bad-response {
+  border-radius: 2px;
+  padding: 10px;
+  background-color: rgba(229, 57, 53, 0.1);
+}
+
+// Used for logo on homepage.
+.logo {
+	float: right;
+	padding-left: 20px;
+}
+
+.main-content {
+	font-size:16px;
+	font-family:'Verdana';
+}
+
+div.note {
+	border-left: 3px solid blue;
+	padding-left: 10px;
+	margin-left: 10px;
+}
