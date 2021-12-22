@@ -26,14 +26,6 @@ func (s logSink) Send(ctx context.Context, m *blip.Metrics) error {
 	return nil
 }
 
-func (s logSink) Status() error {
-	return nil
-}
-
-func (s logSink) Name() string {
-	return "log"
-}
-
-func (s logSink) MonitorId() string {
-	return s.monitorId
+func (s logSink) Status() string {
+	return ""
 }

@@ -130,10 +130,9 @@ type MetricValue struct {
 
 // Sink sends metrics to an external destination.
 type Sink interface {
+	// Send sends metrics to the sink. It must respect the context timeout, if any.
 	Send(context.Context, *Metrics) error
-	Status() error
-	Name() string
-	MonitorId() string
+	Status() string
 }
 
 type SinkFactory interface {
