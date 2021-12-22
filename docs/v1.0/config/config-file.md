@@ -2,7 +2,7 @@
 layout: default
 title: "Config File"
 parent: Configure
-nav_order: 1
+nav_order: 2
 ---
 
 # Config File

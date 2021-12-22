@@ -1,7 +1,7 @@
 ---
 layout: default
 title: "Release Notes"
-nav_order: 6
+nav_order: 100
 permalink: /release-notes
 ---
 
