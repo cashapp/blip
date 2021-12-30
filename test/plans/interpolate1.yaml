@@ -1,0 +1,27 @@
+---
+level1:
+  freq: 5s
+  collect:
+    domain1:
+      options:
+        opt1: "%{monitor.meta.foo}"
+      metrics:
+        - metric1
+    domain2:
+      options:
+        opt2: "${TERM}"
+      metrics:
+      - metric2
+level2:
+  freq: 10s
+  collect:
+    domain1:
+      options:
+        opt3: "%{monitor.meta.bar}"
+      metrics:
+        - metric1
+    domain2:
+      options:
+        opt4: "${SHELL}"
+      metrics:
+      - metric2

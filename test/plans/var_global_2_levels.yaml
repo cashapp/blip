@@ -1,0 +1,17 @@
+---
+level_1:
+  freq: 5s
+  collect:
+    var.global:
+      metrics:
+        - max_connections
+        - max_prepared_stmt_count
+      options: {}  # Needed so tests don't get a nil map
+level_2:
+  freq: 10s
+  collect:
+    var.global:
+      metrics:
+        - innodb_log_file_size
+        - innodb_max_dirty_pages_pct
+      options: {}  # Needed so tests don't get a nil map

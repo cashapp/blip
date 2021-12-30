@@ -5,7 +5,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/square/blip"
+	"github.com/cashapp/blip"
 )
 
 type RetryBuffer struct {

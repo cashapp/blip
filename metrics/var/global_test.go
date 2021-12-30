@@ -8,60 +8,23 @@ import (
 	"os"
 	"testing"
 
-	"github.com/square/blip"
-
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/stretchr/testify/assert"
+
+	"github.com/cashapp/blip/test"
 )
 
-func createDomain(domainName string, metrics []string, sourceOption ...string) map[string]blip.Domain {
-	domainMap := make(map[string]blip.Domain)
-	if len(sourceOption) >= 1 {
-		domainMap[domainName] = blip.Domain{
-			Name:    domainName,
-			Options: map[string]string{},
-			Metrics: metrics,
-		}
-		domainMap[domainName].Options["source"] = sourceOption[0]
-	} else {
-		domainMap[domainName] = blip.Domain{
-			Name:    domainName,
-			Metrics: metrics,
-		}
-	}
-	return domainMap
-}
-
-func createLevel(levelName string, frequency string, domain map[string]blip.Domain) *blip.Level {
-	return &blip.Level{
-		Name:    levelName,
-		Freq:    frequency,
-		Collect: domain,
-	}
-}
-
-func createPlan(planName string, levelNames []string, levels []blip.Level) *blip.Plan {
-	lvls := make(map[string]blip.Level)
-	for i, name := range levelNames {
-		lvls[name] = levels[i]
-	}
-	return &blip.Plan{
-		MonitorId: "test",
-		Name:      planName,
-		Levels:    lvls,
-	}
-}
+var (
+	db *sql.DB
+)
 
 // First Method that gets run before all tests.
 func TestMain(m *testing.M) {
-	setup()
-	code := m.Run()
-	os.Exit(code)
-}
+	var err error
 
-var globalCollector *Global
+	// Read plans from files
 
-func setup() {
+	// Connect to MySQL
 	dsn := fmt.Sprintf(
 		"%s:%s@tcp(%s:%s)/?parseTime=true",
 		"root",
@@ -69,127 +32,112 @@ func setup() {
 		"localhost",
 		"33570",
 	)
-	dbIns, err := sql.Open("mysql", dsn)
+	db, err = sql.Open("mysql", dsn)
 	if err != nil {
-		panic(err)
+		log.Fatal(err)
 	}
-	err = dbIns.Ping()
+	err = db.Ping()
 	if err != nil {
-		log.Fatalf("Unable to ping the database dsn: %s", dsn)
+		log.Fatal(err)
 	}
 
-	globalCollector = NewGlobal(dbIns)
+	code := m.Run() // run tests
+	os.Exit(code)
 }
 
 func TestPrepareForSingleLevelAndNoSource(t *testing.T) {
-
 	// Given a LevelPlan for a collector with single level and no supplied source,
 	// test that Prepare correctly constructs the query for that level (ie: select query)
+	c := NewGlobal(db)
 
-	domain := createDomain("var.global", []string{"max_connections", "max_prepared_stmt_count", "innodb_log_file_size", "innodb_max_dirty_pages_pct"})
-	level := createLevel("vars", "10s", domain)
-	plan := createPlan("testPlan", []string{"vars"}, []blip.Level{*level})
-
-	err := globalCollector.Prepare(*plan)
+	defaultPlan := test.ReadPlan(t, "")
+	err := c.Prepare(context.Background(), defaultPlan)
 	if err != nil {
-		assert.Fail(t, fmt.Sprint("Unable to prepare the collector for metric collection", globalCollector, err))
+		t.Error(err)
 	}
 
 	assert.Equal(t,
-		"SELECT "+
-			"CONCAT_WS(',', @@GLOBAL.max_connections, @@GLOBAL.max_prepared_stmt_count,"+
-			" @@GLOBAL.innodb_log_file_size, @@GLOBAL.innodb_max_dirty_pages_pct) v;",
-		globalCollector.queryIn["vars"],
+		`SELECT CONCAT_WS(',', @@GLOBAL.read_only) v`,
+		c.queryIn["kpi"], // level
 	)
 }
 
-func TestPreparewithAllSources(t *testing.T) {
+func TestPrepareWithAllSources(t *testing.T) {
 	// Given a LevelPlan for a collector with single level and a custom source,
 	// test that Prepare correctly constructs the query for that level
 	// using that source query.
 
 	// Test this for all source types ie; auto, select, pfs and show
-
 	queries := map[string]string{
-		"auto": "SELECT " +
-			"CONCAT_WS(',', @@GLOBAL.max_connections, @@GLOBAL.max_prepared_stmt_count, " +
-			"@@GLOBAL.innodb_log_file_size, @@GLOBAL.innodb_max_dirty_pages_pct) v;",
-
-		"select": "SELECT " +
-			"CONCAT_WS(',', @@GLOBAL.max_connections, @@GLOBAL.max_prepared_stmt_count, " +
-			"@@GLOBAL.innodb_log_file_size, @@GLOBAL.innodb_max_dirty_pages_pct) v;",
-
-		"pfs": "SELECT variable_name, variable_value " +
-			"from performance_schema.global_variables " +
-			"WHERE variable_name in ('max_connections', 'max_prepared_stmt_count', " +
-			"'innodb_log_file_size', 'innodb_max_dirty_pages_pct');",
-
-		"show": "SHOW GLOBAL VARIABLES " +
-			"WHERE variable_name " +
-			"in ('max_connections', 'max_prepared_stmt_count', " +
-			"'innodb_log_file_size', 'innodb_max_dirty_pages_pct');",
+		"auto":   "SELECT CONCAT_WS(',', @@GLOBAL.read_only) v",
+		"select": "SELECT CONCAT_WS(',', @@GLOBAL.read_only) v",
+		"pfs":    "SELECT variable_name, variable_value from performance_schema.global_variables WHERE variable_name in ('read_only')",
+		"show":   "SHOW GLOBAL VARIABLES WHERE variable_name in ('read_only')",
 	}
 
 	for src, query := range queries {
-		domain := createDomain("var.global", []string{"max_connections", "max_prepared_stmt_count", "innodb_log_file_size", "innodb_max_dirty_pages_pct"}, src)
-		level := createLevel("vars", "10s", domain)
-		plan := createPlan("testPlan", []string{"vars"}, []blip.Level{*level})
-		err := globalCollector.Prepare(*plan)
+		c := NewGlobal(db)
+		plan := test.ReadPlan(t, "")
+		plan.Levels["kpi"].Collect[blip_domain].Options[OPT_SOURCE] = src
+		err := c.Prepare(context.Background(), plan)
 		if err != nil {
-			assert.Fail(t, fmt.Sprint("Unable to prepare the collector for metric collection", globalCollector, err))
+			t.Error(err)
 		}
-
 		assert.Equal(t,
 			query,
-			globalCollector.queryIn["vars"],
+			c.queryIn["kpi"],
 		)
 	}
 }
 
-func TestPreparewithCustomInvalidSource(t *testing.T) {
+func TestPrepareWithCustomInvalidSource(t *testing.T) {
 
 	// Given a LevelPlan for a collector with single level and a custom source,
 	// which is invalid, test that Prepare returns an error
 
-	domain := createDomain("var.global", []string{"max_connections", "max_prepared_stmt_count", "innodb_log_file_size", "innodb_max_dirty_pages_pct"}, "shadow")
-	level := createLevel("vars", "10s", domain)
-	plan := createPlan("testPlan", []string{"vars"}, []blip.Level{*level})
-	err := globalCollector.Prepare(*plan)
+	c := NewGlobal(db)
+	plan := test.ReadPlan(t, "")
+	plan.Levels["kpi"].Collect[blip_domain].Options[OPT_SOURCE] = "this_causes_error"
+	err := c.Prepare(context.Background(), plan)
 	assert.Error(t, err)
 }
 
-func TestPreparewithInvalidMetricName(t *testing.T) {
+func TestPrepareWithInvalidMetricName(t *testing.T) {
 
 	// Given a LevelPlan for a collector with single level and
 	// invalid metricname, test that Prepare returns an error
 
-	domain := createDomain("var.global", []string{"max_connections'); DROP TABLE students;--,", "max_prepared_stmt_count"})
-	level := createLevel("vars", "10s", domain)
-	plan := createPlan("testPlan", []string{"vars"}, []blip.Level{*level})
-	err := globalCollector.Prepare(*plan)
+	c := NewGlobal(db)
+
+	plan := test.ReadPlan(t, "")
+	dom := plan.Levels["kpi"].Collect[blip_domain]
+	dom.Metrics = []string{"max_connections'); DROP TABLE students;--,", "max_prepared_stmt_count"}
+	plan.Levels["kpi"].Collect[blip_domain] = dom
+
+	err := c.Prepare(context.Background(), plan)
 	assert.Error(t, err)
 }
+
+// Metrics collected in test/plans/var_global.yaml
+var fourMetrics = []string{"max_connections", "max_prepared_stmt_count", "innodb_log_file_size", "innodb_max_dirty_pages_pct"}
 
 func TestCollectWithSingleLevelPlanAndNoSource(t *testing.T) {
 
 	// Given a plan with single level containing a list of metrics for domain
 	// and no custom source, verify that those metrics are retrieved correctly.
 
-	domain := createDomain("var.global", []string{"max_connections", "max_prepared_stmt_count", "innodb_log_file_size", "innodb_max_dirty_pages_pct"})
-	level := createLevel("vars", "10s", domain)
-	plan := createPlan("testPlan", []string{"vars"}, []blip.Level{*level})
-
-	err := globalCollector.Prepare(*plan)
-
+	c := NewGlobal(db)
+	plan := test.ReadPlan(t, "../../test/plans/var_global.yaml")
+	err := c.Prepare(context.Background(), plan)
 	if err != nil {
-		assert.Fail(t, fmt.Sprint("Unable to prepare the collector for metric collection", globalCollector, err))
+		t.Error(err)
 	}
-	metrics, _ := globalCollector.Collect(context.TODO(), "vars")
+	metrics, _ := c.Collect(context.TODO(), "kpi")
 	metricKeys := make([]string, 0, len(metrics))
 	for _, m := range metrics {
 		metricKeys = append(metricKeys, m.Name)
 	}
-	assert.ElementsMatch(t, metricKeys, []string{"max_connections", "max_prepared_stmt_count", "innodb_log_file_size", "innodb_max_dirty_pages_pct"})
+	assert.ElementsMatch(t, metricKeys, fourMetrics)
 }
 
 func TestCollectWithAllSources(t *testing.T) {
@@ -202,20 +150,20 @@ func TestCollectWithAllSources(t *testing.T) {
 	srcs := [4]string{"auto", "select", "pfs", "show"}
 
 	for _, src := range srcs {
-		domain := createDomain("var.global", []string{"max_connections", "max_prepared_stmt_count", "innodb_log_file_size", "innodb_max_dirty_pages_pct"}, src)
-		level := createLevel("vars", "10s", domain)
-		plan := createPlan("testPlan", []string{"vars"}, []blip.Level{*level})
+		c := NewGlobal(db)
+		plan := test.ReadPlan(t, "../../test/plans/var_global.yaml")
+		plan.Levels["kpi"].Collect[blip_domain].Options[OPT_SOURCE] = src
 
-		err := globalCollector.Prepare(*plan)
+		err := c.Prepare(context.Background(), plan)
 		if err != nil {
-			assert.Fail(t, fmt.Sprintf("Unable to prepare the collector for metric collection for source: %s", src), err)
+			t.Error(err)
 		}
-		metrics, _ := globalCollector.Collect(context.TODO(), "vars")
+		metrics, _ := c.Collect(context.TODO(), "kpi")
 		metricKeys := make([]string, 0, len(metrics))
 		for _, m := range metrics {
 			metricKeys = append(metricKeys, m.Name)
 		}
-		assert.ElementsMatch(t, metricKeys, []string{"max_connections", "max_prepared_stmt_count", "innodb_log_file_size", "innodb_max_dirty_pages_pct"})
+		assert.ElementsMatch(t, metricKeys, fourMetrics)
 	}
 }
 
@@ -224,24 +172,20 @@ func TestCollectWithMultipleLevels(t *testing.T) {
 	// Given a plan with multiple levels containing a list of metrics for each level
 	// verify that those metrics are retrieved correctly only at their respective levels.
 
-	domain1 := createDomain("var.global", []string{"max_connections", "max_prepared_stmt_count"})
-	domain2 := createDomain("var.global", []string{"innodb_log_file_size", "innodb_max_dirty_pages_pct"})
-	level1 := createLevel("vars1", "10s", domain1)
-	level2 := createLevel("vars2", "10s", domain2)
-	plan := createPlan("testPlan", []string{"vars1", "vars2"}, []blip.Level{*level1, *level2})
-
-	err := globalCollector.Prepare(*plan)
+	c := NewGlobal(db)
+	plan := test.ReadPlan(t, "../../test/plans/var_global_2_levels.yaml")
+	err := c.Prepare(context.Background(), plan)
 	if err != nil {
-		assert.Fail(t, fmt.Sprint("Unable to prepare the collector for metric collection", globalCollector, err))
+		t.Error(err)
 	}
-	metrics, _ := globalCollector.Collect(context.TODO(), "vars1")
+	metrics, _ := c.Collect(context.TODO(), "level_1")
 	metricKeys := make([]string, 0, len(metrics))
 	for _, m := range metrics {
 		metricKeys = append(metricKeys, m.Name)
 	}
 	assert.ElementsMatch(t, metricKeys, []string{"max_connections", "max_prepared_stmt_count"})
 
-	metrics, _ = globalCollector.Collect(context.TODO(), "vars2")
+	metrics, _ = c.Collect(context.TODO(), "level_2")
 	metricKeys = make([]string, 0, len(metrics))
 	for _, m := range metrics {
 		metricKeys = append(metricKeys, m.Name)
@@ -254,15 +198,13 @@ func TestCollectWithOneNonExistentMetric(t *testing.T) {
 	// Given a level plan with single level which contains 3 valid metrics and
 	// 1 non existent metric, it should successfully return 3 metrics
 
-	domain := createDomain("var.global", []string{"max_connections", "max_prepared_stmt_count", "non_existent_metric", "innodb_max_dirty_pages_pct"})
-	level := createLevel("vars", "10s", domain)
-	plan := createPlan("testPlan", []string{"vars"}, []blip.Level{*level})
-
-	err := globalCollector.Prepare(*plan)
+	c := NewGlobal(db)
+	plan := test.ReadPlan(t, "../../test/plans/var_global_bad_metric.yaml")
+	err := c.Prepare(context.Background(), plan)
 	if err != nil {
-		assert.Fail(t, fmt.Sprintf("Unable to prepare the collector for metric collection"))
+		t.Error(err)
 	}
-	metrics, _ := globalCollector.Collect(context.TODO(), "vars")
+	metrics, _ := c.Collect(context.TODO(), "kpi")
 	metricKeys := make([]string, 0, len(metrics))
 	for _, m := range metrics {
 		metricKeys = append(metricKeys, m.Name)

@@ -1,0 +1,18 @@
+title: Blip
+description: >-
+  Sublime MySQL monitoring
+baseurl: /blip
+twitter_username: cashapp
+github_username: cashapp
+markdown: kramdown
+plugins:
+exclude:
+  - Gemfile
+  - Gemfile.lock
+  - README.md
+
+remote_theme: pmarsceill/just-the-docs@v0.3.0
+search_enabled: true
+aux_links:
+  "Blip":
+    - "//github.com/cashapp/blip"

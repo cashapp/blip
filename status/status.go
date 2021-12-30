@@ -32,16 +32,27 @@ func Monitor(monitorId, component, msg string, args ...interface{}) {
 	s.Unlock()
 }
 
-func Report(blip bool, monitorId string) map[string]map[string]string {
+func RemoveComponent(monitorId, component string) {
+	s.Lock()
+	m, ok := s.monitors[monitorId]
+	if ok {
+		delete(m, component)
+	}
+	s.Unlock()
+}
+
+func ReportBlip() map[string]string {
 	s.Lock()
 	defer s.Unlock()
-	status := map[string]map[string]string{}
-	if blip {
-		status["blip"] = map[string]string{}
-		for k, v := range s.blip {
-			status["blip"][k] = v
-		}
+	status := map[string]string{}
+	for k, v := range s.blip {
+		status[k] = v
 	}
+	return status
+}
+
+func ReportMonitors(monitorId string) map[string]map[string]string {
+	status := map[string]map[string]string{}
 	if monitorId == "*" {
 		for k, v := range s.monitors {
 			status[k] = v
@@ -49,6 +60,7 @@ func Report(blip bool, monitorId string) map[string]map[string]string {
 	} else if monitorId != "" {
 		status[monitorId] = s.monitors[monitorId]
 	}
+
 	return status
 }
 

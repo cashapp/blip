@@ -12,7 +12,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/feature/ec2/imds"
 	"github.com/go-sql-driver/mysql"
 
-	"github.com/square/blip"
+	"github.com/cashapp/blip"
 )
 
 type cfgFactory struct{}
@@ -21,24 +21,39 @@ func NewConfigFactory() cfgFactory {
 	return cfgFactory{}
 }
 
-func (f cfgFactory) Make(c blip.ConfigAWS) (aws.Config, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
-	defer cancel()
-	if c.Region == "" && !blip.True(c.DisableAutoRegion) {
-		c.Region = Region(ctx)
-		blip.Debug("auto-detect region %s", c.Region)
+func (f cfgFactory) Make(ba blip.AWS) (aws.Config, error) {
+	if ba.Region == "auto" {
+		ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+		defer cancel()
+		var err error
+		ba.Region, err = Region(ctx)
+		if err != nil {
+			return aws.Config{}, err
+		}
 	}
-	return config.LoadDefaultConfig(ctx, config.WithRegion(c.Region))
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	return config.LoadDefaultConfig(ctx, config.WithRegion(ba.Region))
 }
 
-func Region(ctx context.Context) string {
+// Region auto-detects the region. Currently, the function relies on IMDS v2:
+// https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ec2-instance-metadata.html
+// If the region cannot be detect, it returns an empty string.
+func Region(ctx context.Context) (string, error) {
 	client := imds.New(imds.Options{})
-	ec2, _ := client.GetInstanceIdentityDocument(ctx, &imds.GetInstanceIdentityDocumentInput{})
-	return ec2.Region
+	ec2, err := client.GetInstanceIdentityDocument(ctx, &imds.GetInstanceIdentityDocumentInput{})
+	if err != nil {
+		return "", err
+	}
+	return ec2.Region, nil
 }
 
 var once sync.Once
 
+// RegisterRDSCA registers the Amazon RDS certificate authority (CA) to enable
+// TLS connections to RDS. The TLS param is called "rds". It is only registered
+// once (as required by Go), but it's safe to call multiple times.
 func RegisterRDSCA() {
 	once.Do(func() {
 		blip.Debug("loading RDS CA")

@@ -5,8 +5,8 @@ import (
 	"database/sql"
 	"strings"
 
-	"github.com/square/blip"
-	"github.com/square/blip/sqlutil"
+	"github.com/cashapp/blip"
+	"github.com/cashapp/blip/sqlutil"
 )
 
 const (
@@ -82,7 +82,7 @@ const (
 )
 
 // Prepares queries for all levels in the plan that contain the "var.global" domain
-func (c *Metrics) Prepare(plan blip.Plan) error {
+func (c *Metrics) Prepare(ctx context.Context, plan blip.Plan) error {
 LEVEL:
 	for _, level := range plan.Levels {
 		dom, ok := level.Collect[blip_domain]

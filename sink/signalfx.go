@@ -9,8 +9,8 @@ import (
 	"github.com/signalfx/golib/v3/datapoint"
 	"github.com/signalfx/golib/v3/sfxclient"
 
-	"github.com/square/blip"
-	"github.com/square/blip/event"
+	"github.com/cashapp/blip"
+	"github.com/cashapp/blip/event"
 )
 
 // Sink sends metrics to SignalFx.
@@ -22,7 +22,7 @@ type sfxSink struct {
 	event       event.MonitorSink
 }
 
-func NewSignalFxSink(monitorId string, opts map[string]string) (*sfxSink, error) {
+func NewSignalFxSink(monitorId string, opts, tags map[string]string) (*sfxSink, error) {
 	sink := sfxclient.NewHTTPSink()
 	s := &sfxSink{
 		sink:      sink,

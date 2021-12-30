@@ -7,7 +7,7 @@ import (
 	dsndriver "github.com/go-mysql/hotswap-dsn-driver"
 	"github.com/go-sql-driver/mysql"
 
-	"github.com/square/blip"
+	"github.com/cashapp/blip"
 )
 
 func init() {

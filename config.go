@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 
 	"gopkg.in/yaml.v2"
 )
@@ -38,6 +39,14 @@ func interpolateEnv(v string) string {
 		return m[3]
 	}
 	return envvar.ReplaceAllString(v, v2)
+}
+
+func setBool(c *bool, b *bool) *bool {
+	if c == nil && b != nil {
+		c = new(bool)
+		*c = *b
+	}
+	return c
 }
 
 func LoadConfig(filePath string, cfg Config) (Config, error) {
@@ -82,7 +91,7 @@ type Config struct {
 	//
 	// Defaults for monitors
 	//
-	AWS       ConfigAWS              `yaml:"aws,omitempty"`
+	AWS       ConfigAWSRDS           `yaml:"aws-rds,omitempty"`
 	Exporter  ConfigExporter         `yaml:"exporter,omitempty"`
 	HA        ConfigHighAvailability `yaml:"ha,omitempty"`
 	Heartbeat ConfigHeartbeat        `yaml:"heartbeat,omitempty"`
@@ -108,7 +117,7 @@ func DefaultConfig(strict bool) Config {
 		MonitorLoader: DefaultConfigMonitorLoader(),
 		Sinks:         DefaultConfigSinks(),
 
-		AWS:       DefaultConfigAWS(),
+		AWS:       DefaultConfigAWSRDS(),
 		Exporter:  DefaultConfigExporter(),
 		HA:        DefaultConfigHA(),
 		Heartbeat: DefaultConfigHeartbeat(),
@@ -202,7 +211,12 @@ type ConfigMonitorLoader struct {
 }
 
 type ConfigMonitorLoaderAWS struct {
-	DisableAuto bool `yaml:"disable-auto"`
+	Regions     []string `yaml:"regions,omitempty"`
+	DisableAuto bool     `yaml:"disable-auto"`
+}
+
+func (c ConfigMonitorLoaderAWS) Automatic() bool {
+	return len(c.Regions) == 0 && c.DisableAuto == false
 }
 
 type ConfigMonitorLoaderLocal struct {
@@ -233,9 +247,10 @@ func (c *ConfigMonitorLoader) InterpolateEnvVars() {
 
 type ConfigMonitor struct {
 	MonitorId string `yaml:"id"`
-	Socket    string `yaml:"socket,omitempty"`
-	Hostname  string `yaml:"hostname,omitempty"`
+
 	// ConfigMySQL:
+	Socket         string `yaml:"socket,omitempty"`
+	Hostname       string `yaml:"hostname,omitempty"`
 	MyCnf          string `yaml:"mycnf,omitempty"`
 	Username       string `yaml:"username,omitempty"`
 	Password       string `yaml:"password,omitempty"`
@@ -246,13 +261,15 @@ type ConfigMonitor struct {
 	// but these monitor.tags take precedent (are not overwritten by config.tags).
 	Tags map[string]string `yaml:"tags,omitempty"`
 
-	AWS       ConfigAWS              `yaml:"aws,omitempty"`
+	AWS       ConfigAWSRDS           `yaml:"aws-rds,omitempty"`
 	Exporter  ConfigExporter         `yaml:"exporter,omitempty"`
 	HA        ConfigHighAvailability `yaml:"ha,omitempty"`
 	Heartbeat ConfigHeartbeat        `yaml:"heartbeat,omitempty"`
 	Plans     ConfigPlans            `yaml:"plans,omitempty"`
 	Sinks     ConfigSinks            `yaml:"sinks,omitempty"`
 	TLS       ConfigTLS              `yaml:"tls,omitempty"`
+
+	Meta map[string]string `yaml:"meta,omitempty"`
 }
 
 func DefaultConfigMonitor() ConfigMonitor {
@@ -262,7 +279,7 @@ func DefaultConfigMonitor() ConfigMonitor {
 
 		Tags: map[string]string{},
 
-		AWS:       DefaultConfigAWS(),
+		AWS:       DefaultConfigAWSRDS(),
 		Exporter:  DefaultConfigExporter(),
 		HA:        DefaultConfigHA(),
 		Heartbeat: DefaultConfigHeartbeat(),
@@ -277,6 +294,13 @@ func (c ConfigMonitor) Validate() error {
 }
 
 func (c *ConfigMonitor) ApplyDefaults(b Config) {
+	if c.Socket == "" {
+		c.Socket = b.MySQL.Socket
+	}
+	if c.Hostname == "" {
+		c.Hostname = b.MySQL.Hostname
+	}
+
 	if c.MyCnf == "" && b.MySQL.MyCnf != "" {
 		c.MyCnf = b.MySQL.MyCnf
 	}
@@ -287,7 +311,7 @@ func (c *ConfigMonitor) ApplyDefaults(b Config) {
 		c.Password = b.MySQL.Password
 	}
 	if c.TimeoutConnect == "" && b.MySQL.TimeoutConnect != "" {
-		c.MyCnf = b.MySQL.TimeoutConnect
+		c.TimeoutConnect = b.MySQL.TimeoutConnect
 	}
 
 	for bk, bv := range b.Tags {
@@ -295,6 +319,10 @@ func (c *ConfigMonitor) ApplyDefaults(b Config) {
 			continue
 		}
 		c.Tags[bk] = bv
+	}
+
+	if c.Sinks == nil {
+		c.Sinks = ConfigSinks{}
 	}
 
 	c.AWS.ApplyDefaults(b)
@@ -318,6 +346,9 @@ func (c *ConfigMonitor) InterpolateEnvVars() {
 	for k, v := range c.Tags {
 		c.Tags[k] = interpolateEnv(v)
 	}
+	for k, v := range c.Meta {
+		c.Meta[k] = interpolateEnv(v)
+	}
 	c.AWS.InterpolateEnvVars()
 	c.Exporter.InterpolateEnvVars()
 	c.HA.InterpolateEnvVars()
@@ -336,7 +367,12 @@ func (c *ConfigMonitor) InterpolateMonitor() {
 	c.Password = c.interpolateMon(c.Password)
 	c.PasswordFile = c.interpolateMon(c.PasswordFile)
 	c.TimeoutConnect = c.interpolateMon(c.TimeoutConnect)
-
+	for k, v := range c.Tags {
+		c.Tags[k] = c.interpolateMon(v)
+	}
+	for k, v := range c.Meta {
+		c.Meta[k] = c.interpolateMon(v)
+	}
 	c.AWS.InterpolateMonitor(c)
 	c.Exporter.InterpolateMonitor(c)
 	c.HA.InterpolateMonitor(c)
@@ -346,7 +382,7 @@ func (c *ConfigMonitor) InterpolateMonitor() {
 	c.TLS.InterpolateMonitor(c)
 }
 
-var monvar = regexp.MustCompile(`%{([\w_-]+)\.([\w_-]+)}`)
+var monvar = regexp.MustCompile(`%{([\w_-]+)\.([\w_.-]+)}`)
 
 func (c *ConfigMonitor) interpolateMon(v string) string {
 	if !strings.Contains(v, "%{monitor.") {
@@ -356,6 +392,20 @@ func (c *ConfigMonitor) interpolateMon(v string) string {
 	if len(m) != 3 {
 		// @todo error
 	}
+	if strings.HasPrefix(m[2], "tags.") {
+		if c.Tags == nil {
+			return ""
+		}
+		s := strings.SplitN(m[2], ".", 2)
+		return c.Tags[s[1]]
+	} else if strings.HasPrefix(m[2], "meta.") {
+		if c.Meta == nil {
+			return ""
+		}
+		s := strings.SplitN(m[2], ".", 2)
+		return c.Meta[s[1]]
+	}
+
 	return monvar.ReplaceAllString(v, c.fieldValue(m[2]))
 }
 
@@ -373,28 +423,18 @@ func (c *ConfigMonitor) fieldValue(f string) string {
 		return c.Username
 	case "password":
 		return c.Password
-	case "passwordfile", "password-file":
+	case "password-file":
 		return c.PasswordFile
-	case "timeoutconnect", "timeout-connect":
+	case "timeout-connect":
 		return c.TimeoutConnect
 	default:
 		return ""
 	}
 }
 
-// ///////////////////////////////////////////////////////////////////////////
-// Defaults for monitors
-// ///////////////////////////////////////////////////////////////////////////
+// --------------------------------------------------------------------------
 
-func setBool(c *bool, b *bool) *bool {
-	if c == nil && b != nil {
-		c = new(bool)
-		*c = *b
-	}
-	return c
-}
-
-type ConfigAWS struct {
+type ConfigAWSRDS struct {
 	AuthToken         *bool  `yaml:"auth-token,omitempty"`
 	PasswordSecret    string `yaml:"password-secret,omitempty"`
 	Region            string `yaml:"region,omitempty"`
@@ -402,15 +442,15 @@ type ConfigAWS struct {
 	DisableAutoTLS    *bool  `yaml:"disable-auto-tls,omitempty"`
 }
 
-func DefaultConfigAWS() ConfigAWS {
-	return ConfigAWS{}
+func DefaultConfigAWSRDS() ConfigAWSRDS {
+	return ConfigAWSRDS{}
 }
 
-func (c ConfigAWS) Validate() error {
+func (c ConfigAWSRDS) Validate() error {
 	return nil
 }
 
-func (c *ConfigAWS) ApplyDefaults(b Config) {
+func (c *ConfigAWSRDS) ApplyDefaults(b Config) {
 	if c.PasswordSecret == "" {
 		c.PasswordSecret = b.AWS.PasswordSecret
 	}
@@ -424,21 +464,29 @@ func (c *ConfigAWS) ApplyDefaults(b Config) {
 
 }
 
-func (c *ConfigAWS) InterpolateEnvVars() {
+func (c *ConfigAWSRDS) InterpolateEnvVars() {
 	c.PasswordSecret = interpolateEnv(c.PasswordSecret)
 	c.Region = interpolateEnv(c.Region)
 }
 
-func (c *ConfigAWS) InterpolateMonitor(m *ConfigMonitor) {
+func (c *ConfigAWSRDS) InterpolateMonitor(m *ConfigMonitor) {
 	c.PasswordSecret = m.interpolateMon(c.PasswordSecret)
 	c.Region = m.interpolateMon(c.Region)
 }
 
 // --------------------------------------------------------------------------
 
+const (
+	EXPORTER_MODE_DUAL   = "dual"   // Blip and exporter run together
+	EXPORTER_MODE_LEGACY = "legacy" // only exporter runs
+
+	DEFAULT_EXPORTER_LISTEN_ADDR = "127.0.0.1:9104"
+	DEFAULT_EXPORTER_PATH        = "/metrics"
+)
+
 type ConfigExporter struct {
-	Bind   string `yaml:"bind,omitempty"`
-	Legacy *bool  `yaml:"legacy,omitempty"`
+	Flags map[string]string `yaml:"flags,omitempty"`
+	Mode  string            `yaml:"mode,omitempty"`
 }
 
 func DefaultConfigExporter() ConfigExporter {
@@ -446,33 +494,45 @@ func DefaultConfigExporter() ConfigExporter {
 }
 
 func (c ConfigExporter) Validate() error {
+	if c.Mode != "" && (c.Mode != EXPORTER_MODE_DUAL && c.Mode != EXPORTER_MODE_LEGACY) {
+		return fmt.Errorf("invalid mode: %s; valid values: dual, legacy", c.Mode)
+	}
 	return nil
 }
 
 func (c *ConfigExporter) ApplyDefaults(b Config) {
-	if c.Bind == "" {
-		c.Bind = b.Exporter.Bind
+	if c.Mode == "" && b.Exporter.Mode != "" {
+		c.Mode = b.Exporter.Mode
 	}
-	c.Legacy = setBool(c.Legacy, b.Exporter.Legacy)
+	if len(b.Exporter.Flags) > 0 {
+		if c.Flags == nil {
+			c.Flags = map[string]string{}
+		}
+		for k, v := range b.Exporter.Flags {
+			c.Flags[k] = v
+		}
+	}
 }
 
 func (c *ConfigExporter) InterpolateEnvVars() {
-	c.Bind = interpolateEnv(c.Bind)
+	interpolateEnv(c.Mode)
+	for k := range c.Flags {
+		c.Flags[k] = interpolateEnv(c.Flags[k])
+	}
 }
 
 func (c *ConfigExporter) InterpolateMonitor(m *ConfigMonitor) {
-	c.Bind = m.interpolateMon(c.Bind)
+	m.interpolateMon(c.Mode)
+	for k := range c.Flags {
+		c.Flags[k] = m.interpolateMon(c.Flags[k])
+	}
 }
 
 // --------------------------------------------------------------------------
 
 type ConfigHeartbeat struct {
-	Table             string   `yaml:"table,omitempty"`
-	Source            []string `yaml:"source,omitempty"`
-	Disable           *bool    `yaml:"disable,omitempty"`
-	DisableRead       *bool    `yaml:"disable-read,omitempty"`
-	DisableWrite      *bool    `yaml:"disable-write,omitempty"`
-	DisableAutoSource *bool    `yaml:"disable-auto-source,omitempty"`
+	Freq  string `yaml:"freq,omitempty"`
+	Table string `yaml:"table,omitempty"`
 }
 
 const (
@@ -480,41 +540,42 @@ const (
 )
 
 func DefaultConfigHeartbeat() ConfigHeartbeat {
-	return ConfigHeartbeat{
-		Table: DEFAULT_HEARTBEAT_TABLE,
-	}
+	return ConfigHeartbeat{}
 }
 
 func (c ConfigHeartbeat) Validate() error {
+	if c.Freq != "" {
+		d, err := time.ParseDuration(c.Freq)
+		if err != nil {
+			return fmt.Errorf("invalid heartbeat.freq: %s: %s", c.Freq, err)
+		}
+		if d <= 0 {
+			return fmt.Errorf("invalid heartbeat.freq: %s (%d): value <= 0; must be >0", c.Freq, d)
+		}
+	}
 	return nil
 }
 
 func (c *ConfigHeartbeat) ApplyDefaults(b Config) {
+	if c.Freq == "" {
+		c.Freq = b.Heartbeat.Freq
+	}
 	if c.Table == "" {
 		c.Table = b.Heartbeat.Table
 	}
-	if len(c.Source) == 0 && len(b.Heartbeat.Source) > 0 {
-		c.Source = make([]string, len(b.Heartbeat.Source))
-		copy(c.Source, b.Heartbeat.Source)
+	if c.Freq != "" && c.Table == "" {
+		c.Table = DEFAULT_HEARTBEAT_TABLE
 	}
-	c.Disable = setBool(c.Disable, b.Heartbeat.Disable)
-	c.DisableRead = setBool(c.DisableRead, b.Heartbeat.DisableRead)
-	c.DisableWrite = setBool(c.DisableWrite, b.Heartbeat.DisableWrite)
-	c.DisableAutoSource = setBool(c.DisableAutoSource, b.Heartbeat.DisableAutoSource)
 }
 
 func (c *ConfigHeartbeat) InterpolateEnvVars() {
+	c.Freq = interpolateEnv(c.Freq)
 	c.Table = interpolateEnv(c.Table)
-	for i := range c.Source {
-		c.Source[i] = interpolateEnv(c.Source[i])
-	}
 }
 
 func (c *ConfigHeartbeat) InterpolateMonitor(m *ConfigMonitor) {
+	c.Freq = m.interpolateMon(c.Freq)
 	c.Table = m.interpolateMon(c.Table)
-	for i := range c.Source {
-		c.Source[i] = m.interpolateMon(c.Source[i])
-	}
 }
 
 // --------------------------------------------------------------------------
@@ -548,6 +609,13 @@ type ConfigMySQL struct {
 	Password       string `yaml:"password,omitempty"`
 	PasswordFile   string `yaml:"password-file,omitempty"`
 	TimeoutConnect string `yaml:"timeout-connect,omitempty"`
+
+	// Only from my.cnf:
+	Socket   string `yaml:"-"` // socket
+	Hostname string `yaml:"-"` // host
+	TLSCert  string `yaml:"-"` // ssl-cert
+	TLSKey   string `yaml:"-"` // ssl-key
+	TLSCA    string `yaml:"-"` // ssl-ca
 }
 
 const (
@@ -557,8 +625,7 @@ const (
 
 func DefaultConfigMySQL() ConfigMySQL {
 	return ConfigMySQL{
-		Username:       DEFAULT_MONITOR_USERNAME,
-		TimeoutConnect: DEFAULT_MONITOR_TIMEOUT_CONNECT,
+		Username: DEFAULT_MONITOR_USERNAME,
 	}
 }
 
@@ -567,6 +634,12 @@ func (c ConfigMySQL) Validate() error {
 }
 
 func (c *ConfigMySQL) ApplyDefaults(b Config) {
+	if c.Socket == "" {
+		c.Socket = b.MySQL.Socket
+	}
+	if c.Hostname == "" {
+		c.Hostname = b.MySQL.Hostname
+	}
 	if c.MyCnf == "" {
 		c.MyCnf = b.MySQL.MyCnf
 	}
@@ -733,10 +806,14 @@ func (c ConfigSinks) Validate() error {
 
 func (c ConfigSinks) ApplyDefaults(b Config) {
 	for bk, bv := range b.Sinks {
-		if _, ok := c[bk]; ok {
+		opts := c[bk]
+		if opts != nil {
 			continue
 		}
-		c[bk] = bv
+		c[bk] = map[string]string{}
+		for k, v := range bv {
+			c[bk][k] = v
+		}
 	}
 }
 

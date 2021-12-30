@@ -38,7 +38,11 @@ const (
 	MONITOR_CONNECTING = "connecting"
 	MONITOR_CONNECTED  = "connected"
 	LPC_RUNNING        = "lpc-running"
-	CHANGE_PLAN        = "change-plan"
+
+	CHANGE_PLAN_BEGIN   = "change-plan-begin"
+	CHANGE_PLAN_SUCCESS = "change-plan-success"
+	CHANGE_PLAN_ERROR   = "change-plan-error"
+
 	STATE_CHANGE_BEGIN = "state-change-begin"
 	STATE_CHANGE_END   = "state-change-end"
 	STATE_CHANGE_ABORT = "state-change-abort"
