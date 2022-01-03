@@ -10,7 +10,7 @@ nav_order: 10
 ### Interpolation
 
 ```
-$ENV_VAR
+${ENV_VAR}
 %{monitor.hostname}
 ```
 

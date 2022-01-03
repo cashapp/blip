@@ -683,9 +683,8 @@ type ConfigPlans struct {
 }
 
 const (
-	DEFAULT_PLANS_FILES  = "plan.yaml"
-	DEFAULT_PLANS_TABLE  = "blip.plans"
-	DEFAULT_ADJUST_AFTER = "2s"
+	DEFAULT_PLANS_FILES = "plan.yaml"
+	DEFAULT_PLANS_TABLE = "blip.plans"
 )
 
 func DefaultConfigPlans() ConfigPlans {

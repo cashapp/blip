@@ -1,7 +1,7 @@
 ---
 layout: default
 title: Integrate
-nav_order: 110
+nav_order: 120
 permalink: /v1.0/integrate
 ---
 
