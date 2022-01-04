@@ -3,7 +3,7 @@ package percona_test
 import (
 	"testing"
 
-	"github.com/square/blip/metrics/percona"
+	"github.com/cashapp/blip/metrics/percona"
 )
 
 func TestPercentile(t *testing.T) {

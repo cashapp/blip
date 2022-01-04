@@ -8,8 +8,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/square/blip"
-	"github.com/square/blip/sqlutil"
+	"github.com/cashapp/blip"
+	"github.com/cashapp/blip/sqlutil"
 )
 
 /*
@@ -40,6 +40,7 @@ const (
 const (
 	OPT_PERCENTILES           = "percentiles"
 	OPT_OPTIONAL              = "optional"
+	OPT_FLUSH_QRT             = "flush_qrt"
 	default_percentile_option = "95"
 )
 
@@ -54,6 +55,7 @@ type Qrt struct {
 	version     float64
 	percentiles map[string]map[string]float64
 	optional    map[string]bool
+	flushQrt    map[string]bool
 }
 
 func NewQrt(db *sql.DB) *Qrt {
@@ -87,6 +89,15 @@ func (c *Qrt) Help() blip.CollectorHelp {
 				Values: map[string]string{
 					"yes": "Optional",
 					"no":  "Required",
+				},
+			},
+			OPT_FLUSH_QRT: {
+				Name:    OPT_FLUSH_QRT,
+				Desc:    "If Query Response Time should be flushed after each retrieval.",
+				Default: "yes",
+				Values: map[string]string{
+					"yes": "Flush Query Response Time (QRT) after each retrieval.",
+					"no":  "Do not flush Query Response Time (QRT) after each retrieval.",
 				},
 			},
 		},
@@ -179,10 +190,9 @@ func (c *Qrt) Collect(ctx context.Context, levelName string) ([]blip.MetricValue
 		metrics = append(metrics, m)
 	}
 
-	// TODO: think about if we should do this, what will happen
-	// if multiple levels collects this metric at different intervals
-	// discuss in PR
-	err = c.flushQueryResponseTime()
+	if c.flushQrt[levelName] {
+		err = c.flushQueryResponseTime()
+	}
 
 	return metrics, err
 }
@@ -193,6 +203,12 @@ func (c *Qrt) prepareLevel(dom blip.Domain, level blip.Level) error {
 		c.optional[level.Name] = false
 	} else {
 		c.optional[level.Name] = true // default
+	}
+
+	if flushQrt, ok := dom.Options[OPT_FLUSH_QRT]; ok && flushQrt == "no" {
+		c.flushQrt[level.Name] = false
+	} else {
+		c.flushQrt[level.Name] = true // default
 	}
 
 	c.percentiles[level.Name] = map[string]float64{}
@@ -228,8 +244,6 @@ func (c *Qrt) flushQueryResponseTime() error {
 	switch version {
 	case "5.6", "5.7":
 		flushQuery = "SET GLOBAL query_response_time_flush=1"
-	case "5.5":
-		flushQuery = "FLUSH NO_WRITE_TO_BINLOG QUERY_RESPONSE_TIME"
 	default:
 		err := fmt.Errorf("version unsupported: %s", version)
 		return err
