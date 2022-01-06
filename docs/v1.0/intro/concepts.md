@@ -135,5 +135,4 @@ After collecting metrics specified by the plan, Blip passes them (in a simple da
 
 ---
 
-You've reached the end of this introduction; now the real work begins.
-Depending on your infrastructure, you probably want to
+Keep learning: [Sinks&nbsp;&darr;](sinks)

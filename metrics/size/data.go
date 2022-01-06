@@ -118,16 +118,16 @@ func (c *Data) Collect(ctx context.Context, levelName string) ([]blip.MetricValu
 	var name string
 	for rows.Next() {
 		m := blip.MetricValue{
-			Name: "bytes",
-			Type: blip.GAUGE,
-			Tags: map[string]string{},
+			Name:  "bytes",
+			Type:  blip.GAUGE,
+			Group: map[string]string{},
 		}
 
 		if err = rows.Scan(&name, &val); err != nil {
 			continue
 		}
 
-		m.Tags["db"] = name
+		m.Group["db"] = name
 
 		m.Value, ok = sqlutil.Float64(val)
 		if !ok {
@@ -143,9 +143,9 @@ func (c *Data) Collect(ctx context.Context, levelName string) ([]blip.MetricValu
 			total += metrics[i].Value
 		}
 		metrics = append(metrics, blip.MetricValue{
-			Name: "bytes",
-			Type: blip.GAUGE,
-			Tags: map[string]string{"db": ""}, // "" = total
+			Name:  "bytes",
+			Type:  blip.GAUGE,
+			Group: map[string]string{"db": ""}, // "" = total
 		})
 	}
 

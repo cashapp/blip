@@ -7,17 +7,17 @@ nav_order: 10
 
 # Quick Reference
 
+The following are _quick references_, not complete or valid examples.
+See [Config File](config-file.html) for details.
+
 ### Interpolation
 
 ```
-$ENV_VAR
+${ENV_VAR}
 %{monitor.hostname}
 ```
 
 ### Config File
-
-Following is a full Blip config file (YAML syntax).
-This is only a reference to show all configuration variables.
 
 ```yaml
 ---
@@ -28,9 +28,6 @@ This is only a reference to show all configuration variables.
 api:
   bind: 127.1:7090
   disable: false
-
-http:
-  proxy: <addr>
 
 monitor-loader:
   freq: 60s
@@ -63,7 +60,6 @@ exporter:
 heartbeat:
   freq: 1s
   table: blip.heartbeat
-  create-table: try
 
 mysql:
   mycnf: my.cnf
@@ -74,29 +70,31 @@ mysql:
 
 plans:
   files:
-    - foo.yaml
-    - bar.yaml
+    - none.yaml
+    - ro-plan.yaml
+    - active-plan.yaml
   table: blip.plans
   monitor: <monitor>
   adjust:
     offline:
       after: 1s
-      plan: "" # collect nothing
+      plan: none.yaml
     standby:
       after: 1s
-      plan: "" # collect nothing
+      plan: none.yaml
     read-only:
       after: 1s
-      plan: ro-plan
+      plan: ro-plan.yaml
     active:
       after: 1s
-      plan: active-plan
+      plan: active-plan.yaml
 
 sinks:
+  chronosphere:
+    url: "http://127.0.0.1:3030/openmetrics/write"
   signalfx:
     auth-token: ""
     auth-token-file: ""
-    send-timeout: 2s
   log:
     # No options
 
@@ -106,9 +104,9 @@ tags:
   hostname: %{monitor.hostname}
 
 tls:
-  ca: square.ca
-  cert: /app/secrets/$%{monitor.hostname}.crt
-  key: /app/secrets/%{monitor.hostname}.key
+  ca: local.ca
+  cert: /secrets/$%{monitor.hostname}.crt
+  key: /secrets/%{monitor.hostname}.key
 
 # ---------------------------------------------------------------------------
 # MySQL instances to monitor
@@ -116,9 +114,9 @@ tls:
 
 monitors:
   - id: host1
+    # mysql:
     hostname: host1.local
     socket: /tmp/mysql.sock
-    # mysql:
     mycnf: my.cnf
     username: metrics
     password: foo
@@ -128,12 +126,13 @@ monitors:
       password-secret: "arn::::"
       iam-auth-token: true
     exporter:
-      bind: 127.0.0.1:9001
-      legacy: false
+      mode: dual|legacy
+      flags:
+        "web.listen-address": 127.0.0.1:9104
+        "web.telemetry-path": /metrics
     heartbeat:
       freq: 1s
       table: blip.heartbeat
-      create-table: try
     ha:
       # Reserved
     plans:
@@ -150,7 +149,6 @@ monitors:
       signalfx:
         auth-token: ""
         auth-token-file: ""
-        send-timeout: 2s
       log:
         # No options
       chronosphere:
@@ -166,9 +164,3 @@ monitors:
       source: host2.local
       canary: no
 ```
-
-## Environment Variables
-
-Most config options have a corresponding environment variable, like `SPINCYCLE_RM_CLIENT_URL` for `rm_client.url`. Exceptions are noted.
-
-Take a config option, change `.` to `_`, upper-case everything, and add `SPINCYCLE_` prefix.

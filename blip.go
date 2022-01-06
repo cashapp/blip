@@ -123,17 +123,19 @@ type MetricValue struct {
 	// Type is the metric type: COUNTER, COUNTER, and other const.
 	Type byte
 
-	// Tags are optional key-value pairs. This is used for tagging, dimensions,
-	// and so forth.
-	Tags map[string]string
+	// Group is the set of name-value pairs that determine the group to which
+	// the metric value belongs. Only certain domains group metrics.
+	Group map[string]string
+
+	// Meta is optional key-value pairs that annotate or describe the metric value.
+	Meta map[string]string
 }
 
 // Sink sends metrics to an external destination.
 type Sink interface {
+	// Send sends metrics to the sink. It must respect the context timeout, if any.
 	Send(context.Context, *Metrics) error
-	Status() error
-	Name() string
-	MonitorId() string
+	Status() string
 }
 
 type SinkFactory interface {

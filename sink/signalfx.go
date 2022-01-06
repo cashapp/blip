@@ -28,6 +28,7 @@ func NewSignalFxSink(monitorId string, opts, tags map[string]string) (*sfxSink, 
 		sink:      sink,
 		event:     event.MonitorSink{MonitorId: monitorId},
 		monitorId: monitorId,
+		dim:       tags,
 	}
 
 	for k, v := range opts {
@@ -78,14 +79,6 @@ func (s *sfxSink) Send(ctx context.Context, m *blip.Metrics) error {
 	return s.sink.AddDatapoints(ctx, dp)
 }
 
-func (s *sfxSink) Status() error {
-	return nil
-}
-
-func (s *sfxSink) Name() string {
-	return "signalfx"
-}
-
-func (s *sfxSink) MonitorId() string {
-	return s.monitorId
+func (s *sfxSink) Status() string {
+	return ""
 }

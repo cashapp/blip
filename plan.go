@@ -75,19 +75,9 @@ func (p *Plan) InterpolateMonitor(mon *ConfigMonitor) {
 			}
 		}
 	}
-
 }
 
 // --------------------------------------------------------------------------
-
-const internalPlans = `
-Key_Performance_Indicators:
-  freq: 5s
-  collect:
-    var.status:
-	  metrics:
-      innodb:
-`
 
 func InternalLevelPlan() Plan {
 	return Plan{
@@ -100,7 +90,7 @@ func InternalLevelPlan() Plan {
 					"status.global": {
 						Name: "status.global",
 						Metrics: []string{
-							// Key performance indicators
+							// Key performance indicators (KPIs)
 							"queries",
 							"threads_running",
 
@@ -120,7 +110,7 @@ func InternalLevelPlan() Plan {
 							"com_update",
 							"com_update_multi",
 
-							// IOPS
+							// Storage IOPS
 							"innodb_data_reads",
 							"innodb_data_writes",
 
@@ -130,91 +120,95 @@ func InternalLevelPlan() Plan {
 
 							// Buffer pool efficiency
 							"innodb_buffer_pool_read_requests", // logical reads
-							"innodb_buffer_pool_reads",         // disk reads
+							"innodb_buffer_pool_reads",         // disk reads (data not in buffer pool)
 							"Innodb_buffer_pool_wait_free",     // free page waits
 
-							// Page flushing
+							// Buffer pool usage
 							"innodb_buffer_pool_pages_dirty",
 							"innodb_buffer_pool_pages_free",
 							"innodb_buffer_pool_pages_total",
-							"Innodb_buffer_pool_pages_flushed", // toatl pages
 
-							// Transaction log throughput
+							// Page flushing
+							"innodb_buffer_pool_pages_flushed", // total pages
+
+							// Transaction log throughput (Bytes/s)
 							"innodb_os_log_written",
-							"innodb_os_log_pending_writes",
-							"innodb_log_waits",
 						},
 					},
 					"innodb": {
 						Metrics: []string{
 							// Transactions
-							"trx_active_transactions",
-
-							// Deadlocks
-							"lock_deadlocks",
+							"trx_active_transactions", // (G)
 
 							// Row locking
 							"lock_timeouts",
-							"lock_row_lock_current_waits",
+							"lock_row_lock_current_waits", // (G)
 							"lock_row_lock_waits",
 							"lock_row_lock_time",
-							"lock_row_lock_time_max",
-
-							// Buffer pool efficiency
-							"buffer_pool_wait_free", // free page waits
 
 							// Page flushing
-							"buffer_flush_batch_total_pages",      // sum of:
 							"buffer_flush_adaptive_total_pages",   //  adaptive flushing
 							"buffer_LRU_batch_flush_total_pages",  //  LRU flushing
 							"buffer_flush_background_total_pages", //  legacy flushing
 
-							// Transaction log utilization
+							// Transaction log utilization (%)
 							"log_lsn_checkpoint_age_total", // checkpoint age
 							"log_max_modified_age_async",   // async flush point
+
+							// Transaction log -> storage waits
+							"innodb_os_log_pending_writes",
+							"innodb_log_waits",
+
+							// History List Length (HLL)
+							"trx_rseg_history_len",
+
+							// Deadlocks
+							"lock_deadlocks",
 						},
 					},
 				},
-			}, // level: kpi (5s)
+			}, // level: performance (5s)
 
-			"standard": Level{
-				Name: "standard",
-				Freq: "10s",
+			"additional": Level{
+				Name: "additional",
+				Freq: "20s",
 				Collect: map[string]Domain{
 					"status.global": {
 						Name: "status.global",
 						Metrics: []string{
-							// Threads and connections
-							"connections",
-							"threads_connected", // gauge
-							"max_used_connections",
-
 							// Temp objects
 							"created_tmp_disk_tables",
 							"created_tmp_tables",
 							"created_tmp_files",
 
-							// Binlog
+							// Threads and connections
+							"connections",
+							"threads_connected", // (G)
+							"max_used_connections",
+
+							// Network throughput
+							"bytes_sent",
+							"bytes_received",
+
+							// Large data changes cached to disk before binlog
 							"binlog_cache_disk_use",
 
 							// Prepared statements
-							"prepared_stmt_count", // gauge
+							"prepared_stmt_count", // (G)
 							"com_stmt_execute",
 							"com_stmt_prepare",
 
-							// Netork
-							"bytes_sent",
-							"bytes_received",
+							// Client connection errors
 							"aborted_clients",
 							"aborted_connects",
 
-							// Bad SELECT
+							// Bad SELECT: should be zero
 							"select_full_join",
 							"select_full_range_join",
 							"select_range_check",
 							"select_scan",
 
-							// Com
+							// Admin and SHOW
 							"com_flush",
 							"com_kill",
 							"com_purge",
@@ -226,14 +220,8 @@ func InternalLevelPlan() Plan {
 							"com_show_warnings",
 						},
 					},
-					"innodb": {
-						Metrics: []string{
-							// Transactions
-							"trx_rseg_history_len", // history list length
-						},
-					},
 				},
-			}, // level: standard (10s)
+			}, // level: additional (20s)
 
 			"data-size": Level{
 				Name: "data-size",
