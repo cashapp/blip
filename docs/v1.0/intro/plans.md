@@ -48,7 +48,7 @@ Plans help solve the third problem by allowing you to collect different metrics 
 It helps to remember as: "Higher the level, higher the wait (time between collection)."
 For example, imagine three levels as shown below.
 
-![Three Levels](/blip/assets/img/three-levels.png)
+![Three Levels](/assets/img/three-levels.png)
 
 Level 1, the base level, is collected frqeuently (shortest wait time): every 5 seconds.
 Level 2 is collected less frequently: every 20 seconds.
@@ -56,7 +56,7 @@ Level 3, the highest level, is collected the most infrequently (longest wait tim
 
 Blip automatically combines levels when they overlap and collects all metrics at that time.
 
-![Three Levels](/blip/assets/img/level-times.png)
+![Three Levels](/assets/img/level-times.png)
 
 At 20 seconds (since Blip started collecting metrics for this plan), Blip collects metrics for both levels 1 and 2 because `20 mod 5 = 0` and `20 mod 20 = 0`, respectively.
 At 30 seconds, Blip collects metrics for both levels 1 anbd 3 because `30 mod 5 = 0` and `30 mod 20 = 0`, respectively.
