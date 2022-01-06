@@ -21,24 +21,38 @@ This is only a reference to show all configuration variables.
 
 ```yaml
 ---
-level_1:
+level:
   freq: 5s
   collect:
-    domain1:
+    status.global:
+      metrics:
+        - queries
+    status.host:
+      options:
+        host: 10.1.1.1
+      metrics:
+        - threads_running
+
+    query.global:
+      options:
+        response_time_percentiles: "p95,p99,p999"
+      metrics:
+        - response_time
+    var:
       options:
       	opt_1: value_1
-	opt_N: value_N
+        opt_N: value_N
       metrics:
         - metric_1
-	- metric_N
+        - metric_N
 level_N:
   freq: 10s
   collect:
     domain_1:
       options:
       	opt_1: value_1
-	opt_N: value_N
+        opt_N: value_N
       metrics:
         - metric_1
-	- metric_N
+        - metric_N
 ```

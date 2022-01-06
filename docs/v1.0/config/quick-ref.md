@@ -90,7 +90,7 @@ plans:
       plan: active-plan.yaml
 
 sinks:
-  chrono:
+  chronosphere:
     url: "http://127.0.0.1:3030/openmetrics/write"
   signalfx:
     auth-token: ""

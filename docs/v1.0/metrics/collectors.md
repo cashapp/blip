@@ -2,7 +2,7 @@
 layout: default
 parent: Metrics
 title: Collectors
-nav_order: 2
+nav_order: 4
 ---
 
 # Metric Collectors
