@@ -127,7 +127,7 @@ func (c *Metrics) Collect(ctx context.Context, levelName string) ([]blip.MetricV
 		}
 
 		m.Name = strings.ToLower(name)
-		m.Tags = map[string]string{"subsystem": subsystem}
+		m.Meta = map[string]string{"subsystem": subsystem}
 
 		m.Value, ok = sqlutil.Float64(val)
 		if !ok {

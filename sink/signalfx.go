@@ -28,6 +28,7 @@ func NewSignalFxSink(monitorId string, opts, tags map[string]string) (*sfxSink, 
 		sink:      sink,
 		event:     event.MonitorSink{MonitorId: monitorId},
 		monitorId: monitorId,
+		dim:       tags,
 	}
 
 	for k, v := range opts {

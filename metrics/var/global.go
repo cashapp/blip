@@ -65,7 +65,7 @@ func (c *Global) Help() blip.CollectorHelp {
 					"auto":   "Auto-determine best source",
 					"select": "@@GLOBAL.metric_name",
 					"pfs":    "performance_schema.global_variables",
-					"show":   "SHOW GLOBAL STATUS",
+					"show":   "SHOW GLOBAL VARIABLES",
 				},
 			},
 			OPT_ALL: {
