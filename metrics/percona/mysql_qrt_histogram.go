@@ -8,12 +8,12 @@ import (
 // Represents a row from information_schema.Query_Response_Time
 type QRTBucket struct {
 	Time  float64
-	Count int64
+	Count uint64
 	Total float64
 }
 
 // NewQRTBucket Public way to return a QRT bucket to be appended to a Histogram
-func NewQRTBucket(time float64, count int64, total float64) QRTBucket {
+func NewQRTBucket(time float64, count uint64, total float64) QRTBucket {
 	return QRTBucket{
 		Time:  time,
 		Count: count,
@@ -32,16 +32,9 @@ func (h QRTHistogram) Less(i, j int) bool {
 	return h[i].Time < h[j].Time
 }
 
-// Count for QRT Histogram
-func (h QRTHistogram) Count() int64 {
-	var total int64
-	total = 0
-
-	for _, v := range h {
-		total += v.Count
-	}
-
-	return total
+// Sort Order all the values in the data set in ascending order (least to greatest).
+func (h QRTHistogram) Sort() {
+	sort.Sort(QRTHistogram(h))
 }
 
 // Percentile for QRTHistogram
@@ -50,28 +43,29 @@ func (h QRTHistogram) Count() int64 {
 // the lowest bin that is greater than the requested percentile rank
 func (h QRTHistogram) Percentile(p float64) float64 {
 	var pRank float64
-	var curRank int64
-	var pctl float64
+	var curRank uint64
 
-	// Order all the values in the data set in ascending order (least to greatest).
-	sort.Sort(QRTHistogram(h))
+	var sampleSize uint64
+
+	for _, v := range h {
+		sampleSize += v.Count
+	}
 
 	// Rank = N * P
 	// N is sample size, which is sum of all counts from all the buckets
-	pRank = float64(h.Count()) * p
+	pRank = float64(sampleSize) * p
 
 	// Find the bucket where our nearest Rank lies, then take the average qrt of that bucket
-	for i, v := range h {
+	for i := range h {
 		// as each of our bucket can have >= 1 data points (queries), we have to move the curRank by v.Count in each iteration
-		curRank += v.Count
+		curRank += h[i].Count
 
 		if float64(curRank) >= pRank {
 			// we have found the bucket where our target pRank lies
 			// we take the average qrt of this bucket with (Total Time / Number of Queries) to find target percentile
-			pctl = h[i].Total / float64(h[i].Count)
-			break
+			return h[i].Total / float64(h[i].Count)
 		}
 	}
 
-	return pctl
+	return float64(0)
 }

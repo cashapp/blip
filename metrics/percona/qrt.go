@@ -40,7 +40,7 @@ const (
 const (
 	OPT_PERCENTILES           = "percentiles"
 	OPT_OPTIONAL              = "optional"
-	OPT_FLUSH_QRT             = "flush_qrt"
+	OPT_FLUSH_QRT             = "flush-qrt"
 	default_percentile_option = "95"
 )
 
@@ -157,7 +157,7 @@ func (c *Qrt) Collect(ctx context.Context, levelName string) ([]blip.MetricValue
 	var h QRTHistogram
 
 	var time string
-	var count string
+	var count uint64
 	var total string
 	for rows.Next() {
 		if err := rows.Scan(&time, &count, &total); err != nil {
@@ -169,18 +169,15 @@ func (c *Qrt) Collect(ctx context.Context, levelName string) ([]blip.MetricValue
 			continue
 		}
 
-		validatedCount, err := strconv.ParseInt(count, 10, 64)
-		if err != nil {
-			return nil, err
-		}
-
 		validatedTotal, ok := sqlutil.Float64(strings.TrimSpace(total))
 		if !ok {
 			continue
 		}
 
-		h = append(h, NewQRTBucket(validatedTime, validatedCount, validatedTotal))
+		h = append(h, NewQRTBucket(validatedTime, count, validatedTotal))
 	}
+
+	h.Sort()
 
 	for name, val := range c.percentiles[levelName] {
 		m := blip.MetricValue{Type: blip.GAUGE}

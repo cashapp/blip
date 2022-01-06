@@ -12,11 +12,13 @@ func TestPercentile(t *testing.T) {
 
 	h := percona.QRTHistogram{
 		percona.QRTBucket{},
-		percona.QRTBucket{Time: 10, Count: 2, Total: 20},
 		percona.QRTBucket{Time: 20, Count: 5, Total: 100},
+		percona.QRTBucket{Time: 10, Count: 2, Total: 20},
 		percona.QRTBucket{Time: 30, Count: 4, Total: 120},
 		percona.QRTBucket{Time: 40, Count: 3, Total: 120},
 	}
+
+	h.Sort()
 
 	for i, x := range p {
 		result := h.Percentile(x)
