@@ -9,18 +9,18 @@ nav_order: 1
 
 In the simplest setup, a single Blip instance monitors (collect metrics from) a single MySQL instance:
 
-![Single Blip Instance](/blip/assets/img/blip-single.png)
+![Single Blip Instance](/assets/img/blip-single.png)
 
 But a single instnace of Blip&mdash;a single running `blip` binary&mdash;can monitor any number of MySQL instances:
 
-![Multiple Blip Monitors](/blip/assets/img/blip-multi.png)
+![Multiple Blip Monitors](/assets/img/blip-multi.png)
 
 In Blip lingo (and source code), a _monitor_ collects metrics from a single instance of MySQL, as shown above.
 In short, "a monitor monitors MySQL."
 
 Monitors are the central concept in Blip, so let's zoom in on one monitor to see what makes it ticks:
 
-![Blip Monitor Diagram](/blip/assets/img/blip-monitor.png)
+![Blip Monitor Diagram](/assets/img/blip-monitor.png)
 
 A monitor has more parts than shown above, but three parts are most important:
 
@@ -38,7 +38,7 @@ There are many more parts to a monitor, but sinks and plans are the two you are 
 You can't customize the engine, but you can customize the plan that determines which metrics the engine collects.
 Let's zoom in on the engine:
 
-![Blip Engine Diagram](/blip/assets/img/blip-engine.png)
+![Blip Engine Diagram](/assets/img/blip-engine.png)
 
 Inside the engine, another part called a _metrics collector_ (or _collector_ for short) collects metrics for one _domain_: a logical group of MySQL metrics.
 Above, the engine has <span style="color:magenta;">four collectors</span> that correspond to four domains:
