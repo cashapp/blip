@@ -1,7 +1,7 @@
 ---
 layout: default
 title: Integrate
-nav_order: 120
+nav_order: 140
 permalink: /v1.0/integrate
 ---
 
@@ -17,5 +17,3 @@ Every plugin is optional: if specified, it overrides the built-in functionality.
 _Factories_
 :  Factories are interfaces that let you override certain object creation of Blip.
 Every factory is optional: if specified, it overrides the built-in factory.
-
-

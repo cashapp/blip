@@ -86,6 +86,11 @@ Specify plan files.
 {: .help-option }
 Print config.
 
+### `--print-domains`
+
+{: .help-option }
+Print domains and collector options.
+
 ### `--print-monitors`
 
 {: .help-option }

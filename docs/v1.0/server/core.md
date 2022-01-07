@@ -14,7 +14,7 @@ Internally, it's a singleton instances of a `Server` data type.
 
 Blip boots then runs.
 
-Command line option [`--run=false`](../config/blip.html#--run) stop it from running.
+Command line option [`--run=false`](../config/blip#--run) stop it from running.
 
 ### Monitors
 

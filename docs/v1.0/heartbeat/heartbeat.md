@@ -1,7 +1,7 @@
 ---
 layout: default
 title: Heartbeat
-nav_order: 90
+nav_order: 100
 permalink: /v1.0/heartbeat
 ---
 

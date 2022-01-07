@@ -30,8 +30,8 @@ The second problem arises because there are many versions and distributions of M
 For example: where do you collect a MySQL replication lag metric?
 The oldest and perhaps still most common source is `Seconds_Behind_Master` in the `SHOW SLAVE STATUS` output.
 But those two changed to `Seconds_Behind_Source` and `SHOW REPLICA STATUS`, respectively.
-And what if you don't use those and, instead, use [pt-heartbeat](https://www.percona.com/doc/percona-toolkit/LATEST/pt-heartbeat.html) or the Blip built-in heartbeat?
-Or what if you're running [MySQL Group Replication](https://dev.mysql.com/doc/refman/8.0/en/group-replication.html)?
+And what if you don't use those and, instead, use [pt-heartbeat](https://www.percona.com/doc/percona-toolkit/LATEST/pt-heartbeat) or the Blip built-in heartbeat?
+Or what if you're running [MySQL Group Replication](https://dev.mysql.com/doc/refman/8.0/en/group-replication)?
 Or what if you run MySQL in the cloud and the cloud provider emits its own replication lag metric?
 
 Plans help solve the second problem by using _metric domains_ (or _domains_ for short) to name logically-related group of MySQL metrics.
