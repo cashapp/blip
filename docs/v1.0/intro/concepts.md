@@ -63,7 +63,7 @@ For example, you can obtain the global system variable `max_connections` from th
 * `SELECT * FROM global_variables WHERE variable_name='max_connections';`
 
 That's a trivial exmaple.
-Metric domains become important&mdash;practically necessary&mdash;when you account for the MySQL [Performance Schema](https://dev.mysql.com/doc/refman/8.0/en/performance-schema.html) (and sometimes the MySQL [sys Schema](https://dev.mysql.com/doc/refman/8.0/en/sys-schema.html)), various command and output changes from MySQL 5.6 to 5.7 to 8.0, subtle differences between distributions (Oracle vs. Percona vs. MariaDB), and cloud providers (like Amazon RDS).
+Metric domains become important&mdash;practically necessary&mdash;when you account for the MySQL [Performance Schema](https://dev.mysql.com/doc/refman/8.0/en/performance-schema) (and sometimes the MySQL [sys Schema](https://dev.mysql.com/doc/refman/8.0/en/sys-schema)), various command and output changes from MySQL 5.6 to 5.7 to 8.0, subtle differences between distributions (Oracle vs. Percona vs. MariaDB), and cloud providers (like Amazon RDS).
 Metric domains simplify _how_ metrics are collected.
 As a user, you shouldn't care how metrics are collected; you should only care _which_ metrics are collected.
 Domains and plans make that possible...

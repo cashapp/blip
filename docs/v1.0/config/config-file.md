@@ -11,7 +11,7 @@ nav_order: 2
 
 # Config File
 
-Blip configuration is specified in a single YAML file (see [Specifying a Config File](blip.html#specifying-a-config-file)).
+Blip configuration is specified in a single YAML file (see [Specifying a Config File](blip#specifying-a-config-file)).
 Concetpually, the Blip config file has three parts as shown and defined below.
 
 ```yaml
@@ -42,7 +42,7 @@ monitors:
     password: "myVerySecurePassword"
 ```
 
-Since no server config is specified, `blip` uses  built-in defaults (see [Zero Config](blip.html#zero-config)), which is probably fine for the server.
+Since no server config is specified, `blip` uses  built-in defaults (see [Zero Config](blip#zero-config)), which is probably fine for the server.
 
 {: .src }
 { [config.go](https://github.com/cashapp/blip/blob/main/config.go) }
@@ -221,7 +221,7 @@ The `files` variable specifies YAML files to load monitors from. Each file must 
 |**Valid values**|&bull;&nbsp;"N%" (percentage) where N is an integer btween 0 and 100 (exclusive)<br>&bull;&nbsp;"N" where N is an integer greater than 0|
 |**Default value**||
 
-The `stop-loss` variable enables the [stop-lost feature](../server/monitor-loader.html#stop-loss).
+The `stop-loss` variable enables the [stop-lost feature](../server/monitor-loader#stop-loss).
 
 ### aws
 
@@ -298,7 +298,7 @@ aws-rds:
 |**Valid values**|`true` or `false`|
 |**Default value**|`false`|
 
-The `iam-auth-token` variable enables [IAM database authentication](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/UsingWithRDS.IAMDBAuth.html).
+The `iam-auth-token` variable enables [IAM database authentication](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/UsingWithRDS.IAMDBAuth).
 
 When enabled, IAM authentication is the prefered authentication method
 
@@ -338,7 +338,7 @@ The `disable-auto-region` variable enables/disables automatic detection of the A
 
 The `disable-auto-tls` variables enables/disables automatic use of the Amazon RDS certifcate authority (CA).
 By default, Blip uses the 2019 AWS RDS CA, which is built-in (you don't need to configure anything).
-See [AWS](../cloud/aws.html) for details.
+See [AWS](../cloud/aws) for details.
 
 {: .config-section-title}
 ## exporter
@@ -569,7 +569,7 @@ plans:
       plan: ""
 ```
 
-Each of the four sections (corresponding to the four [connection states](../monitor/level-adjuster.html#connection-states)) have the same two variables:
+Each of the four sections (corresponding to the four [connection states](../monitor/level-adjuster#connection-states)) have the same two variables:
 
 #### `after`
 
@@ -592,7 +592,7 @@ The `plan` variable sets the plan to load when the state takes effect.
 {: .config-section-title}
 ## sinks
 
-The `sinks` section configures [built-in metrics sinks](../metrics/sinks.html#built-in) and [custom metrics sinks](../metrics/sinks.html#custom).
+The `sinks` section configures [built-in metrics sinks](../metrics/sinks#built-in) and [custom metrics sinks](../metrics/sinks#custom).
 This section is a map of maps:
 
 ```yaml
@@ -640,7 +640,7 @@ Blip calls these "tags", but each sink might have a different term for the same 
 For example, with SignalFx these are called "dimensions".
 But the concept is the same: metadata (usually string key-value pairs) attached to metrics that describe or annotate the metrics for grouping, aggregation, or filtering when display in graphs/charts.
 
-The [built-in metrics sinks](../metrics/sinks.html#built-in) automatically send all tags with metrics.
+The [built-in metrics sinks](../metrics/sinks#built-in) automatically send all tags with metrics.
 For example, the `signalfx` sink sends the tags as SingalFx dimensions.
 
 {: .config-section-title}
@@ -658,7 +658,7 @@ tls:
 You can specify only `tls.ca`, or `tls.cert` and `tls.key`, or all three; any other combination is invalid.
 
 {: .note}
-By default, Blip does not use TLS for MySQL connections _except_ when using AWS; see section [`aws-rds`](#aws-rds) or [AWS](../cloud/aws.html).
+By default, Blip does not use TLS for MySQL connections _except_ when using AWS; see section [`aws-rds`](#aws-rds) or [AWS](../cloud/aws).
 
 ### `ca`
 
@@ -768,7 +768,7 @@ Imagine you have two MySQL instances: `source.db` and `replica.db`, where the la
 Problem is: there is no configuration section to define the source MySQL instance.
 
 {: .note}
-Configuring replication sources in Blip is not an easy problem to solve because replication topologies change when replicas are used for high availability, and [MySQL Group Replication](https://dev.mysql.com/doc/refman/8.0/en/group-replication.html) has different requirements.
+Configuring replication sources in Blip is not an easy problem to solve because replication topologies change when replicas are used for high availability, and [MySQL Group Replication](https://dev.mysql.com/doc/refman/8.0/en/group-replication) has different requirements.
 
 To solve this problem, you configure the source DSN in `meta`:
 

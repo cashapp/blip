@@ -8,7 +8,7 @@ nav_order: 2
 # Conventions
 
 Blip conventions provide consistency and structure to make writing plans and reporting metrics easier.
-Although the [built-in sinks](sinks.html#built-in) report fully-qualified metric names (`status.global.threads_running`), your [custom sink](sinks.html#custom) can rename and report metrics however you want.
+Although the [built-in sinks](../sinks/) report fully-qualified metric names (`status.global.threads_running`), your [custom sink](../sinks/custom) can rename and report metrics however you want.
 For example, your sink could ignore Blip domains completely and report only metric names (`threads_running`), or report a simpler custom prefix (`mysql.threads_running`).
 
 ## Domain Naming
@@ -30,9 +30,9 @@ Snake case ("domain_name") and camel case ("domainName") are not allowed: the fo
 Blip uses sub-domains for two purposes: MySQL-grouped metrics, or metrics that are related but different.
 
 The [`error` domain](domains#error) is an exmaple of metrics that are related by different.
-[`error.query`](domains#errorquery) and [`error.repl`](domains.html#errorepl) both comprise error-related metrics, hence the common root domain, but the specific metrics for each are different.
+[`error.query`](domains#errorquery) and [`error.repl`](domains#errorepl) both comprise error-related metrics, hence the common root domain, but the specific metrics for each are different.
 
-The[`status` domain](domains.html#status) is an exmaple of MySQL-grouped metrics.
+The[`status` domain](domains#status) is an example of MySQL-grouped metrics.
 MySQL provides status metrics grouped by account, global, host, thread, and user.
 (_Global_ is the most common, as in `SHOW GLOBAL STATUS`.)
 Blip has a sub-domain for each group&mdash;`status.account`, `status.global`, and so on&mdash;that makes advacned plans like the following possible:
@@ -112,11 +112,11 @@ _Groups_, _labels_, and _dimensions_ serve the same purpose.
 Blip uses the term _group_ because it's similar to MySQL `GROUP BY`.
 
 _Implicit grouping_ means the metrics collector (for the domain) groups metrics automatically.
-For example, the [`size.data` collector](domains.html#sizedata), which collects database and table sizes, groups metrics by databse name.
+For example, the [`size.data` collector](domains#sizedata), which collects database and table sizes, groups metrics by databse name.
 As a result, each metric has a key-value pair like `db=foo`.
 
 _Explicit grouping_ refers to MySQL-grouped metrics&mdash;see [Sub-domains](#sub-domains).
-For example, the [`status.host` collector](domains.html#statushost) is explicitly grouped by `host`.
+For example, the [`status.host` collector](domains#statushost) is explicitly grouped by `host`.
 Therefore, each metric has a key-value pair like `host=10.1.1.1`.
 
 `global` is the only exception to explicit grouping: global metrics do _not_ set anything in the `blip.MetricValue.Group` map (the map is nil).

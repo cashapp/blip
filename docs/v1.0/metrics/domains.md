@@ -1,7 +1,7 @@
 ---
 layout: default
 parent: Metrics
-title: Domain Reference
+title: Domains
 nav_order: 3
 ---
 
@@ -14,30 +14,26 @@ nav_order: 3
 ---
 
 ## aria
-MariaDB Aria Storage Engine
+_MariaDB Aria Storage Engine_
 
 Reserved for future use.
 
 ## autoinc
-Auto-increment Columns
+_Auto-increment Columns_
 
-Dimensions:	db, tbl
-Metrics:
-cur:
-.cur	dim: db || tbl
-.max
+Not implemented yet but planned.
 
 ## aws
-Amazon Web Services
+_Amazon Web Services_
 
 ### aws.rds
-Amazon RDS for MySQL
+_Amazon RDS for MySQL_
 
 ### aws.aurora
-Amazon Aurora
+_Amazon Aurora_
 
 ## azure
-Microsoft Azure
+_Microsoft Azure_
 
 Reserved for future use.
 
@@ -48,165 +44,224 @@ Reserved for future use.
 ### error.client
 
 ## event
+_MySQL Events_
 
 Reserved for future use.
+
 ### event.stage
 ### event.stmt
 ### event.trx
 ### event.wait
 
 ## file
-Files and Tablespaces
+_Files and Tablespaces_
 
 Reserved for future use.
 
-##galera
-Percona XtraDB Cluster and MariaDB Cluster (wsrep)
+## galera
+_Percona XtraDB Cluster and MariaDB Cluster (wsrep)_
 
 Reserved for future use.
 
 ## gcp
-Google Cloud
+_Google Cloud_
 
 Reserved for future use.
 
 ## gr
-Group Replication
+_MySQL Group Replication_
 
 Reserved for future use.
 
 ## host
-Host (Client)
+_Host (Client)_
 
 .COUNT_HOST_BLOCKED_ERRORS
 
 ## innodb
-InnoDB
+_InnoDB Metrics_
 
-INFORMATION_SCHEMA.INNODB_METRICS
+Metrics from [`INFORMATION_SCHEMA.INNODB_METRICS`](https://dev.mysql.com/doc/refman/en/information-schema-innodb-metrics-table.html).
 
-.buffer.buffer_flush_adaptive_total_pages
-
-.log.log_lsn_checkpoint_age
-
-.transaction.trx_rseg_history_len
-
-.ahi
+{: .var-table}
+|Blip version|v1.0.0|
+|MySQL config|maybe|
+|Sources|I_S|
+|Group keys||
+|Meta|subsystem=`SUBSYSTEM` column|
 
 ### innodb.mutex
-InnoDB Mutexes
+_InnoDB Mutexes_
 
-SHOW ENGINE INNODB MUTEX
-.redo_rseg.waits
+Metrics from `SHOW ENGINE INNODB MUTEX`.
+Not implement yet.
+
 
 ## mariadb
-MariaDB Enhancements
+_MariaDB Enhancements_
 
 Reserved for future use.
 
 ## ndb
-MySQL NDB Cluster
+_MySQL NDB Cluster_
 
 Reserved for future use.
 
 ## oracle
-Oracle Cloud and Enterprise Enhancements
+_Oracle Cloud and Enterprise Enhancements_
 
 Reserved for future use.
 
 ## percona
-
-Percona Server Enhancements
+_Percona Server Enhancements_
 
 ## percona.stats
-User Statistics
-.percona.stats.client
-.percona.stats.idx
-.percona.stats.tbl
-.percona.stats.thd
-.percona.stats.user
-
+_User Statistics_
 
 ## processlist
-Processlist
+_Processlist_
 
 SHOW PROCESSLIST; — or — I_S.PROCESSLIST;
 
 ## pfs
-Performance Schema
+_Performance Schema_
 
 SHOW ENGINE PERFORMANCE_SCHEMA STATUS;
 
 ## pxc
-Percona XtraDB Cluster
+_Percona XtraDB Cluster_
 
 Reserved: use galera.
 
 ## query
-.response_time	{p999}
+_Query Metrics_
+
 
 ### query.global
+_Global Query Response Time_
+
+{: .var-table}
+|Blip version|v1.0.0|
+|MySQL config|yes|
+|Sources|MySQL 8.0 [p_s.events_statements_histogram_global](https://dev.mysql.com/doc/refman/8.0/en/performance-schema-statement-histogram-summary-tables.html), Percona Server 5.7 [RTD plugin](https://www.percona.com/doc/percona-server/5.7/diagnostics/response_time_distribution.html)|
+|Group keys||
+|Meta key-values|&bull; `pN=pA`: where `pN` is configured percentile (default: `p999`) and `pA` is actual percentile (see note 1)|
+
+The `query.global` domain includes metrics for all queries, which is currently only response time.
+By default, it reports the P999 (99.9th percentile) reponse time using either MySQL 8.0 [performance_schema.events_statements_histogram_global](https://dev.mysql.com/doc/refman/8.0/en/performance-schema-statement-histogram-summary-tables.html) or Percona Server 5.7 [Response Time Distribution plugin](https://www.percona.com/doc/percona-server/5.7/diagnostics/response_time_distribution.html).
+
+Multiple percentiles can be collect&mdash;`p95`, `p99`, and `p999` for example.
+The metric for each percentile is denoted by meta key `pN`.
+
+#### Notes
+
+1. MySQL (and Percona Server) use histograms with varible bucket ranges.
+Therefore, the P99 might actually be P98.9 or P99.2.
+Meta key `pN` indicates the configured percentile, and its value `pA` indicates the actual percentile that was used.
+
+#### Derived Metrics
+
+* `reponse_time`<br>
+Type: gauge<br>
+Reponse time for all queries, reported as a percentile (default: P999) in millliseconds.
+The true percentile might be slightly more or less depending on how the histogram buckets are configured (see note 1).
+
 ### query.id
-			{id=<SHA>}
+_Not implemented yet._
+
+The `query.id` domain includes metrics for unique queires identified by digest SHA and set in `meta` as `id`.
 
 ## repl
-Replication
+_MySQL Replication_
 
-.running
-.lag-ms	Lag in milliseconds
+{: .var-table}
+|Blip version|v1.0.0|
+|Sources|MySQL, Percona pt-heartbeat, Blip Heartbeat|
+|MySQL config|MySQL: no; other sources: yes|
+|Group keys||
+|Meta||
+
+The `repl` metric domain includes metrics related to classic MySQL (not Group Replication).
+The primary metric, which is derived from various sources, is `lag` (in milliseconds).
+
+#### Required Options
+{: .no_toc }
+
+* `source`: Source MySQL instance
+
+#### Derived Metrics
+{: .no_toc }
+
+* `lag`<br>
+Type: gauge
+
+* `running`<br>
+Type: gauge (bool)<br>
+1 if replica is running, else 0
 
 ## rocksdb
-RocksDB Store Engine
+_RocksDB Store Engine_
 
 Reserved for future use.
 
 ## size
-
-Storage Size (Bytes)
+_Data, Index, and File Sizes_
 
 ### size.binlog
-Binary Log Storage Size
+_Binary Log Storage Size_
 
 ### size.data
-Database and Table Storage Size
+_Database and Table Storage Size_
+
+{: .var-table}
+|Blip version|v1.0.0|
+|MySQL config|no|
+|Group keys|`db`, `tbl`|
+|Meta||
 
 ### size.index
-Index Storage Size
+_Index Storage Size_
 
 ### size.file
-
-File Storage Size
+_File Storage Size_
 
 .innodb_undo
 .innodb_temp
 
 ## status
-MySQL Server Status
+_MySQL Status Variables_
+
+Classic MySQL status variables.
 
 ### status.account
-Status by Account
+_Status by Account_
 
 Reserved for future use.
 
 ### status.global
-SHOW GLOBAL STATUS — or — P_S.GLOBAL_STATUS
-.com_select
-.threads_running
-.innodb_log_waits
-.queries
+_Global Status Variables_
+
+{: .var-table}
+|Blip version|v1.0.0|
+|MySQL config|no|
+|Group keys||
+|Meta||
+
+Classic `SHOW GLOBAL STATUS`.
+Might used `performance_schema.global_status` table.
 
 ### status.host
-Status by Host (Client)
+_Status by Host (Client)_
 
 Reserved for future use.
 
 ### status.thread
-Status by Thread
+_Status by Thread_
 
 Reserved for future use.
 
 ### status.user
-Status by User
+_Status by User_
 
 Reserved for future use.
 
@@ -218,10 +273,12 @@ Reserved for future use.
 ## tls
 TLS (SSL) Status and Configuration
 
-enabled (have_ssl)
-ssl_server_not_before (date-time converted to Unix timestamp)
-ssl_server_not_after	(date-time converted to Unix timestamp)
-current_tls_version
+#### Derived Metrics
+
+* enabled (have_ssl)
+* ssl_server_not_before (date-time converted to Unix timestamp)
+* ssl_server_not_after	(date-time converted to Unix timestamp)
+* current_tls_version
 
 ## tokudb
 TokuDB Storage Engine
@@ -229,9 +286,13 @@ TokuDB Storage Engine
 Reserved for future use.
 
 ## var.global
-MySQL System Variables
+_MySQL System Variables_
 
-SELECT @@GLOBAL.var — SHOW GLOBAL VARIABLES — P_S.GLOBAL_VARIABLES
-innodb_log_file_size
-max_connections
-sync_binlog
+{: .var-table}
+|Blip version|v1.0.0|
+|Sources|SHOW, SELECT @@GLOBAL, p_s|
+|MySQL config|no|
+|Group keys||
+|Meta||
+
+Classic MySQL `SHOW GLOBAL VARIBLES`.

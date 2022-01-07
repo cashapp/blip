@@ -8,7 +8,7 @@ nav_order: 10
 # Quick Reference
 
 The following are _quick references_, not complete or valid examples.
-See [Config File](config-file.html) for details.
+See [Config File](config-file) for details.
 
 ### Interpolation
 

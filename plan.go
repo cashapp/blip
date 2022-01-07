@@ -247,7 +247,6 @@ func InternalLevelPlan() Plan {
 							"max_connections",
 							"max_prepared_stmt_count",
 							"innodb_log_file_size",
-							"innodb_max_dirty_pages_pct",
 						},
 					},
 				},

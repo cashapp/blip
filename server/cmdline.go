@@ -16,6 +16,7 @@ type Options struct {
 	Help          bool
 	Plans         string `env:"BLIP_PLANS"`
 	PrintConfig   bool   `arg:"--print-config"`
+	PrintDomains  bool   `arg:"--print-domains"`
 	PrintMonitors bool   `arg:"--print-monitors"`
 	PrintPlans    bool   `arg:"--print-plans"`
 	Strict        bool   `env:"BLIP_STRICT"`
@@ -66,6 +67,7 @@ func printHelp() {
 		"  --help           Print help and exit\n"+
 		"  --plans          Plans files (default: %s)\n"+
 		"  --print-config   Print config on boot\n"+
+		"  --print-domains  Print metric domains\n"+
 		"  --print-monitors Print monitors on boot\n"+
 		"  --print-plans    Print level plans on boot\n"+
 		"  --run            Run Blip (if false, boot then exit)\n"+

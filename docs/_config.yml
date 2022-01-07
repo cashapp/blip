@@ -1,7 +1,7 @@
 title: Blip
 description: >-
   Sublime MySQL monitoring
-baseurl: /
+#baseurl: /blip
 twitter_username: cashapp
 github_username: cashapp
 markdown: kramdown
@@ -16,3 +16,8 @@ search_enabled: true
 aux_links:
   "Blip":
     - "//github.com/cashapp/blip"
+
+permalink: /:path/:name
+toc:
+  min_level: 1
+  max_level: 3

@@ -52,7 +52,7 @@ monitors:
 
 The first instance is local: Blip connects using socket file `/tmp/mysql.sock`.
 The second instance is remote: Blip connects to IP `10.1.1.53`.
-The third instance is an Amazon RDS for MySQL instance, and Blip uses [IAM authentication](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/UsingWithRDS.IAMDBAuth.html).
+The third instance is an Amazon RDS for MySQL instance, and Blip uses [IAM authentication](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/UsingWithRDS.IAMDBAuth).
 
 The point of these contrived examples is: Blip can monitor _any_ MySQL instance anywhere it's running.
 (If you have a case where this is not true, please file an issue.)

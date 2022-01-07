@@ -11,12 +11,12 @@ The database connection factory&mdash;_db maker_ for short&mdash;makes connectio
 
 ## Authentication
 
-1. Amazon RDS IAM authentication ([`config.aws-rds.iam-auth-token`](../config/config-file.html#iam-auth-token))
-1. Amazon Secrets Manager ([`config.aws-rds.password-secret`](../config/config-file.html#password-secret))
-1. TLS certificate ([`config.tls`](../config/config-file.html#tls))
-1. Password file ([`config.mysql.password-file`](../config/config-file.html#password-file))
-1. my.cnf ([`config.mysql.mycnf`](../config/config-file.html#mycnf))
-1. Password ([`config.mysql.password`](../config/config-file.html#password))
+1. Amazon RDS IAM authentication ([`config.aws-rds.iam-auth-token`](../config/config-file#iam-auth-token))
+1. Amazon Secrets Manager ([`config.aws-rds.password-secret`](../config/config-file#password-secret))
+1. TLS certificate ([`config.tls`](../config/config-file#tls))
+1. Password file ([`config.mysql.password-file`](../config/config-file#password-file))
+1. my.cnf ([`config.mysql.mycnf`](../config/config-file#mycnf))
+1. Password ([`config.mysql.password`](../config/config-file#password))
 1. No password
 
 {: .src }
