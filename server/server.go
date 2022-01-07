@@ -16,6 +16,7 @@ import (
 	"github.com/cashapp/blip/aws"
 	"github.com/cashapp/blip/dbconn"
 	"github.com/cashapp/blip/event"
+	"github.com/cashapp/blip/metrics"
 	"github.com/cashapp/blip/monitor"
 	"github.com/cashapp/blip/plan"
 	"github.com/cashapp/blip/status"
@@ -124,6 +125,12 @@ func (s *Server) Boot(env blip.Env, plugin blip.Plugins, factory blip.Factories)
 		case "yes", "on", "enable", "1", "finch":
 			blip.Strict = true
 		}
+	}
+
+	// --print-domains and exit
+	if s.cmdline.Options.PrintDomains {
+		fmt.Fprintf(os.Stdout, metrics.PrintDomains())
+		os.Exit(0)
 	}
 
 	// ----------------------------------------------------------------------

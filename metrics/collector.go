@@ -2,6 +2,7 @@ package metrics
 
 import (
 	"fmt"
+	"sort"
 	"sync"
 
 	"github.com/cashapp/blip"
@@ -54,6 +55,62 @@ func Make(domain string, args blip.CollectorFactoryArgs) (blip.Collector, error)
 		return nil, fmt.Errorf("%s not registeres", domain)
 	}
 	return f.Make(domain, args)
+}
+
+func PrintDomains() string {
+	r.Lock()
+	domains := make([]string, 0, len(r.factory))
+	for d := range r.factory {
+		domains = append(domains, d)
+	}
+	sort.Strings(domains)
+	r.Unlock()
+
+	out := ""
+	for _, domain := range domains {
+		mc, _ := Make(domain, blip.CollectorFactoryArgs{})
+		help := mc.Help()
+		out += fmt.Sprintf("%s\n\t%s\n\n",
+			help.Domain, help.Description,
+		)
+
+		opts := make([]string, 0, len(help.Options))
+		for o := range help.Options {
+			opts = append(opts, o)
+		}
+
+		if len(opts) == 0 {
+			out += "\t(No options)\n\n"
+			continue
+		}
+		out += "\tOptions:\n"
+
+		sort.Strings(opts)
+		for _, optName := range opts {
+			optHelp := help.Options[optName]
+			out += "\t\t" + optName + ": " + optHelp.Desc + "\n"
+
+			valWidth := 0
+			for val := range optHelp.Values {
+				if len(val) > valWidth {
+					valWidth = len(val)
+				}
+			}
+			valLine := fmt.Sprintf("\t\t| %%-%ds = %%s", valWidth)
+
+			for val, desc := range optHelp.Values {
+				out += fmt.Sprintf(valLine, val, desc)
+				if val == optHelp.Default {
+					out += " (default)"
+				}
+				out += "\n"
+			}
+			out += "\n"
+		}
+		out += "\n"
+	}
+
+	return out
 }
 
 // --------------------------------------------------------------------------
