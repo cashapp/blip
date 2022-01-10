@@ -1,9 +1,9 @@
-package size_test
+package sizedata_test
 
 import (
 	"testing"
 
-	"github.com/cashapp/blip/metrics/size"
+	"github.com/cashapp/blip/metrics/size.data"
 )
 
 func TestDataSizeQuery(t *testing.T) {

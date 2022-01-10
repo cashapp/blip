@@ -1,5 +1,11 @@
 package blip
 
+import (
+	"fmt"
+	"regexp"
+	"time"
+)
+
 // Plan represents different levels of metrics collection.
 type Plan struct {
 	// Name is the name of the plan (required).
@@ -41,21 +47,42 @@ type Domain struct {
 	Metrics []string          `yaml:"metrics,omitempty"`
 }
 
-// Help represents information about a collector.
-type CollectorHelp struct {
-	Domain      string
-	Description string
-	Options     map[string]CollectorHelpOption
-}
+const metricPattern = `^[a-zA-Z0-9_-]*$`
 
-type CollectorHelpOption struct {
-	Name    string
-	Desc    string            // describes Name
-	Default string            // key in Values
-	Values  map[string]string // value => description
-}
+var validMetricRegex = regexp.MustCompile(metricPattern)
 
-// --------------------------------------------------------------------------
+func (p Plan) Validate() error {
+	freqs := map[time.Duration]string{}
+
+	for levelName := range p.Levels {
+
+		// Validate freq: set, valid, and no duplicates
+		freq := p.Levels[levelName].Freq
+		if freq == "" {
+			return fmt.Errorf("at %s: freq not set (Go time duration string required)", levelName)
+		}
+		d, err := time.ParseDuration(freq)
+		if err != nil {
+			return fmt.Errorf("at %s: invalid freq: %s: %s", levelName, freq, err)
+		}
+		if firstLevelName, ok := freqs[d]; ok {
+			return fmt.Errorf("at %s: duplicate freq: %s (%s): first seen at %s", levelName, freq, d, firstLevelName)
+		}
+		freqs[d] = levelName
+
+		// Validate that every metric matches metricPattern (help prevent SQL injection)
+		for domainName := range p.Levels[levelName].Collect {
+			for _, metricName := range p.Levels[levelName].Collect[domainName].Metrics {
+				if !validMetricRegex.MatchString(metricName) {
+					return fmt.Errorf("at %s/%s: invalid metric: %s (does not match /%s/)",
+						levelName, domainName, metricName, metricPattern)
+				}
+			}
+		}
+	}
+
+	return nil
+}
 
 func (p *Plan) InterpolateEnvVars() {
 	for levelName := range p.Levels {
@@ -136,6 +163,7 @@ func InternalLevelPlan() Plan {
 						},
 					},
 					"innodb": {
+						Name: "innodb",
 						Metrics: []string{
 							// Transactions
 							"trx_active_transactions", // (G)
@@ -164,6 +192,11 @@ func InternalLevelPlan() Plan {
 
 							// Deadlocks
 							"lock_deadlocks",
+						},
+					},
+					"repl": {
+						Options: map[string]string{
+							"source": "%{monitor.meta.repl-source}",
 						},
 					},
 				},
@@ -231,8 +264,8 @@ func InternalLevelPlan() Plan {
 						Name: "size.data",
 						// All data sizes by default
 					},
-					"size.binlogs": {
-						Name: "size.binlogs",
+					"size.binlog": {
+						Name: "size.binlog",
 					},
 				},
 			}, // level: data-size (5m)
@@ -262,7 +295,7 @@ func PromPlan() Plan {
 		Levels: map[string]Level{
 			"all": Level{
 				Name: "all",
-				Freq: "", // none, pulled/scaped on demand
+				Freq: "0", // none, pulled/scaped on demand
 				Collect: map[string]Domain{
 					"status.global": {
 						Name: "status.global",

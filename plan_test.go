@@ -2,6 +2,7 @@ package blip_test
 
 import (
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/cashapp/blip"
@@ -53,5 +54,45 @@ func TestPlanInterpolation(t *testing.T) {
 	expect = os.Getenv("SHELL")
 	if got != expect {
 		t.Errorf("Got '%s', expected '%s' at level2.domain2.opt2", got, expect)
+	}
+}
+
+func TestValidateMetricName(t *testing.T) {
+	// Test plan.Validate catches invalid metric names.
+
+	// First, a completely VALID plan should not return an error
+	plan := test.ReadPlan(t, "./test/plans/interpolate1.yaml")
+	err := plan.Validate()
+	if err != nil {
+		t.Error(err)
+	}
+
+	// Now a plan with an invalid metric name: "foo bar"
+	file := "./test/plans/invalid_metric_name.yaml"
+	plan = test.ReadPlan(t, file)
+	err = plan.Validate()
+	if err == nil {
+		t.Errorf("%s: Validate no error, expected error for invalid metric name", file)
+	}
+	// The error message should name the specific invalid metric name
+	if !strings.Contains(err.Error(), "foo bar") {
+		t.Errorf("%s: error message does not state invalid metric name, expected 'foo bar': %s",
+			file, err)
+	}
+}
+
+func TestValidateDefaultPlans(t *testing.T) {
+	// Test that the default internal plans are valid because it'd be embarrassing
+	// to ship invalid default plan
+	plan := blip.InternalLevelPlan()
+	err := plan.Validate()
+	if err != nil {
+		t.Error(err)
+	}
+
+	plan = blip.PromPlan()
+	err = plan.Validate()
+	if err != nil {
+		t.Error(err)
 	}
 }

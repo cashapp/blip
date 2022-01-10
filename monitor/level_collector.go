@@ -72,6 +72,7 @@ type LevelCollectorArgs struct {
 
 func NewLevelCollector(args LevelCollectorArgs) *collector {
 	return &collector{
+		cfg:              args.Config,
 		engine:           args.Engine,
 		planLoader:       args.PlanLoader,
 		sinks:            args.Sinks,

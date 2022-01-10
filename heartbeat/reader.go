@@ -54,13 +54,15 @@ func RemoveReaders(db *sql.DB) {
 	mux.Lock()
 	all, ok := readers[db]
 	if ok {
+		blip.Debug("removing readers %p", db)
 		for k := range all {
 			all[k].Stop()
 		}
+	} else {
+		blip.Debug("no readers %p", db)
 	}
 	delete(readers, db)
 	mux.Unlock()
-	blip.Debug("removed readers %p", db)
 }
 
 // ResetReaders stops and removes all readers. It is used for testing.

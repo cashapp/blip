@@ -1,20 +1,18 @@
-package sysvar
+package varglobal
 
 import (
 	"context"
 	"database/sql"
 	"fmt"
-	"log"
-	"regexp"
 	"strings"
-
-	_ "github.com/go-sql-driver/mysql"
 
 	"github.com/cashapp/blip"
 	"github.com/cashapp/blip/sqlutil"
 )
 
 const (
+	DOMAIN = "var.global"
+
 	OPT_SOURCE = "source"
 	OPT_ALL    = "all"
 
@@ -23,21 +21,14 @@ const (
 	SOURCE_SHOW   = "show"
 )
 
-var validMetricRegex = regexp.MustCompile("^[a-zA-Z0-9_-]*$")
-
 // Global collects global system variables for the var.global domain.
 type Global struct {
-	db       *sql.DB
-	plans    blip.Plan
-	domain   string
+	db *sql.DB
+	// --
 	metrics  map[string][]string // keyed on level
-	queryIn  map[string]string
-	sourceIn map[string]string
+	queryIn  map[string]string   // keyed on level
+	sourceIn map[string]string   // keyed on level
 }
-
-const (
-	blip_domain = "var.global"
-)
 
 func NewGlobal(db *sql.DB) *Global {
 	return &Global{
@@ -49,13 +40,13 @@ func NewGlobal(db *sql.DB) *Global {
 }
 
 func (c *Global) Domain() string {
-	return blip_domain
+	return DOMAIN
 }
 
 func (c *Global) Help() blip.CollectorHelp {
 	return blip.CollectorHelp{
-		Domain:      blip_domain,
-		Description: "Collect global status variables (sysvars)",
+		Domain:      DOMAIN,
+		Description: "Global system variables (sysvars) like 'innodb_log_file_size' and 'max_connections'",
 		Options: map[string]blip.CollectorHelpOption{
 			OPT_SOURCE: {
 				Name:    OPT_SOURCE,
@@ -69,11 +60,12 @@ func (c *Global) Help() blip.CollectorHelp {
 				},
 			},
 			OPT_ALL: {
-				Name: OPT_ALL,
-				Desc: "Collect all sysvars",
+				Name:    OPT_ALL,
+				Desc:    "Collect all sysvars",
+				Default: "no",
 				Values: map[string]string{
-					"yes": "Enable",
-					"no":  "Disable",
+					"yes": "Collect all (CAUTION: there are >500 sysvars)",
+					"no":  "Collect only sysvars listed in metrics",
 				},
 			},
 		},
@@ -84,7 +76,7 @@ func (c *Global) Help() blip.CollectorHelp {
 func (c *Global) Prepare(ctx context.Context, plan blip.Plan) error {
 LEVEL:
 	for levelName, level := range plan.Levels {
-		dom, ok := level.Collect[blip_domain]
+		dom, ok := level.Collect[DOMAIN]
 		if !ok {
 			continue LEVEL // not collected in this level
 		}
@@ -105,9 +97,7 @@ func (c *Global) Collect(ctx context.Context, levelName string) ([]blip.MetricVa
 	case SOURCE_SHOW:
 		return c.collectRows(ctx, levelName)
 	}
-	// @todo: panic happens if levelName is wrong (but it never should be)
-	errorStr := fmt.Sprintf("invalid source in Collect %s", c.sourceIn[levelName])
-	panic(errorStr)
+	panic(fmt.Sprintf("invalid source in Collect %s", c.sourceIn[levelName]))
 }
 
 // //////////////////////////////////////////////////////////////////////////
@@ -122,12 +112,6 @@ func (c *Global) prepareLevel(levelName string, metrics []string, options map[st
 	c.sourceIn[levelName] = ""
 	c.queryIn[levelName] = ""
 	c.metrics[levelName] = []string{}
-
-	// Validate the metricnames for the level
-	err := validateMetricNames(metrics)
-	if err != nil {
-		return err
-	}
 
 	// Save metrics to collect for this level
 	c.metrics[levelName] = append(c.metrics[levelName], metrics...)
@@ -159,6 +143,7 @@ func (c *Global) prepareLevel(levelName string, metrics []string, options map[st
 	// -------------------------------------------------------------------------
 	// Auto source (default)
 	// -------------------------------------------------------------------------
+	var err error
 
 	if err = c.prepareSELECT(levelName); err == nil {
 		return nil
@@ -173,17 +158,6 @@ func (c *Global) prepareLevel(levelName string, metrics []string, options map[st
 	}
 
 	return fmt.Errorf("auto source failed, last error: %s", err)
-}
-
-// Validate input metric names to make sure there won't be any
-// sql injection attacks.
-func validateMetricNames(metricNames []string) error {
-	for _, name := range metricNames {
-		if !validMetricRegex.MatchString(name) {
-			return fmt.Errorf("%s metric isn't a valid metric name", name)
-		}
-	}
-	return nil
 }
 
 func (c *Global) prepareSELECT(levelName string) error {
@@ -247,13 +221,13 @@ func (c *Global) collectSELECT(ctx context.Context, levelName string) ([]blip.Me
 	for rows.Next() {
 		var val string
 		if err := rows.Scan(&val); err != nil {
-			log.Println(err)
-			// Log error and continue to next row to retrieve next metric
-			continue
+			return nil, err
 		}
 
 		values := strings.Split(val, ",")
 		for i, metric := range c.metrics[levelName] {
+			// Many sysvars are not numbers or convertible to numbers--that's ok.
+			// Ignore anything we can't convert, which is industry standard practice.
 			f, ok := sqlutil.Float64(values[i])
 			if !ok {
 				continue
@@ -286,15 +260,13 @@ func (c *Global) collectRows(ctx context.Context, levelName string) ([]blip.Metr
 		m := blip.MetricValue{Type: blip.GAUGE}
 
 		if err = rows.Scan(&m.Name, &val); err != nil {
-			log.Printf("Error scanning row %s", err)
-			// Log error and continue to next row to retrieve next metric
-			continue
+			return nil, err
 		}
 
+		// Many sysvars are not numbers or convertible to numbers--that's ok.
+		// Ignore anything we can't convert, which is industry standard practice.
 		m.Value, ok = sqlutil.Float64(val)
 		if !ok {
-			// log.Printf("Error parsing the metric: %s value: %s as float %s", m.Name, val, err)
-			// Log error and continue to next row to retrieve next metric
 			continue
 		}
 

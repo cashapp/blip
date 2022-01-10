@@ -1,4 +1,4 @@
-package sysvar
+package varglobal
 
 import (
 	"context"

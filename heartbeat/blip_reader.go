@@ -64,7 +64,7 @@ func (r *BlipReader) run() {
 		default:
 		}
 
-		ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond) // @todo
+		ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond) // @todo
 		err := r.db.QueryRowContext(ctx, q).Scan(&now, &ts, &f)
 		cancel()
 		if err != nil {
@@ -82,7 +82,9 @@ func (r *BlipReader) run() {
 		lag, waitTime = r.waiter.Wait(now, ts.Time, f)
 
 		r.Lock()
-		r.lag = lag
+		if lag > r.lag {
+			r.lag = lag
+		}
 		r.last = ts.Time
 		r.Unlock()
 
@@ -105,7 +107,9 @@ func (r *BlipReader) Stop() {
 func (r *BlipReader) Lag(_ context.Context) (int64, time.Time, error) {
 	r.Lock()
 	defer r.Unlock()
-	return r.lag, r.last, nil
+	lag := r.lag
+	r.lag = 0
+	return lag, r.last, nil
 }
 
 // --------------------------------------------------------------------------
@@ -117,7 +121,6 @@ type LagWaiter interface {
 type SlowFastWaiter struct {
 	NetworkLatency time.Duration
 	waits          int
-	lag            int64
 }
 
 var _ LagWaiter = &SlowFastWaiter{}
@@ -127,6 +130,15 @@ func (w *SlowFastWaiter) Wait(now, then time.Time, freq int) (int64, time.Durati
 	blip.Debug("then=%s  now=%s  next=%s", then, now, next)
 
 	if now.Before(next) {
+		var lag int64
+		if w.waits == 0 {
+			d := now.Sub(then) - w.NetworkLatency
+			lag = d.Milliseconds()
+			if lag < 0 {
+				lag = 0
+			}
+		}
+
 		blip.Debug("next hb in %d ms", next.Sub(now).Milliseconds())
 		w.waits = 0
 
@@ -135,11 +147,11 @@ func (w *SlowFastWaiter) Wait(now, then time.Time, freq int) (int64, time.Durati
 		if d < 0 {
 			d = w.NetworkLatency
 		}
-		return w.lag, d
+		return lag, d
 	}
 
 	// Next hb is late (lagging)
-	w.lag = now.Sub(next).Milliseconds()
+	lag := now.Sub(next).Milliseconds()
 
 	w.waits += 1
 	var waitTime time.Duration
@@ -147,7 +159,7 @@ func (w *SlowFastWaiter) Wait(now, then time.Time, freq int) (int64, time.Durati
 	case w.waits <= 4: // first 200 ms
 		waitTime = time.Duration(50 * time.Millisecond)
 		break
-	case w.waits <= 4: // next 400 ms (600 ms total)
+	case w.waits <= 8: // next 400 ms (600 ms total)
 		waitTime = time.Duration(100 * time.Millisecond)
 		break
 	default: // remaining >600ms lag
@@ -155,5 +167,5 @@ func (w *SlowFastWaiter) Wait(now, then time.Time, freq int) (int64, time.Durati
 	}
 
 	blip.Debug("lagging: %s past ETA, wait %s (%d)", now.Sub(next), waitTime, w.waits)
-	return w.lag, waitTime
+	return lag, waitTime
 }

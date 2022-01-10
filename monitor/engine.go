@@ -106,9 +106,10 @@ func (e *Engine) setErr(err error) {
 // Do not call this func concurrently! It does not guard against concurrent
 // calls. Instead, serialization is handled by the only caller: LevelCollector.ChangePlan().
 func (e *Engine) Prepare(ctx context.Context, plan blip.Plan, before, after func()) error {
+	blip.Debug("%s: prepare: %+v", e.monitorId, plan)
 	e.event.Sendf(event.MONITOR_PREPARE_PLAN, plan.Name)
-
 	status.Monitor(e.monitorId, "engine-prepare", "preparing plan %s", plan.Name)
+
 	var lerr error
 	defer func() {
 		if lerr == nil {
@@ -213,7 +214,8 @@ func (e *Engine) Collect(ctx context.Context, levelName string) (*blip.Metrics, 
 	// *** This func can run concurrently! ***
 	//
 
-	// Lock while collecting so Prepare cannot change plan while using it
+	// READ lock while collecting so Prepare cannot change plan while using it.
+	// Must be read lock to allow concurrent calls.
 	e.RLock()
 	defer e.RUnlock()
 
@@ -240,8 +242,6 @@ func (e *Engine) Collect(ctx context.Context, levelName string) (*blip.Metrics, 
 		<-e.sem
 		wg.Add(1)
 		go func(mc blip.Collector) {
-			// Panic will bubble up to Monitor.Run, which is runs the LPC
-			// that called Engine.Collect
 			defer func() {
 				e.sem <- true
 				if err := recover(); err != nil {
