@@ -22,19 +22,27 @@ func NewQRTBucket(time float64, count uint64, total float64) QRTBucket {
 }
 
 // QRTHistogram represents a histogram containing MySQLQRTBuckets. Where each bucket is a bin.
-type QRTHistogram []QRTBucket
-
-// Sort for QRT Histogram
-
-func (h QRTHistogram) Len() int      { return len(h) }
-func (h QRTHistogram) Swap(i, j int) { h[i], h[j] = h[j], h[i] }
-func (h QRTHistogram) Less(i, j int) bool {
-	return h[i].Time < h[j].Time
+type QRTHistogram struct {
+	buckets []QRTBucket
+	total   uint64
 }
 
-// Sort Order all the values in the data set in ascending order (least to greatest).
-func (h QRTHistogram) Sort() {
-	sort.Sort(QRTHistogram(h))
+func NewQRTHistogram(buckets []QRTBucket) QRTHistogram {
+	sort.Slice(buckets, func(i, j int) bool {
+		return buckets[i].Time < buckets[j].Time
+	})
+
+	var total uint64
+
+	for _, v := range buckets {
+		total += v.Count
+	}
+
+	return QRTHistogram{
+		buckets: buckets,
+		total:   total,
+	}
+
 }
 
 // Percentile for QRTHistogram
@@ -45,25 +53,19 @@ func (h QRTHistogram) Percentile(p float64) float64 {
 	var pRank float64
 	var curRank uint64
 
-	var sampleSize uint64
-
-	for _, v := range h {
-		sampleSize += v.Count
-	}
-
 	// Rank = N * P
 	// N is sample size, which is sum of all counts from all the buckets
-	pRank = float64(sampleSize) * p
+	pRank = float64(h.total) * p
 
 	// Find the bucket where our nearest Rank lies, then take the average qrt of that bucket
-	for i := range h {
+	for i := range h.buckets {
 		// as each of our bucket can have >= 1 data points (queries), we have to move the curRank by v.Count in each iteration
-		curRank += h[i].Count
+		curRank += h.buckets[i].Count
 
 		if float64(curRank) >= pRank {
 			// we have found the bucket where our target pRank lies
 			// we take the average qrt of this bucket with (Total Time / Number of Queries) to find target percentile
-			return h[i].Total / float64(h[i].Count)
+			return h.buckets[i].Total / float64(h.buckets[i].Count)
 		}
 	}
 

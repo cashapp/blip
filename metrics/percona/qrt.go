@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"math"
 	"strconv"
 	"strings"
 
@@ -40,19 +39,18 @@ const (
 const (
 	OPT_PERCENTILES           = "percentiles"
 	OPT_OPTIONAL              = "optional"
-	OPT_FLUSH_QRT             = "flush-qrt"
+	OPT_FLUSH_QRT             = "flush"
 	default_percentile_option = "95"
 )
 
 const (
-	query        = "SELECT time, count, total FROM INFORMATION_SCHEMA.QUERY_RESPONSE_TIME WHERE TIME!='TOO LONG';"
-	versionQuery = "SELECT VERSION()"
+	query      = "SELECT time, count, total FROM INFORMATION_SCHEMA.QUERY_RESPONSE_TIME WHERE TIME!='TOO LONG';"
+	flushQuery = "SET GLOBAL query_response_time_flush=1"
 )
 
 type Qrt struct {
 	db          *sql.DB
 	available   bool
-	version     float64
 	percentiles map[string]map[string]float64
 	optional    map[string]bool
 	flushQrt    map[string]bool
@@ -105,19 +103,15 @@ func (c *Qrt) Help() blip.CollectorHelp {
 }
 
 // Prepare Prepares options for all levels in the plan that contain the percona.response-time domain
-func (c *Qrt) Prepare(plan blip.Plan) error {
+func (c *Qrt) Prepare(ctx context.Context, plan blip.Plan) error {
 	if !c.available {
 		return fmt.Errorf("%s: qrt metrics not available", plan.Name)
 	}
-	// this is a bit inefficient, but should be ok as Prepare shouldn't be called often
 	_, err := c.db.Query(query)
 	if err != nil {
 		c.available = false
 		return fmt.Errorf("%s: qrt metrics not available", plan.Name)
 	}
-
-	// get the version and store it, used in flushing qrt metrics
-	c.getVersion()
 
 LEVEL:
 	for _, level := range plan.Levels {
@@ -155,6 +149,7 @@ func (c *Qrt) Collect(ctx context.Context, levelName string) ([]blip.MetricValue
 	defer rows.Close()
 
 	var h QRTHistogram
+	var buckets []QRTBucket
 
 	var time string
 	var count uint64
@@ -174,10 +169,10 @@ func (c *Qrt) Collect(ctx context.Context, levelName string) ([]blip.MetricValue
 			continue
 		}
 
-		h = append(h, NewQRTBucket(validatedTime, count, validatedTotal))
+		buckets = append(buckets, NewQRTBucket(validatedTime, count, validatedTotal))
 	}
 
-	h.Sort()
+	h = NewQRTHistogram(buckets)
 
 	for name, val := range c.percentiles[levelName] {
 		m := blip.MetricValue{Type: blip.GAUGE}
@@ -188,7 +183,10 @@ func (c *Qrt) Collect(ctx context.Context, levelName string) ([]blip.MetricValue
 	}
 
 	if c.flushQrt[levelName] {
-		err = c.flushQueryResponseTime()
+		_, err = c.db.Exec(flushQuery)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	return metrics, err
@@ -221,69 +219,14 @@ func (c *Qrt) prepareLevel(dom blip.Domain, level blip.Level) error {
 
 	for _, percentileStr := range percentilesList {
 		f, err := strconv.ParseFloat(percentileStr, 64)
-		if err == nil {
-			percentile := f / 100.0 // percentilesStr are provided as whole percentage numbers (e.g. 50, 60)
-			percentileAsDigitString := strings.Replace(percentileStr, ".", "", -1)
-			percentileMetricName := fmt.Sprintf("query_response_pctl%s", percentileAsDigitString)
-			c.percentiles[level.Name][percentileMetricName] = percentile
-		} else {
+		if err != nil {
 			return fmt.Errorf("%s: could not parse percentile value in qrt collector %s into a number", level.Name, percentileStr)
 		}
+
+		percentile := f / 100.0 // percentilesStr are provided as whole percentage numbers (e.g. 50, 60)
+		percentileAsDigitString := strings.Replace(percentileStr, ".", "", -1)
+		percentileMetricName := fmt.Sprintf("query_response_pctl%s", percentileAsDigitString)
+		c.percentiles[level.Name][percentileMetricName] = percentile
 	}
 	return nil
-}
-
-// FlushQueryResponseTime flushes the Response Time Histogram
-func (c *Qrt) flushQueryResponseTime() error {
-	var flushQuery string
-	version := strconv.FormatFloat(c.version, 'f', -1, 64)[0:3]
-
-	switch version {
-	case "5.6", "5.7":
-		flushQuery = "SET GLOBAL query_response_time_flush=1"
-	default:
-		err := fmt.Errorf("version unsupported: %s", version)
-		return err
-	}
-
-	_, err := c.db.Exec(flushQuery)
-	if err != nil {
-		return err
-	}
-
-	return nil
-}
-
-// getVersion collects version information about current instance of percona
-// version is of the form '1.2.34-56.7' or '9.8.76a-54.3-log'
-// want to represent version in form '1.234567' or '9.876543'
-// This should ideally live in the `sqlutil` package but it's specific to percona as mysql versions are of different format
-func (c *Qrt) getVersion() {
-	var version string
-	err := c.db.QueryRow(versionQuery).Scan(&version)
-
-	if err != nil {
-		// TODO: find out pattern for error handling and refactor later
-		return
-	}
-	if len(version) == 0 {
-		return
-	}
-	//filter out letters
-	f := func(r rune) bool {
-		if (r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z') {
-			return true
-		}
-		return false
-	}
-	version = strings.Join(strings.FieldsFunc(version, f), "")                      //filters out letters from string
-	version = strings.Replace(strings.Replace(version, "-", ".", -1), "_", ".", -1) //replaces "_" and "-" with "."
-	leading := float64(len(strings.Split(version, ".")[0]))
-	version = strings.Replace(version, ".", "", -1)
-	ver, err := strconv.ParseFloat(version, 64)
-	if err != nil {
-		return
-	}
-	ver /= math.Pow(10.0, (float64(len(version)) - leading))
-	c.version = ver
 }
