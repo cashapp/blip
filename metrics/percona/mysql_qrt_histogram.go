@@ -50,20 +50,21 @@ func NewQRTHistogram(buckets []QRTBucket) QRTHistogram {
 // Percentile is defined as the weighted of the percentiles of
 // the lowest bin that is greater than the requested percentile rank
 func (h QRTHistogram) Percentile(p float64) float64 {
-	var pRank float64
-	var curRank uint64
+	var pCount float64
+	var curCount uint64
 
 	// Rank = N * P
 	// N is sample size, which is sum of all counts from all the buckets
-	pRank = float64(h.total) * p
+	// as we are using Histogram with buckets these are not actual Ranks
+	pCount = float64(h.total) * p
 
-	// Find the bucket where our nearest Rank lies, then take the average qrt of that bucket
+	// Find the bucket where our nearest count lies, then take the average qrt of that bucket
 	for i := range h.buckets {
-		// as each of our bucket can have >= 1 data points (queries), we have to move the curRank by v.Count in each iteration
-		curRank += h.buckets[i].Count
+		// as each of our bucket can have >= 1 data points (queries), we have to move the curCount by v.Count in each iteration
+		curCount += h.buckets[i].Count
 
-		if float64(curRank) >= pRank {
-			// we have found the bucket where our target pRank lies
+		if float64(curCount) >= pCount {
+			// we have found the bucket where our target pCount lies
 			// we take the average qrt of this bucket with (Total Time / Number of Queries) to find target percentile
 			return h.buckets[i].Total / float64(h.buckets[i].Count)
 		}
