@@ -1,12 +1,14 @@
 package percona_test
 
 import (
+	"math"
 	"testing"
 
 	"github.com/cashapp/blip/metrics/percona"
 )
 
 func TestPercentile(t *testing.T) {
+	tolerance := 0.000001
 	buckets := []percona.QRTBucket{
 		{Time: 0.000001, Count: 0, Total: 0},
 		{Time: 0.000003, Count: 0, Total: 0},
@@ -33,12 +35,12 @@ func TestPercentile(t *testing.T) {
 
 	h := percona.NewQRTHistogram(buckets)
 
-	p := [4]float64{0.95, 0.99, 0.999, 1}
-	expectedResults := [4]float64{0.00031632605383443373, 0.0006581664499349804, 0.005511903846153846, 0.143531}
+	p := [13]float64{0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.95, 0.99, 0.999, 1}
+	expectedResults := [13]float64{0.000012, 0.000019, 0.000019, 0.000046, 0.000046, 0.000081, 0.000081, 0.000081, 0.000172, 0.000316, 0.000658, 0.005511, 0.143531}
 
 	for i, x := range p {
 		result := h.Percentile(x)
-		if result != expectedResults[i] {
+		if math.Abs(result-expectedResults[i]) > tolerance {
 			t.Errorf("For Percentile: %v\tExpected: %v\tGot: %v\n", x, expectedResults[i], result)
 		}
 	}

@@ -104,9 +104,6 @@ func (c *Qrt) Help() blip.CollectorHelp {
 
 // Prepare Prepares options for all levels in the plan that contain the percona.response-time domain
 func (c *Qrt) Prepare(ctx context.Context, plan blip.Plan) error {
-	if !c.available {
-		return fmt.Errorf("%s: qrt metrics not available", plan.Name)
-	}
 	_, err := c.db.Query(query)
 	if err != nil {
 		c.available = false
@@ -137,7 +134,7 @@ func (c *Qrt) Collect(ctx context.Context, levelName string) ([]blip.MetricValue
 			errorStr := fmt.Sprintf("%s: required qrt metrics couldn't be collected", levelName)
 			panic(errorStr)
 		} else {
-			return metrics, nil
+			return nil, nil
 		}
 	}
 
@@ -156,20 +153,20 @@ func (c *Qrt) Collect(ctx context.Context, levelName string) ([]blip.MetricValue
 	var total string
 	for rows.Next() {
 		if err := rows.Scan(&time, &count, &total); err != nil {
-			continue
+			return nil, fmt.Errorf("%s: qrt response row is invalid", levelName)
 		}
 
 		validatedTime, ok := sqlutil.Float64(strings.TrimSpace(time))
 		if !ok {
-			continue
+			return nil, fmt.Errorf("%s: qrt: time is not a valid number: %s ", levelName, time)
 		}
 
 		validatedTotal, ok := sqlutil.Float64(strings.TrimSpace(total))
 		if !ok {
-			continue
+			return nil, fmt.Errorf("%s: qrt: total is not a valid number: %s ", levelName, total)
 		}
 
-		buckets = append(buckets, NewQRTBucket(validatedTime, count, validatedTotal))
+		buckets = append(buckets, QRTBucket{Time: validatedTime, Count: count, Total: validatedTotal})
 	}
 
 	h = NewQRTHistogram(buckets)

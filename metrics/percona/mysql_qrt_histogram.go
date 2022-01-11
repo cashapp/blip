@@ -12,15 +12,6 @@ type QRTBucket struct {
 	Total float64
 }
 
-// NewQRTBucket Public way to return a QRT bucket to be appended to a Histogram
-func NewQRTBucket(time float64, count uint64, total float64) QRTBucket {
-	return QRTBucket{
-		Time:  time,
-		Count: count,
-		Total: total,
-	}
-}
-
 // QRTHistogram represents a histogram containing MySQLQRTBuckets. Where each bucket is a bin.
 type QRTHistogram struct {
 	buckets []QRTBucket
