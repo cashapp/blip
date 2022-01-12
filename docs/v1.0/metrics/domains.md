@@ -13,6 +13,19 @@ nav_order: 3
 
 ---
 
+## access
+_Access statistics_
+
+### access.index
+_Index access statistics_
+
+Reserved for future use.
+
+### access.table
+_Table access statistics_
+
+Reserved for future use.
+
 ## aria
 _MariaDB Aria Storage Engine_
 
@@ -115,8 +128,28 @@ Reserved for future use.
 ## percona
 _Percona Server Enhancements_
 
-## percona.stats
-_User Statistics_
+Metrics from [Percona User Statistics](https://www.percona.com/doc/percona-server/8.0/diagnostics/user_stats.html).
+
+### percona.userstat.index
+_Percona `userstat` Index Statistics_
+
+{: .var-table}
+|Blip version|v1.0.0|
+|MySQL config|yes|
+|Sources|`INFORMATION_SCHEMA.INDEX_STATISTICS`|
+|Group keys||
+|Meta||
+
+
+### percona.userstat.table
+_Percona `userstat` Table Statistics_
+
+{: .var-table}
+|Blip version|v1.0.0|
+|MySQL config|yes|
+|Sources|`INFORMATION_SCHEMA.TABLE_STATISTICS`|
+|Group keys||
+|Meta||
 
 ## processlist
 _Processlist_
@@ -160,44 +193,51 @@ Therefore, the P99 might actually be P98.9 or P99.2.
 Meta key `pN` indicates the configured percentile, and its value `pA` indicates the actual percentile that was used.
 
 #### Derived Metrics
+{: .no_toc }
 
 * `reponse_time`<br>
 Type: gauge<br>
-Reponse time for all queries, reported as a percentile (default: P999) in millliseconds.
+Response time for all queries, reported as a percentile (default: P999) in milliseconds.
 The true percentile might be slightly more or less depending on how the histogram buckets are configured (see note 1).
 
 ### query.id
 _Not implemented yet._
 
-The `query.id` domain includes metrics for unique queires identified by digest SHA and set in `meta` as `id`.
+The `query.id` domain includes metrics for unique queries identified by digest SHA and set in `meta` as `id`.
 
 ## repl
 _MySQL Replication_
 
+Not implemented yet.
+
+### repl.lag
+_MySQL Replication Lag_
+
 {: .var-table}
 |Blip version|v1.0.0|
-|Sources|MySQL, Percona pt-heartbeat, Blip Heartbeat|
+|Sources|[Blip Heartbeat](../heartbeat), ~~Percona pt-heartbeat, or ~~MySQL~~|
 |MySQL config|MySQL: no; other sources: yes|
 |Group keys||
 |Meta||
+|Metrics|&bull; `max` (gauge): Maximum replication lag (milliseconds) observed during collect interval.<br>|
 
-The `repl` metric domain includes metrics related to classic MySQL (not Group Replication).
-The primary metric, which is derived from various sources, is `lag` (in milliseconds).
+Requires option `source` in the plan; use `%{monitor.meta.repl-source}` like:
 
-#### Required Options
-{: .no_toc }
+```yaml
+level:
+  collect:
+    repl.lag:
+      options:
+        source: "%{monitor.meta.repl-source}"
+```
 
-* `source`: Source MySQL instance
-
-#### Derived Metrics
-{: .no_toc }
-
-* `lag`<br>
-Type: gauge
-
-* `running`<br>
-Type: gauge (bool)<br>
-1 if replica is running, else 0
+Then define `config.monitor.meta.repl-source` in the [monitor meta](../config/config-file#meta):
+```yaml
+monitors:
+  - hostname: replica.db
+    meta:
+      repl-source: source.db
+```
 
 ## rocksdb
 _RocksDB Store Engine_
@@ -209,6 +249,20 @@ _Data, Index, and File Sizes_
 
 ### size.binlog
 _Binary Log Storage Size_
+
+{: .var-table}
+|Blip version|v1.0.0|
+|Sources|`SHOW BINARY LOGS`|
+|MySQL config|no|
+|Group keys||
+|Meta||
+
+#### Derived Metrics
+{: .no_toc }
+
+* `bytes`<br>
+Type: gauge<br>
+Total size of all binary logs in bytes.
 
 ### size.data
 _Database and Table Storage Size_
@@ -274,6 +328,7 @@ Reserved for future use.
 TLS (SSL) Status and Configuration
 
 #### Derived Metrics
+{: .no_toc }
 
 * enabled (have_ssl)
 * ssl_server_not_before (date-time converted to Unix timestamp)

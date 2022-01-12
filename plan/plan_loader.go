@@ -8,12 +8,14 @@ import (
 	"io/ioutil"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
 	"gopkg.in/yaml.v2"
 
 	"github.com/cashapp/blip"
+	"github.com/cashapp/blip/metrics"
 	"github.com/cashapp/blip/proto"
 	"github.com/cashapp/blip/sqlutil"
 )
@@ -127,6 +129,10 @@ func (pl *Loader) LoadShared(cfg blip.ConfigPlans, dbMaker blip.DbFactory) error
 			return err
 		}
 
+		if err := ValidatePlans(plans); err != nil {
+			return err
+		}
+
 		// Save all plans from table by name
 		for _, plan := range plans {
 			sharedPlans = append(sharedPlans, planMeta{
@@ -187,6 +193,10 @@ func (pl *Loader) LoadMonitor(mon blip.ConfigMonitor, dbMaker blip.DbFactory) er
 		plans, err := ReadPlanTable(table, db, mon.MonitorId)
 		if err != nil {
 			return nil
+		}
+
+		if err := ValidatePlans(plans); err != nil {
+			return err
 		}
 
 		pl.RUnlock() // -- R unlock
@@ -299,7 +309,8 @@ func (pl *Loader) Print() {
 type planFile map[string]*blip.Level
 
 func (pl *Loader) readPlans(filePaths []string) ([]planMeta, error) {
-	plans := []planMeta{}
+	meta := []planMeta{}   // return value
+	plans := []blip.Plan{} // ValidatePlans()
 
 PATHS:
 	for _, filePattern := range filePaths {
@@ -323,7 +334,7 @@ PATHS:
 					name:   file,
 					shared: true,
 				}
-				plans = append(plans, pm)
+				meta = append(meta, pm)
 				continue FILES
 			}
 
@@ -352,12 +363,17 @@ PATHS:
 				plan:   plan,
 				source: fileabs,
 			}
-			plans = append(plans, pm)
+			meta = append(meta, pm)
+			plans = append(plans, plan) // validate later
 			blip.Debug("loaded file %s (%s) as plan %s", file, fileabs, plan.Name)
 		}
 	}
 
-	return plans, nil
+	if err := ValidatePlans(plans); err != nil {
+		return nil, err
+	}
+
+	return meta, nil
 }
 
 func (pl *Loader) fileLoaded(file string) bool {
@@ -427,4 +443,66 @@ func ReadPlanTable(table string, db *sql.DB, monitorId string) ([]blip.Plan, err
 	}
 
 	return plans, nil
+}
+
+// ValidatePlans returns nil if all plans are valid, else it returns an error
+// that lists each validation error.
+func ValidatePlans(plans []blip.Plan) error {
+	errMsgs := []string{}
+	mcList := map[string]blip.Collector{}
+
+	for i := range plans {
+
+		// First level validation: Plan does its own static analysis (e.g. check freq)
+		if err := plans[i].Validate(); err != nil {
+			errMsgs = append(errMsgs, fmt.Sprintf("invalid plan: %s: %s", plans[i].Name, err))
+			continue
+		}
+
+		// Second level validation: PlanLoader checks that domains exist, and
+		// domain options vs collector help
+		for levelName := range plans[i].Levels {
+		DOMAINS:
+			for domainName := range plans[i].Levels[levelName].Collect {
+
+				// Make collector if needed. We're not actually running the
+				// collector, so blip.CollectorFactoryArgs{} is fine (i.e.
+				// don't need a *sql.DB or anything).
+				mc, ok := mcList[domainName]
+				if !ok {
+
+					// Implicit domain check: if the domain in the plan causes
+					// a collectory factory error, then the domain is invalid/
+					// doesn't exist
+					var err error
+					mc, err = metrics.Make(domainName, blip.CollectorFactoryArgs{})
+					if err != nil {
+						errMsgs = append(errMsgs, fmt.Sprintf("invalid plan: %s: at %s/%s: %s",
+							plans[i].Name, levelName, domainName, err))
+						continue DOMAINS
+					}
+
+					mcList[domainName] = mc
+				}
+
+				// Validate collector options given in plan. Help() returns
+				// a blip.CollectorHelp struct which knows how to validate
+				// the input options because it (the struct) contains all the
+				// valid options.
+				err := mc.Help().Validate(plans[i].Levels[levelName].Collect[domainName].Options)
+				if err != nil {
+					errMsgs = append(errMsgs, fmt.Sprintf("invalid plan: %s: at %s/%s: %s",
+						plans[i].Name, levelName, domainName, err))
+				}
+			}
+		}
+	}
+
+	// Third level validation is each collector Prepare, called by monitor/Engine.Prepare
+
+	if len(errMsgs) > 0 {
+		return fmt.Errorf("%d plan validation errors:\n%s", len(errMsgs), strings.Join(errMsgs, "\n"))
+	}
+
+	return nil
 }

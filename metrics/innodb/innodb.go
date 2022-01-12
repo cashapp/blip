@@ -10,58 +10,57 @@ import (
 )
 
 const (
+	DOMAIN = "innodb"
+
 	OPT_ALL = "all"
 )
 
 /*
-mysql> SELECT * FROM innodb_metrics WHERE name='trx_rseg_history_len' LIMIT 1\G
-*************************** 1. row ***************************
-           NAME: trx_rseg_history_len
-      SUBSYSTEM: transaction
-          COUNT: 0
-      MAX_COUNT: 0
-      MIN_COUNT: 0
-      AVG_COUNT: NULL
-    COUNT_RESET: 0
-MAX_COUNT_RESET: 0
-MIN_COUNT_RESET: 0
-AVG_COUNT_RESET: NULL
-   TIME_ENABLED: 2021-08-17 08:24:14
-  TIME_DISABLED: NULL
-   TIME_ELAPSED: 1905927
-     TIME_RESET: NULL
-         STATUS: enabled
-           TYPE: value
-        COMMENT: Length of the TRX_RSEG_HISTORY list
+	mysql> SELECT * FROM innodb_metrics WHERE name='trx_rseg_history_len' LIMIT 1\G
+	*************************** 1. row ***************************
+	           NAME: trx_rseg_history_len
+	      SUBSYSTEM: transaction
+	          COUNT: 0
+	      MAX_COUNT: 0
+	      MIN_COUNT: 0
+	      AVG_COUNT: NULL
+	    COUNT_RESET: 0
+	MAX_COUNT_RESET: 0
+	MIN_COUNT_RESET: 0
+	AVG_COUNT_RESET: NULL
+	   TIME_ENABLED: 2021-08-17 08:24:14
+	  TIME_DISABLED: NULL
+	   TIME_ELAPSED: 1905927
+	     TIME_RESET: NULL
+	         STATUS: enabled
+	           TYPE: value
+	        COMMENT: Length of the TRX_RSEG_HISTORY list
 */
 
-// Metrics collects global system variables for the var.global domain.
-type Metrics struct {
-	monitorId string
-	db        *sql.DB
-	plans     blip.Plan
-	query     map[string]string
+// InnoDB collects metrics for the innodb domain. The source is
+// information_schema.innodb_metrics.
+type InnoDB struct {
+	db    *sql.DB
+	query map[string]string
 }
 
-func NewMetrics(db *sql.DB) *Metrics {
-	return &Metrics{
+var _ blip.Collector = &InnoDB{}
+
+func NewInnoDB(db *sql.DB) *InnoDB {
+	return &InnoDB{
 		db:    db,
 		query: map[string]string{},
 	}
 }
 
-const (
-	blip_domain = "innodb"
-)
-
-func (c *Metrics) Domain() string {
-	return blip_domain
+func (c *InnoDB) Domain() string {
+	return DOMAIN
 }
 
-func (c *Metrics) Help() blip.CollectorHelp {
+func (c *InnoDB) Help() blip.CollectorHelp {
 	return blip.CollectorHelp{
-		Domain:      blip_domain,
-		Description: "Collect Metrics metrics (information_schema.innodb_metrics)",
+		Domain:      DOMAIN,
+		Description: "InnoDB metrics from information_schema.innodb_metrics like 'trx_rseg_history_len' (HLL)",
 		Options: map[string]blip.CollectorHelpOption{
 			OPT_ALL: {
 				Name:    OPT_ALL,
@@ -74,38 +73,37 @@ func (c *Metrics) Help() blip.CollectorHelp {
 				},
 			},
 		},
+		Meta: []blip.CollectorKeyValue{
+			{Key: "subsystem", Value: "innodb_metrics.subsystem column"},
+		},
 	}
 }
 
-const (
-	base = "SELECT subsystem, name, count FROM information_schema.innodb_metrics"
-)
+const baseQuery = "SELECT subsystem, name, count FROM information_schema.innodb_metrics"
 
-// Prepares queries for all levels in the plan that contain the "var.global" domain
-func (c *Metrics) Prepare(ctx context.Context, plan blip.Plan) error {
+func (c *InnoDB) Prepare(ctx context.Context, plan blip.Plan) (func(), error) {
 LEVEL:
 	for _, level := range plan.Levels {
-		dom, ok := level.Collect[blip_domain]
+		dom, ok := level.Collect[DOMAIN]
 		if !ok {
-			continue LEVEL // not collected in this level
+			continue LEVEL // not collected at this level
 		}
 
 		all := strings.ToLower(dom.Options[OPT_ALL])
 		switch all {
 		case "all":
-			c.query[level.Name] = base
+			c.query[level.Name] = baseQuery
 		case "enabled":
-			c.query[level.Name] = base + " WHERE status='enabled'"
+			c.query[level.Name] = baseQuery + " WHERE status='enabled'"
 		default:
-			c.query[level.Name] = base + " WHERE name IN (" + sqlutil.INList(dom.Metrics, "'") + ")"
+			c.query[level.Name] = baseQuery + " WHERE name IN (" + sqlutil.INList(dom.Metrics, "'") + ")"
 		}
 	}
-	return nil
+	return nil, nil
 }
 
-func (c *Metrics) Collect(ctx context.Context, levelName string) ([]blip.MetricValue, error) {
-	q := c.query[levelName]
-	rows, err := c.db.QueryContext(ctx, q)
+func (c *InnoDB) Collect(ctx context.Context, levelName string) ([]blip.MetricValue, error) {
+	rows, err := c.db.QueryContext(ctx, c.query[levelName])
 	if err != nil {
 		return nil, err
 	}
@@ -120,19 +118,24 @@ func (c *Metrics) Collect(ctx context.Context, levelName string) ([]blip.MetricV
 		ok        bool
 	)
 	for rows.Next() {
-		m := blip.MetricValue{Type: blip.COUNTER}
-
 		if err = rows.Scan(&subsystem, &name, &val); err != nil {
-			continue
+			return nil, err
 		}
 
-		m.Name = strings.ToLower(name)
-		m.Meta = map[string]string{"subsystem": subsystem}
+		// At first glance, innodb_metrics.name seems lowercase, but it uppercases
+		// some acronyms but not all: buffer_LRU_batch_scanned vs. log_lsn_current
+		// (LSN = log sequence number). Must strings.ToLower.
+		m := blip.MetricValue{
+			Name: strings.ToLower(name),
+			Type: blip.COUNTER,
+			Meta: map[string]string{"subsystem": subsystem},
+		}
+		if gauge[m.Name] {
+			m.Type = blip.GAUGE
+		}
 
 		m.Value, ok = sqlutil.Float64(val)
 		if !ok {
-			// log.Printf("Error parsing the metric: %s value: %s as float %s", m.Name, val, err)
-			// Log error and continue to next row to retrieve next metric
 			continue
 		}
 
@@ -141,9 +144,6 @@ func (c *Metrics) Collect(ctx context.Context, levelName string) ([]blip.MetricV
 			m.Value = 0
 		}
 
-		if gauge[m.Name] {
-			m.Type = blip.GAUGE
-		}
 		metrics = append(metrics, m)
 	}
 

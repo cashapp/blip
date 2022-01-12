@@ -319,111 +319,111 @@
   },"53": {
     "doc": "Domains",
     "title": "Metric Domains",
-    "content": ". | aria | autoinc | aws . | aws.rds | aws.aurora | . | azure | error . | error.global | error.query | error.repl | error.client | . | event . | event.stage | event.stmt | event.trx | event.wait | . | file | galera | gcp | gr | host | innodb . | innodb.mutex | . | mariadb | ndb | oracle | percona | percona.stats | processlist | pfs | pxc | query . | query.global . | Notes | Derived Metrics | . | query.id | . | repl | rocksdb | size . | size.binlog | size.data | size.index | size.file | . | status . | status.account | status.global | status.host | status.thread | status.user | . | thd | tls . | Derived Metrics | . | tokudb | var.global | . ",
+    "content": ". | access . | access.index | access.table | . | aria | autoinc | aws . | aws.rds | aws.aurora | . | azure | error . | error.global | error.query | error.repl | error.client | . | event . | event.stage | event.stmt | event.trx | event.wait | . | file | galera | gcp | gr | host | innodb . | innodb.mutex | . | mariadb | ndb | oracle | percona . | percona.userstat.index | percona.userstat.table | . | processlist | pfs | pxc | query . | query.global . | Notes | . | query.id | . | repl . | repl.lag | . | rocksdb | size . | size.binlog | size.data | size.index | size.file | . | status . | status.account | status.global | status.host | status.thread | status.user | . | thd | tls | tokudb | var.global | . ",
     "url": "/v1.0/metrics/domains#metric-domains",
     "relUrl": "/v1.0/metrics/domains#metric-domains"
   },"54": {
+    "doc": "Domains",
+    "title": "access",
+    "content": "Access statistics . access.index . Index access statistics . Reserved for future use. access.table . Table access statistics . Reserved for future use. ",
+    "url": "/v1.0/metrics/domains#access",
+    "relUrl": "/v1.0/metrics/domains#access"
+  },"55": {
     "doc": "Domains",
     "title": "aria",
     "content": "MariaDB Aria Storage Engine . Reserved for future use. ",
     "url": "/v1.0/metrics/domains#aria",
     "relUrl": "/v1.0/metrics/domains#aria"
-  },"55": {
+  },"56": {
     "doc": "Domains",
     "title": "autoinc",
     "content": "Auto-increment Columns . Not implemented yet but planned. ",
     "url": "/v1.0/metrics/domains#autoinc",
     "relUrl": "/v1.0/metrics/domains#autoinc"
-  },"56": {
+  },"57": {
     "doc": "Domains",
     "title": "aws",
     "content": "Amazon Web Services . aws.rds . Amazon RDS for MySQL . aws.aurora . Amazon Aurora . ",
     "url": "/v1.0/metrics/domains#aws",
     "relUrl": "/v1.0/metrics/domains#aws"
-  },"57": {
+  },"58": {
     "doc": "Domains",
     "title": "azure",
     "content": "Microsoft Azure . Reserved for future use. ",
     "url": "/v1.0/metrics/domains#azure",
     "relUrl": "/v1.0/metrics/domains#azure"
-  },"58": {
+  },"59": {
     "doc": "Domains",
     "title": "error",
     "content": "error.global . error.query . error.repl . error.client . ",
     "url": "/v1.0/metrics/domains#error",
     "relUrl": "/v1.0/metrics/domains#error"
-  },"59": {
+  },"60": {
     "doc": "Domains",
     "title": "event",
     "content": "MySQL Events . Reserved for future use. event.stage . event.stmt . event.trx . event.wait . ",
     "url": "/v1.0/metrics/domains#event",
     "relUrl": "/v1.0/metrics/domains#event"
-  },"60": {
+  },"61": {
     "doc": "Domains",
     "title": "file",
     "content": "Files and Tablespaces . Reserved for future use. ",
     "url": "/v1.0/metrics/domains#file",
     "relUrl": "/v1.0/metrics/domains#file"
-  },"61": {
+  },"62": {
     "doc": "Domains",
     "title": "galera",
     "content": "Percona XtraDB Cluster and MariaDB Cluster (wsrep) . Reserved for future use. ",
     "url": "/v1.0/metrics/domains#galera",
     "relUrl": "/v1.0/metrics/domains#galera"
-  },"62": {
+  },"63": {
     "doc": "Domains",
     "title": "gcp",
     "content": "Google Cloud . Reserved for future use. ",
     "url": "/v1.0/metrics/domains#gcp",
     "relUrl": "/v1.0/metrics/domains#gcp"
-  },"63": {
+  },"64": {
     "doc": "Domains",
     "title": "gr",
     "content": "MySQL Group Replication . Reserved for future use. ",
     "url": "/v1.0/metrics/domains#gr",
     "relUrl": "/v1.0/metrics/domains#gr"
-  },"64": {
+  },"65": {
     "doc": "Domains",
     "title": "host",
     "content": "Host (Client) .COUNT_HOST_BLOCKED_ERRORS . ",
     "url": "/v1.0/metrics/domains#host",
     "relUrl": "/v1.0/metrics/domains#host"
-  },"65": {
+  },"66": {
     "doc": "Domains",
     "title": "innodb",
     "content": "InnoDB Metrics . Metrics from INFORMATION_SCHEMA.INNODB_METRICS. | Blip version | v1.0.0 | . | MySQL config | maybe | . | Sources | I_S | . | Group keys |   | . | Meta | subsystem=SUBSYSTEM column | . innodb.mutex . InnoDB Mutexes . Metrics from SHOW ENGINE INNODB MUTEX. Not implement yet. ",
     "url": "/v1.0/metrics/domains#innodb",
     "relUrl": "/v1.0/metrics/domains#innodb"
-  },"66": {
+  },"67": {
     "doc": "Domains",
     "title": "mariadb",
     "content": "MariaDB Enhancements . Reserved for future use. ",
     "url": "/v1.0/metrics/domains#mariadb",
     "relUrl": "/v1.0/metrics/domains#mariadb"
-  },"67": {
+  },"68": {
     "doc": "Domains",
     "title": "ndb",
     "content": "MySQL NDB Cluster . Reserved for future use. ",
     "url": "/v1.0/metrics/domains#ndb",
     "relUrl": "/v1.0/metrics/domains#ndb"
-  },"68": {
+  },"69": {
     "doc": "Domains",
     "title": "oracle",
     "content": "Oracle Cloud and Enterprise Enhancements . Reserved for future use. ",
     "url": "/v1.0/metrics/domains#oracle",
     "relUrl": "/v1.0/metrics/domains#oracle"
-  },"69": {
-    "doc": "Domains",
-    "title": "percona",
-    "content": "Percona Server Enhancements . ",
-    "url": "/v1.0/metrics/domains#percona",
-    "relUrl": "/v1.0/metrics/domains#percona"
   },"70": {
     "doc": "Domains",
-    "title": "percona.stats",
-    "content": "User Statistics . ",
-    "url": "/v1.0/metrics/domains#perconastats",
-    "relUrl": "/v1.0/metrics/domains#perconastats"
+    "title": "percona",
+    "content": "Percona Server Enhancements . Metrics from Percona User Statistics. percona.userstat.index . Percona userstat Index Statistics . | Blip version | v1.0.0 | . | MySQL config | yes | . | Sources | INFORMATION_SCHEMA.INDEX_STATISTICS | . | Group keys |   | . | Meta |   | . percona.userstat.table . Percona userstat Table Statistics . | Blip version | v1.0.0 | . | MySQL config | yes | . | Sources | INFORMATION_SCHEMA.TABLE_STATISTICS | . | Group keys |   | . | Meta |   | . ",
+    "url": "/v1.0/metrics/domains#percona",
+    "relUrl": "/v1.0/metrics/domains#percona"
   },"71": {
     "doc": "Domains",
     "title": "processlist",
@@ -445,13 +445,13 @@
   },"74": {
     "doc": "Domains",
     "title": "query",
-    "content": "Query Metrics . query.global . Global Query Response Time . | Blip version | v1.0.0 | . | MySQL config | yes | . | Sources | MySQL 8.0 p_s.events_statements_histogram_global, Percona Server 5.7 RTD plugin | . | Group keys |   | . | Meta key-values | • pN=pA: where pN is configured percentile (default: p999) and pA is actual percentile (see note 1) | . The query.global domain includes metrics for all queries, which is currently only response time. By default, it reports the P999 (99.9th percentile) reponse time using either MySQL 8.0 performance_schema.events_statements_histogram_global or Percona Server 5.7 Response Time Distribution plugin. Multiple percentiles can be collect—p95, p99, and p999 for example. The metric for each percentile is denoted by meta key pN. Notes . | MySQL (and Percona Server) use histograms with varible bucket ranges. Therefore, the P99 might actually be P98.9 or P99.2. Meta key pN indicates the configured percentile, and its value pA indicates the actual percentile that was used. | . Derived Metrics . | reponse_time Type: gauge Reponse time for all queries, reported as a percentile (default: P999) in millliseconds. The true percentile might be slightly more or less depending on how the histogram buckets are configured (see note 1). | . query.id . Not implemented yet. The query.id domain includes metrics for unique queires identified by digest SHA and set in meta as id. ",
+    "content": "Query Metrics . query.global . Global Query Response Time . | Blip version | v1.0.0 | . | MySQL config | yes | . | Sources | MySQL 8.0 p_s.events_statements_histogram_global, Percona Server 5.7 RTD plugin | . | Group keys |   | . | Meta key-values | • pN=pA: where pN is configured percentile (default: p999) and pA is actual percentile (see note 1) | . The query.global domain includes metrics for all queries, which is currently only response time. By default, it reports the P999 (99.9th percentile) reponse time using either MySQL 8.0 performance_schema.events_statements_histogram_global or Percona Server 5.7 Response Time Distribution plugin. Multiple percentiles can be collect—p95, p99, and p999 for example. The metric for each percentile is denoted by meta key pN. Notes . | MySQL (and Percona Server) use histograms with varible bucket ranges. Therefore, the P99 might actually be P98.9 or P99.2. Meta key pN indicates the configured percentile, and its value pA indicates the actual percentile that was used. | . Derived Metrics . | reponse_time Type: gauge Response time for all queries, reported as a percentile (default: P999) in milliseconds. The true percentile might be slightly more or less depending on how the histogram buckets are configured (see note 1). | . query.id . Not implemented yet. The query.id domain includes metrics for unique queries identified by digest SHA and set in meta as id. ",
     "url": "/v1.0/metrics/domains#query",
     "relUrl": "/v1.0/metrics/domains#query"
   },"75": {
     "doc": "Domains",
     "title": "repl",
-    "content": "MySQL Replication . | Blip version | v1.0.0 | . | Sources | MySQL, Percona pt-heartbeat, Blip Heartbeat | . | MySQL config | MySQL: no; other sources: yes | . | Group keys |   | . | Meta |   | . The repl metric domain includes metrics related to classic MySQL (not Group Replication). The primary metric, which is derived from various sources, is lag (in milliseconds). Required Options . | source: Source MySQL instance | . Derived Metrics . | lag Type: gauge . | running Type: gauge (bool) 1 if replica is running, else 0 . | . ",
+    "content": "MySQL Replication . Not implemented yet. repl.lag . MySQL Replication Lag . | Blip version | v1.0.0 | . | Sources | Blip Heartbeat, Percona pt-heartbeat, or ~~MySQL | . | MySQL config | MySQL: no; other sources: yes | . | Group keys |   | . | Meta |   | . | Metrics | • max (gauge): Maximum replication lag (milliseconds) observed during collect interval. | . Requires option source in the plan; use %{monitor.meta.repl-source} like: . level: collect: repl.lag: options: source: \"%{monitor.meta.repl-source}\" . Then define config.monitor.meta.repl-source in the monitor meta: . monitors: - hostname: replica.db meta: repl-source: source.db . ",
     "url": "/v1.0/metrics/domains#repl",
     "relUrl": "/v1.0/metrics/domains#repl"
   },"76": {
@@ -463,7 +463,7 @@
   },"77": {
     "doc": "Domains",
     "title": "size",
-    "content": "Data, Index, and File Sizes . size.binlog . Binary Log Storage Size . size.data . Database and Table Storage Size . | Blip version | v1.0.0 | . | MySQL config | no | . | Group keys | db, tbl | . | Meta |   | . size.index . Index Storage Size . size.file . File Storage Size .innodb_undo .innodb_temp . ",
+    "content": "Data, Index, and File Sizes . size.binlog . Binary Log Storage Size . | Blip version | v1.0.0 | . | Sources | SHOW BINARY LOGS | . | MySQL config | no | . | Group keys |   | . | Meta |   | . Derived Metrics . | bytes Type: gauge Total size of all binary logs in bytes. | . size.data . Database and Table Storage Size . | Blip version | v1.0.0 | . | MySQL config | no | . | Group keys | db, tbl | . | Meta |   | . size.index . Index Storage Size . size.file . File Storage Size .innodb_undo .innodb_temp . ",
     "url": "/v1.0/metrics/domains#size",
     "relUrl": "/v1.0/metrics/domains#size"
   },"78": {

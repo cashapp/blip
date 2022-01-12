@@ -1,4 +1,4 @@
-package size
+package sizedata
 
 import (
 	"context"
@@ -10,24 +10,23 @@ import (
 )
 
 const (
+	DOMAIN = "size.data"
+
 	OPT_INCLUDE = "include"
 	OPT_EXCLUDE = "exclude"
 	OPT_LIKE    = "like"
 	OPT_TOTAL   = "total"
 )
 
-const (
-	data_domain = "size.data"
-)
-
 // Data collects data sizes for domain size.data.
 type Data struct {
-	monitorId string
-	db        *sql.DB
-	plans     blip.Plan
-	query     map[string]string // keyed on level
-	total     map[string]bool   // keyed on level
+	db *sql.DB
+	// --
+	query map[string]string // keyed on level
+	total map[string]bool   // keyed on level
 }
+
+var _ blip.Collector = &Data{}
 
 func NewData(db *sql.DB) *Data {
 	return &Data{
@@ -38,12 +37,12 @@ func NewData(db *sql.DB) *Data {
 }
 
 func (c *Data) Domain() string {
-	return data_domain
+	return DOMAIN
 }
 
 func (c *Data) Help() blip.CollectorHelp {
 	return blip.CollectorHelp{
-		Domain:      binlog_domain,
+		Domain:      DOMAIN,
 		Description: "Collect size of databases (total data size)",
 		Options: map[string]blip.CollectorHelpOption{
 			OPT_TOTAL: {
@@ -75,34 +74,43 @@ func (c *Data) Help() blip.CollectorHelp {
 				},
 			},
 		},
+		Groups: []blip.CollectorKeyValue{
+			{Key: "db", Value: "database name, or empty string for all dbs"},
+		},
+		Metrics: []blip.CollectorMetric{
+			{
+				Name: "bytes",
+				Type: blip.GAUGE,
+				Desc: "Total size of all binary logs in bytes",
+			},
+		},
 	}
 }
 
 // Prepares queries for all levels in the plan that contain the "var.global" domain
-func (c *Data) Prepare(ctx context.Context, plan blip.Plan) error {
+func (c *Data) Prepare(ctx context.Context, plan blip.Plan) (func(), error) {
 LEVEL:
 	for _, level := range plan.Levels {
-		dom, ok := level.Collect[data_domain]
+		dom, ok := level.Collect[DOMAIN]
 		if !ok {
 			continue LEVEL // not collected in this level
 		}
 		q, err := DataSizeQuery(dom.Options, c.Help())
 		if err != nil {
-			return err
+			return nil, err
 		}
 		c.query[level.Name] = q
 
-		if dom.Options[OPT_TOTAL] == "yse" {
+		if dom.Options[OPT_TOTAL] == "yes" {
 			c.total[level.Name] = true
 		}
 	}
-	return nil
+	return nil, nil
 }
 
 func (c *Data) Collect(ctx context.Context, levelName string) ([]blip.MetricValue, error) {
 	q, ok := c.query[levelName]
 	if !ok {
-		// @todo problem an error in monitor.Collect?
 		return nil, nil // not collected in this level
 	}
 
@@ -114,20 +122,22 @@ func (c *Data) Collect(ctx context.Context, levelName string) ([]blip.MetricValu
 
 	metrics := []blip.MetricValue{}
 
-	var val string
-	var name string
+	var (
+		name string
+		val  string
+	)
 	for rows.Next() {
-		m := blip.MetricValue{
-			Name:  "bytes",
-			Type:  blip.GAUGE,
-			Group: map[string]string{},
-		}
-
 		if err = rows.Scan(&name, &val); err != nil {
-			continue
+			return nil, err
 		}
 
-		m.Group["db"] = name
+		m := blip.MetricValue{
+			Name: "bytes",
+			Type: blip.GAUGE,
+			Group: map[string]string{
+				"db": name,
+			},
+		}
 
 		m.Value, ok = sqlutil.Float64(val)
 		if !ok {

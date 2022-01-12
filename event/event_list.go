@@ -46,4 +46,9 @@ const (
 	STATE_CHANGE_BEGIN = "state-change-begin"
 	STATE_CHANGE_END   = "state-change-end"
 	STATE_CHANGE_ABORT = "state-change-abort"
+
+	DB_RELOAD_PASSWORD_ERROR = "db-reload-password-error"
+
+	COLLECTOR_ERROR = "collector-error"
+	COLLECTOR_PANIC = "collector-panic"
 )

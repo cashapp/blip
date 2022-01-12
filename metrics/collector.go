@@ -8,9 +8,11 @@ import (
 	"github.com/cashapp/blip"
 	"github.com/cashapp/blip/event"
 	"github.com/cashapp/blip/metrics/innodb"
-	"github.com/cashapp/blip/metrics/size"
-	"github.com/cashapp/blip/metrics/status"
-	sysvar "github.com/cashapp/blip/metrics/var"
+	"github.com/cashapp/blip/metrics/repl.lag"
+	"github.com/cashapp/blip/metrics/size.binlog"
+	"github.com/cashapp/blip/metrics/size.data"
+	"github.com/cashapp/blip/metrics/status.global"
+	"github.com/cashapp/blip/metrics/var.global"
 )
 
 // Register registers a factory that makes one or more collector by domain name.
@@ -52,7 +54,8 @@ func Make(domain string, args blip.CollectorFactoryArgs) (blip.Collector, error)
 	defer r.Unlock()
 	f, ok := r.factory[domain]
 	if !ok {
-		return nil, fmt.Errorf("%s not registeres", domain)
+		return nil, blip.ErrInvalidDomain{Domain: domain}
+
 	}
 	return f.Make(domain, args)
 }
@@ -79,34 +82,73 @@ func PrintDomains() string {
 			opts = append(opts, o)
 		}
 
-		if len(opts) == 0 {
-			out += "\t(No options)\n\n"
-			continue
-		}
-		out += "\tOptions:\n"
+		if len(opts) > 0 {
+			out += "\tOptions:\n"
+			sort.Strings(opts)
+			for _, optName := range opts {
+				optHelp := help.Options[optName]
+				out += "\t\t" + optName + ": " + optHelp.Desc
+				if len(optHelp.Values) > 0 {
+					out += "\n"
+					valWidth := 0
+					for val := range optHelp.Values {
+						if len(val) > valWidth {
+							valWidth = len(val)
+						}
+					}
+					valLine := fmt.Sprintf("\t\t| %%-%ds = %%s", valWidth)
 
-		sort.Strings(opts)
-		for _, optName := range opts {
-			optHelp := help.Options[optName]
-			out += "\t\t" + optName + ": " + optHelp.Desc + "\n"
-
-			valWidth := 0
-			for val := range optHelp.Values {
-				if len(val) > valWidth {
-					valWidth = len(val)
+					for val, desc := range optHelp.Values {
+						out += fmt.Sprintf(valLine, val, desc)
+						if val == optHelp.Default {
+							out += " (default)"
+						}
+						out += "\n"
+					}
+					out += "\n"
+				} else if optHelp.Default != "" {
+					out += " (default: " + optHelp.Default + ")\n\n"
+				} else {
+					out += "\n\n"
 				}
 			}
-			valLine := fmt.Sprintf("\t\t| %%-%ds = %%s", valWidth)
+		} else {
+			out += "\t(No options)\n\n"
+		}
 
-			for val, desc := range optHelp.Values {
-				out += fmt.Sprintf(valLine, val, desc)
-				if val == optHelp.Default {
-					out += " (default)"
-				}
-				out += "\n"
+		if len(help.Groups) > 0 {
+			out += "\tGroups:\n"
+			for _, kv := range help.Groups {
+				out += "\t\t" + kv.Key + " = " + kv.Value + "\n"
 			}
 			out += "\n"
 		}
+
+		if len(help.Meta) > 0 {
+			out += "\tMeta:\n"
+			for _, kv := range help.Meta {
+				out += "\t\t" + kv.Key + " = " + kv.Value + "\n"
+			}
+			out += "\n"
+		}
+
+		if len(help.Metrics) > 0 {
+			out += "\tMetrics:\n"
+			for _, m := range help.Metrics {
+				out += "\t\t" + m.Name
+				switch m.Type {
+				case blip.COUNTER:
+					out += " (counter)"
+				case blip.GAUGE:
+					out += " (gauge)"
+				default:
+					out += " (unknown type)"
+				}
+				out += ": " + m.Desc + "\n"
+			}
+			out += "\n"
+		}
+
 		out += "\n"
 	}
 
@@ -150,31 +192,29 @@ var f = factory{}
 // that makes the built-in collectors: status.global, var.global, and so on.
 func (f factory) Make(domain string, args blip.CollectorFactoryArgs) (blip.Collector, error) {
 	switch domain {
-	case "status.global":
-		mc := status.NewGlobal(args.DB)
-		return mc, nil
-	case "var.global":
-		mc := sysvar.NewGlobal(args.DB)
-		return mc, nil
-	case "size.data":
-		mc := size.NewData(args.DB)
-		return mc, nil
-	case "size.binlogs":
-		mc := size.NewBinlogs(args.DB)
-		return mc, nil
 	case "innodb":
-		mc := innodb.NewMetrics(args.DB)
-		return mc, nil
+		return innodb.NewInnoDB(args.DB), nil
+	case "repl.lag":
+		return repllag.NewLag(args.DB), nil
+	case "size.binlog":
+		return sizebinlog.NewBinlog(args.DB), nil
+	case "size.data":
+		return sizedata.NewData(args.DB), nil
+	case "status.global":
+		return statusglobal.NewGlobal(args.DB), nil
+	case "var.global":
+		return varglobal.NewGlobal(args.DB), nil
 	}
-	return nil, fmt.Errorf("collector for domain %s not registered", domain)
+	return nil, blip.ErrInvalidDomain{Domain: domain}
 }
 
 // List of built-in collectors. To add one, add its domain name here, and add
 // the same domain in the switch statement above (in factory.Make).
 var builtinCollectors = []string{
+	"innodb",
+	"repl.lag",
+	"size.binlog",
+	"size.data",
 	"status.global",
 	"var.global",
-	"size.data",
-	"size.binlogs",
-	"innodb",
 }

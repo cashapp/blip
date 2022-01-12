@@ -20,80 +20,14 @@ const VERSION = "0.0.0"
 
 var SHA = ""
 
-// Plugins are function callbacks that let you override specific functionality of Blip.
-// Every plugin is optional: if specified, it overrides the built-in functionality.
-type Plugins struct {
-	LoadConfig       func(Config) (Config, error)
-	LoadMonitors     func(Config) ([]ConfigMonitor, error)
-	LoadLevelPlans   func(ConfigPlans) ([]Plan, error)
-	ModifyDB         func(*sql.DB)
-	TransformMetrics func(*Metrics) error
-}
-
-// Factories are interfaces that let you override certain object creation of Blip.
-// Every factory is optional: if specified, it overrides the built-in factory.
-type Factories struct {
-	AWSConfig  AWSConfigFactory
-	DbConn     DbFactory
-	HTTPClient HTTPClientFactory
-}
-
-// Env is the startup environment: command line args and environment variables.
-// This is mostly used for testing to override the defaults.
-type Env struct {
-	Args []string
-	Env  []string
-}
-
-type AWS struct {
-	Region string
-}
-
-type AWSConfigFactory interface {
-	Make(AWS) (aws.Config, error)
-}
-
-type DbFactory interface {
-	Make(ConfigMonitor) (*sql.DB, string, error)
-}
-
-type HTTPClientFactory interface {
-	Make(cfg ConfigHTTP, usedFor string) (*http.Client, error)
-}
-
-// Collector collects metrics for a single metric domain.
-type Collector interface {
-	// Domain returns the Blip domain prefix.
-	Domain() string
-
-	// Help returns information about using the collector.
-	Help() CollectorHelp
-
-	// Prepare prepares a plan for future calls to Collect.
-	Prepare(ctx context.Context, plan Plan) error
-
-	// Collect collects metrics for the given in the previously prepared plan.
-	Collect(ctx context.Context, levelName string) ([]MetricValue, error)
-}
-
-// CollectorFactoryArgs are provided by Blip to a CollectorFactory when making
-// a Collector. The factory must use the args to create the collector.
-type CollectorFactoryArgs struct {
-	// MonitorId is the monitor identifier. The Collector must include
-	// this value in all errors, output, and so forth. Everything monitor-related
-	// in Blip is keyed on monitor ID.
-	MonitorId string
-
-	// DB is the connection to MySQL. It is safe for concurrent use, and it is
-	// used concurrently by other parts of a monitor. The Collector must not
-	// modify the connection, reconnect, and so forth--only use the connection.
-	DB *sql.DB
-}
-
-// A CollectorFactory makes one or more Collector.
-type CollectorFactory interface {
-	Make(domain string, args CollectorFactoryArgs) (Collector, error)
-}
+// Metric types.
+const (
+	UNKNOWN byte = iota
+	COUNTER
+	GAUGE
+	BOOL
+	EVENT
+)
 
 // Metrics are metrics collected for one plan level, from one database instance.
 type Metrics struct {
@@ -142,14 +76,46 @@ type SinkFactory interface {
 	Make(name, monitorId string, opts, tags map[string]string) (Sink, error)
 }
 
-// Metric types.
-const (
-	UNKNOWN byte = iota
-	COUNTER
-	GAUGE
-	BOOL
-	EVENT
-)
+// Plugins are function callbacks that let you override specific functionality of Blip.
+// Every plugin is optional: if specified, it overrides the built-in functionality.
+type Plugins struct {
+	LoadConfig       func(Config) (Config, error)
+	LoadMonitors     func(Config) ([]ConfigMonitor, error)
+	LoadLevelPlans   func(ConfigPlans) ([]Plan, error)
+	ModifyDB         func(*sql.DB)
+	TransformMetrics func(*Metrics) error
+}
+
+// Factories are interfaces that let you override certain object creation of Blip.
+// Every factory is optional: if specified, it overrides the built-in factory.
+type Factories struct {
+	AWSConfig  AWSConfigFactory
+	DbConn     DbFactory
+	HTTPClient HTTPClientFactory
+}
+
+// Env is the startup environment: command line args and environment variables.
+// This is mostly used for testing to override the defaults.
+type Env struct {
+	Args []string
+	Env  []string
+}
+
+type AWS struct {
+	Region string
+}
+
+type AWSConfigFactory interface {
+	Make(AWS) (aws.Config, error)
+}
+
+type DbFactory interface {
+	Make(ConfigMonitor) (*sql.DB, string, error)
+}
+
+type HTTPClientFactory interface {
+	Make(cfg ConfigHTTP, usedFor string) (*http.Client, error)
+}
 
 // Monitor states used by level plan adjuster (LPA).
 const (

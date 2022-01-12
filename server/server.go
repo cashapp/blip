@@ -180,6 +180,12 @@ func (s *Server) Boot(env blip.Env, plugin blip.Plugins, factory blip.Factories)
 	// plan and set the Monitor to use it.
 	s.planLoader = plan.NewLoader(plugin.LoadLevelPlans)
 
+	if s.cmdline.Options.Plans != "" {
+		plans := strings.Split(s.cmdline.Options.Plans, ",")
+		blip.Debug("--plans override config.plans: %v -> %v", s.cfg.Plans.Files, plans)
+		s.cfg.Plans.Files = plans
+	}
+
 	if err := s.planLoader.LoadShared(s.cfg.Plans, factory.DbConn); err != nil {
 		event.Sendf(event.BOOT_PLANS_ERROR, err.Error())
 		return err

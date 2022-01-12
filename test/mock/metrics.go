@@ -24,7 +24,7 @@ func (f MetricFactory) Make(domain string, args blip.CollectorFactoryArgs) (blip
 var _ blip.Collector = MetricsCollector{}
 
 type MetricsCollector struct {
-	PrepareFunc func(ctx context.Context, plan blip.Plan) error
+	PrepareFunc func(ctx context.Context, plan blip.Plan) (func(), error)
 	CollectFunc func(ctx context.Context, levelName string) ([]blip.MetricValue, error)
 }
 
@@ -36,11 +36,11 @@ func (c MetricsCollector) Help() blip.CollectorHelp {
 	return blip.CollectorHelp{}
 }
 
-func (c MetricsCollector) Prepare(ctx context.Context, plan blip.Plan) error {
+func (c MetricsCollector) Prepare(ctx context.Context, plan blip.Plan) (func(), error) {
 	if c.PrepareFunc != nil {
 		return c.Prepare(ctx, plan)
 	}
-	return nil
+	return nil, nil
 }
 
 func (c MetricsCollector) Collect(ctx context.Context, levelName string) ([]blip.MetricValue, error) {
