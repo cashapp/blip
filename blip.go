@@ -20,149 +20,14 @@ const VERSION = "0.0.0"
 
 var SHA = ""
 
-// Plugins are function callbacks that let you override specific functionality of Blip.
-// Every plugin is optional: if specified, it overrides the built-in functionality.
-type Plugins struct {
-	LoadConfig       func(Config) (Config, error)
-	LoadMonitors     func(Config) ([]ConfigMonitor, error)
-	LoadLevelPlans   func(ConfigPlans) ([]Plan, error)
-	ModifyDB         func(*sql.DB)
-	TransformMetrics func(*Metrics) error
-}
-
-// Factories are interfaces that let you override certain object creation of Blip.
-// Every factory is optional: if specified, it overrides the built-in factory.
-type Factories struct {
-	AWSConfig  AWSConfigFactory
-	DbConn     DbFactory
-	HTTPClient HTTPClientFactory
-}
-
-// Env is the startup environment: command line args and environment variables.
-// This is mostly used for testing to override the defaults.
-type Env struct {
-	Args []string
-	Env  []string
-}
-
-type AWS struct {
-	Region string
-}
-
-type AWSConfigFactory interface {
-	Make(AWS) (aws.Config, error)
-}
-
-type DbFactory interface {
-	Make(ConfigMonitor) (*sql.DB, string, error)
-}
-
-type HTTPClientFactory interface {
-	Make(cfg ConfigHTTP, usedFor string) (*http.Client, error)
-}
-
-// Collector collects metrics for a single metric domain.
-type Collector interface {
-	// Domain returns the Blip domain prefix.
-	Domain() string
-
-	// Help returns information about using the collector.
-	Help() CollectorHelp
-
-	// Prepare prepares a plan for future calls to Collect.
-	Prepare(ctx context.Context, plan Plan) error
-
-	// Collect collects metrics for the given in the previously prepared plan.
-	Collect(ctx context.Context, levelName string) ([]MetricValue, error)
-}
-
-// Help represents information about a collector.
-type CollectorHelp struct {
-	Domain      string
-	Description string
-	Options     map[string]CollectorHelpOption
-	Groups      []CollectorKeyValue
-	Meta        []CollectorKeyValue
-	Metrics     []CollectorMetric
-}
-
-type CollectorHelpOption struct {
-	Name    string
-	Desc    string            // describes Name
-	Default string            // key in Values
-	Values  map[string]string // value => description
-}
-
-type CollectorMetric struct {
-	Name string
-	Desc string // describes Name
-	Type byte
-}
-
-type CollectorKeyValue struct {
-	Key   string
-	Value string
-}
-
-// Validate returns nil if all the given options are valid, else it an error.
-func (h CollectorHelp) Validate(opts map[string]string) error {
-	// No input? No error.
-	if len(opts) == 0 {
-		return nil
-	}
-
-	// At least 1 opt given, so error if the collector has no options
-	if len(h.Options) == 0 {
-		return fmt.Errorf("collector has no options but %d given", len(h.Options))
-	}
-
-	// Check each given key and value
-	for givenKey, givenValue := range opts {
-
-		// Error if the given key is not accpeted by collector
-		o, ok := h.Options[givenKey]
-		if !ok {
-			return fmt.Errorf("unknown option: %s (run 'blip --print-domains' to list collectors and options)", givenKey)
-		}
-
-		// If the collector option has a list of allowed values,
-		// error if the given value isn't one of the allowed values
-		if len(o.Values) > 0 {
-			allowed := false
-			for allowedVal := range o.Values {
-				if givenValue == allowedVal {
-					allowed = true
-					break
-				}
-			}
-			if !allowed {
-				return fmt.Errorf("invalid value for option %s: %s (run 'blip --print-domains' to list collectors and options)",
-					givenKey, givenValue)
-			}
-		}
-	}
-
-	return nil
-}
-
-// CollectorFactoryArgs are provided by Blip to a CollectorFactory when making
-// a Collector. The factory must use the args to create the collector.
-type CollectorFactoryArgs struct {
-	// MonitorId is the monitor identifier. The Collector must include
-	// this value in all errors, output, and so forth. Everything monitor-related
-	// in Blip is keyed on monitor ID.
-	MonitorId string
-
-	// DB is the connection to MySQL. It is safe for concurrent use, and it is
-	// used concurrently by other parts of a monitor. The Collector must not
-	// modify the connection, reconnect, and so forth--only use the connection.
-	DB *sql.DB
-}
-
-// A CollectorFactory makes one or more Collector.
-type CollectorFactory interface {
-	Make(domain string, args CollectorFactoryArgs) (Collector, error)
-}
+// Metric types.
+const (
+	UNKNOWN byte = iota
+	COUNTER
+	GAUGE
+	BOOL
+	EVENT
+)
 
 // Metrics are metrics collected for one plan level, from one database instance.
 type Metrics struct {
@@ -211,14 +76,46 @@ type SinkFactory interface {
 	Make(name, monitorId string, opts, tags map[string]string) (Sink, error)
 }
 
-// Metric types.
-const (
-	UNKNOWN byte = iota
-	COUNTER
-	GAUGE
-	BOOL
-	EVENT
-)
+// Plugins are function callbacks that let you override specific functionality of Blip.
+// Every plugin is optional: if specified, it overrides the built-in functionality.
+type Plugins struct {
+	LoadConfig       func(Config) (Config, error)
+	LoadMonitors     func(Config) ([]ConfigMonitor, error)
+	LoadLevelPlans   func(ConfigPlans) ([]Plan, error)
+	ModifyDB         func(*sql.DB)
+	TransformMetrics func(*Metrics) error
+}
+
+// Factories are interfaces that let you override certain object creation of Blip.
+// Every factory is optional: if specified, it overrides the built-in factory.
+type Factories struct {
+	AWSConfig  AWSConfigFactory
+	DbConn     DbFactory
+	HTTPClient HTTPClientFactory
+}
+
+// Env is the startup environment: command line args and environment variables.
+// This is mostly used for testing to override the defaults.
+type Env struct {
+	Args []string
+	Env  []string
+}
+
+type AWS struct {
+	Region string
+}
+
+type AWSConfigFactory interface {
+	Make(AWS) (aws.Config, error)
+}
+
+type DbFactory interface {
+	Make(ConfigMonitor) (*sql.DB, string, error)
+}
+
+type HTTPClientFactory interface {
+	Make(cfg ConfigHTTP, usedFor string) (*http.Client, error)
+}
 
 // Monitor states used by level plan adjuster (LPA).
 const (

@@ -38,10 +38,10 @@ type LevelCollector interface {
 	Status() proto.MonitorLevelStatus
 }
 
-var _ LevelCollector = &collector{}
+var _ LevelCollector = &lpc{}
 
-// collector is the implementation of LevelCollector.
-type collector struct {
+// lpc is the implementation of LevelCollector.
+type lpc struct {
 	cfg              blip.ConfigMonitor
 	engine           *Engine
 	planLoader       *plan.Loader
@@ -70,8 +70,8 @@ type LevelCollectorArgs struct {
 	TransformMetrics func(*blip.Metrics) error
 }
 
-func NewLevelCollector(args LevelCollectorArgs) *collector {
-	return &collector{
+func NewLevelCollector(args LevelCollectorArgs) *lpc {
+	return &lpc{
 		cfg:              args.Config,
 		engine:           args.Engine,
 		planLoader:       args.PlanLoader,
@@ -94,7 +94,7 @@ func TickerDuration(d time.Duration) {
 
 var tickerDuration = 1 * time.Second // used for testing
 
-func (c *collector) Run(stopChan, doneChan chan struct{}) error {
+func (c *lpc) Run(stopChan, doneChan chan struct{}) error {
 	defer close(doneChan)
 
 	// Metrics are collected async so that this main loop does not block.
@@ -185,7 +185,7 @@ func (c *collector) Run(stopChan, doneChan chan struct{}) error {
 	return nil
 }
 
-func (c *collector) collector(n int, col chan string, stopChan chan struct{}) {
+func (c *lpc) collector(n int, col chan string, stopChan chan struct{}) {
 	lpc := fmt.Sprintf("lpc-%d", n)
 	var level string
 	for {
@@ -217,10 +217,10 @@ func (c *collector) collector(n int, col chan string, stopChan chan struct{}) {
 
 // ChangePlan changes the metrics collect plan based on database state.
 // It loads the plan from the plan.Loader, then it calls Engine.Prepare.
-// This is the only time and place taht Engine.Prepare is called.
+// This is the only time and place that Engine.Prepare is called.
 //
 // The caller is either LevelAdjuster.CheckState or Monitor.Start. The former
-// is the case when config.monitors.*.plans.adjust is set. In this case,
+// is the case when config.monitors.plans.adjust is set. In this case,
 // the LevelAdjuster (LPA) periodically checks database state and calls this
 // function when the database state changes. It trusts that this function
 // changes the state, so the LPA does not retry the call. The latter case,
@@ -241,7 +241,7 @@ func (c *collector) collector(n int, col chan string, stopChan chan struct{}) {
 // Then, plans and config.monitors.*.plans.adjust might become out of sync.
 // In this hypothetical error case, the plan change fails but the current plan
 // continues to work.
-func (c *collector) ChangePlan(newState, newPlanName string) error {
+func (c *lpc) ChangePlan(newState, newPlanName string) error {
 	// Serialize access to this func
 	c.changeMux.Lock()
 	defer c.changeMux.Unlock()
@@ -280,12 +280,12 @@ const (
 
 // changePlan is a gorountine run by ChangePlan It's potentially long-running
 // because it waits for Engine.Prepare. If that function returns an error
-// (e.g. MySQL is offline), then this function retires forever, or until canclled
+// (e.g. MySQL is offline), then this function retires forever, or until canceled
 // by either another call to ChangePlan or Run is stopped (LPC is terminated).
 //
 // Never all this function directly; it's only called via ChangePlan, which
 // serializes access and guarantees only one changePlan goroutine at a time.
-func (c *collector) changePlan(ctx context.Context, newState, newPlanName string) {
+func (c *lpc) changePlan(ctx context.Context, newState, newPlanName string) {
 	defer func() {
 		c.stateMux.Lock()
 		c.changing = false
@@ -298,15 +298,26 @@ func (c *collector) changePlan(ctx context.Context, newState, newPlanName string
 	change := fmt.Sprintf("state:%s plan:%s -> state:%s plan:%s", oldState, oldPlanName, newState, newPlanName)
 	c.event.Sendf(event.CHANGE_PLAN_BEGIN, change)
 
-	// Load new plan from plan loader, which contains all plans
-	status.Monitor(c.monitorId, cpName, "loading new plan %s (state %s)", newPlanName, newState)
-	newPlan, err := c.planLoader.Plan(c.engine.MonitorId(), newPlanName, c.engine.DB())
-	if err != nil {
-		status.Monitor(c.monitorId, cpName, "%s: error loading new plan: %s", change, err)
-		c.event.Sendf(event.CHANGE_PLAN_ERROR, "%s: error loading new plan: %s", change, err)
-		return
+	// Load new plan from plan loader, which contains all plans. Try forever because
+	// that's what this func/gouroutine does: try forever (caller's expect that).
+	// This shouldn't fail given that plans were already loaded and validated on startup,
+	// but maybe plans reloaded after startup and something broke. User can fix by
+	// reloading plans again.
+	var newPlan blip.Plan
+	var err error
+	for {
+		status.Monitor(c.monitorId, cpName, "loading new plan %s (state %s)", newPlanName, newState)
+		newPlan, err = c.planLoader.Plan(c.engine.MonitorId(), newPlanName, c.engine.DB())
+		if err == nil {
+			break // success
+		}
+
+		status.Monitor(c.monitorId, cpName, "%s: error loading new plan: %s (retry in 2s)", change, err)
+		c.event.Sendf(event.CHANGE_PLAN_ERROR, "%s: error loading new plan: %s (retry in 2s)", change, err)
+		time.Sleep(2 * time.Second)
 	}
 
+	newPlan.MonitorId = c.monitorId
 	newPlan.InterpolateEnvVars()
 	newPlan.InterpolateMonitor(&c.cfg)
 
@@ -355,13 +366,19 @@ func (c *collector) changePlan(ctx context.Context, newState, newPlanName string
 	retry := backoff.NewExponentialBackOff()
 	retry.MaxElapsedTime = 0
 	for {
-		err := c.engine.Prepare(ctx, newPlan, c.Pause, after)
+		// ctx controls the goroutine, which might run "forever" if plans don't
+		// change. ctxPrep is a timeout for Prepare to ensure that it does not
+		// run try "forever". If preparing takes too long, there's probably some
+		// issue, so we need to sleep and retry.
+		ctxPrep, cancelPrep := context.WithTimeout(ctx, 10*time.Second)
+		err := c.engine.Prepare(ctxPrep, newPlan, c.Pause, after)
 		if err == nil {
 			break // success
 		}
 		if ctx.Err() != nil {
-			return
+			return // changePlan goroutine has been cancelled
 		}
+		cancelPrep()
 		status.Monitor(c.monitorId, cpName, "%s: error preparing new plan: %s", change, err)
 		c.event.Sendf(event.CHANGE_PLAN_ERROR, "%s: error preparing new plan: %s", change, err)
 		time.Sleep(retry.NextBackOff())
@@ -374,7 +391,7 @@ func (c *collector) changePlan(ctx context.Context, newState, newPlanName string
 // Pause pauses metrics collection until ChangePlan is called. Run still runs,
 // but it doesn't collect when paused. The only way to resume after pausing is
 // to call ChangePlan again.
-func (c *collector) Pause() {
+func (c *lpc) Pause() {
 	c.stateMux.Lock()
 	blip.Debug("%s: pause", c.monitorId)
 	c.paused = true
@@ -382,7 +399,7 @@ func (c *collector) Pause() {
 }
 
 // Status returns the current state and plan name.
-func (c *collector) Status() proto.MonitorLevelStatus {
+func (c *lpc) Status() proto.MonitorLevelStatus {
 	c.stateMux.Lock()
 	defer c.stateMux.Unlock()
 	return proto.MonitorLevelStatus{

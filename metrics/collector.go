@@ -8,7 +8,7 @@ import (
 	"github.com/cashapp/blip"
 	"github.com/cashapp/blip/event"
 	"github.com/cashapp/blip/metrics/innodb"
-	"github.com/cashapp/blip/metrics/repl"
+	"github.com/cashapp/blip/metrics/repl.lag"
 	"github.com/cashapp/blip/metrics/size.binlog"
 	"github.com/cashapp/blip/metrics/size.data"
 	"github.com/cashapp/blip/metrics/status.global"
@@ -194,8 +194,8 @@ func (f factory) Make(domain string, args blip.CollectorFactoryArgs) (blip.Colle
 	switch domain {
 	case "innodb":
 		return innodb.NewInnoDB(args.DB), nil
-	case "repl":
-		return repl.NewRepl(args.DB), nil
+	case "repl.lag":
+		return repllag.NewLag(args.DB), nil
 	case "size.binlog":
 		return sizebinlog.NewBinlog(args.DB), nil
 	case "size.data":
@@ -212,7 +212,7 @@ func (f factory) Make(domain string, args blip.CollectorFactoryArgs) (blip.Colle
 // the same domain in the switch statement above (in factory.Make).
 var builtinCollectors = []string{
 	"innodb",
-	"repl",
+	"repl.lag",
 	"size.binlog",
 	"size.data",
 	"status.global",

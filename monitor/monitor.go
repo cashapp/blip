@@ -140,8 +140,11 @@ func (m *Monitor) setErr(err error) {
 	m.errMux.Unlock()
 }
 
-// Boot sets up the monitor. If it does not return an error, then the caller
-// should call Run to start monitoring. If it returns an error, do not call Run.
+// Run runs the monitor. This function could return after starting the monitor
+// components, but it blocks until Stop is called for its defer/recover, i.e.
+// to catch panics. The only caller is Loader.Run: the monitor loader is the only
+// component that runs monitors. It runs this function as a goroutine, which is
+// why the defer/recover works here.
 func (m *Monitor) Run() {
 	blip.Debug("%s: Run called", m.monitorId)
 	defer blip.Debug("%s: Run return", m.monitorId)
@@ -248,6 +251,9 @@ func (m *Monitor) Run() {
 	// ----------------------------------------------------------------------
 	// Level plan collector (LPC)
 
+	// LPC starts paused becuase there's no plan. The main loop in lpc.Run
+	// does nothing until lpc.ChangePlan is called, which is done next either
+	// indirectly via LPA or directly if LPA isn't enabled.
 	m.engine = NewEngine(m.monitorId, m.db)
 	m.lpc = NewLevelCollector(LevelCollectorArgs{
 		Config:     m.cfg,
@@ -263,6 +269,9 @@ func (m *Monitor) Run() {
 	status.Monitor(m.monitorId, "monitor", "setting first level")
 
 	if m.cfg.Plans.Adjust.Enabled() {
+		// Run option level plan adjuster (LPA). When enabled, the LPA checks
+		// the state of MySQL. If the state changes, it calls lpc.ChangePlan
+		// to change the plan as configured by config.monitors.M.plans.adjust.<state>.
 		m.doneChanLPA = make(chan struct{})
 		m.lpa = NewLevelAdjuster(LevelAdjusterArgs{
 			MonitorId: m.monitorId,
@@ -271,38 +280,24 @@ func (m *Monitor) Run() {
 			LPC:       m.lpc,
 			HA:        ha.Disabled,
 		})
-	}
-
-	// Run option level plan adjuster (LPA). When enabled, the LPA checks the
-	// state of MySQL . If the state changes, it calls lpc.ChangePlan to change
-	// the plan as configured by cfg.monitors.M.plans.adjust.<state>.
-	if m.lpa != nil {
-		go m.lpa.Run(m.stopChan, m.doneChanLPA)
+		go m.lpa.Run(m.stopChan, m.doneChanLPA) // start LPC indirectly
 	} else {
-		// When the lpa is not enabled, we need to get the party started by
-		// setting the first (and only) plan: "". When lpc.ChangePlan passes that
-		// along to planLoader.Plan, the plan loader will automatically find
-		// and return the first plan by precedence: first plan from table, or
-		// first plan file, or internal plan--trying monitor plans first, then
-		// default plans. So it always finds something: the default internal plan,
-		// if nothing else.
+		// When the LPA is not enabled, we must init the state and plan,
+		// which are ACTIVE and first (""), respectively. Since LPA is
+		// optional, this is the normal case: startup presuming MySQL is
+		// active and use the monitor's first plan.
 		//
-		// Also, without an lpa, monitors default to active state.
-		if err := m.lpc.ChangePlan(blip.STATE_ACTIVE, ""); err != nil {
-			blip.Debug(err.Error())
-			// @todo
-		}
+		// Do need retry or error handling because ChangePlan tries forever,
+		// or until called again.
+		m.lpc.ChangePlan(blip.STATE_ACTIVE, "") // start LPC directly
 	}
 
 	m.runMux.Unlock() // -- BOOT --------------------------------------------
 
 	status.RemoveComponent(m.monitorId, "monitor")
 
-	// Run level plan collector (LPC)
-	select {
-	case <-m.stopChan:
-	case <-m.doneChanLPC:
-	}
+	// Block to keep monitor running until Stop is called
+	<-m.stopChan
 }
 
 func (m *Monitor) stop() bool {

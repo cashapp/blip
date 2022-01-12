@@ -26,6 +26,8 @@ type Data struct {
 	total map[string]bool   // keyed on level
 }
 
+var _ blip.Collector = &Data{}
+
 func NewData(db *sql.DB) *Data {
 	return &Data{
 		db:    db,
@@ -86,7 +88,7 @@ func (c *Data) Help() blip.CollectorHelp {
 }
 
 // Prepares queries for all levels in the plan that contain the "var.global" domain
-func (c *Data) Prepare(ctx context.Context, plan blip.Plan) error {
+func (c *Data) Prepare(ctx context.Context, plan blip.Plan) (func(), error) {
 LEVEL:
 	for _, level := range plan.Levels {
 		dom, ok := level.Collect[DOMAIN]
@@ -95,15 +97,15 @@ LEVEL:
 		}
 		q, err := DataSizeQuery(dom.Options, c.Help())
 		if err != nil {
-			return err
+			return nil, err
 		}
 		c.query[level.Name] = q
 
-		if dom.Options[OPT_TOTAL] == "yse" {
+		if dom.Options[OPT_TOTAL] == "yes" {
 			c.total[level.Name] = true
 		}
 	}
-	return nil
+	return nil, nil
 }
 
 func (c *Data) Collect(ctx context.Context, levelName string) ([]blip.MetricValue, error) {

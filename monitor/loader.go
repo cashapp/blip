@@ -155,6 +155,7 @@ func (ml *Loader) Run() {
 		// connecting to MySQL, processing metrics. That'll make Blip
 		// CPU/net usage unnecessarily spiky.
 		time.Sleep(20 * time.Millisecond) // @todo
+		// xxxx1xxxx2xxxx3xxxx4xxxx5xxxx6xxxx7xxxx8xxxx9xxxx0
 	}
 }
 

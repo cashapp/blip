@@ -19,6 +19,8 @@ type Binlog struct {
 	cols3 bool
 }
 
+var _ blip.Collector = &Binlog{}
+
 func NewBinlog(db *sql.DB) *Binlog {
 	return &Binlog{
 		db: db,
@@ -44,12 +46,12 @@ func (c *Binlog) Help() blip.CollectorHelp {
 	}
 }
 
-func (c *Binlog) Prepare(ctx context.Context, plan blip.Plan) error {
+func (c *Binlog) Prepare(ctx context.Context, plan blip.Plan) (func(), error) {
 	// As of MySQL 8.0.14, SHOW BINARY LOGS has 3 cols instead of 2
 	if ok, _ := sqlutil.MySQLVersionGTE("8.0.14", c.db, ctx); ok {
 		c.cols3 = true
 	}
-	return nil
+	return nil, nil
 }
 
 func (c *Binlog) Collect(ctx context.Context, levelName string) ([]blip.MetricValue, error) {

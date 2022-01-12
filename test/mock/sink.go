@@ -20,8 +20,8 @@ func (s Sink) Send(ctx context.Context, m *blip.Metrics) error {
 	return nil
 }
 
-func (s Sink) Status() error {
-	return nil
+func (s Sink) Status() string {
+	return ""
 }
 
 func (s Sink) Name() string {

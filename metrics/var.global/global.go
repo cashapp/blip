@@ -30,6 +30,8 @@ type Global struct {
 	sourceIn map[string]string   // keyed on level
 }
 
+var _ blip.Collector = &Global{}
+
 func NewGlobal(db *sql.DB) *Global {
 	return &Global{
 		db:       db,
@@ -73,7 +75,7 @@ func (c *Global) Help() blip.CollectorHelp {
 }
 
 // Prepares queries for all levels in the plan that contain the "var.global" domain
-func (c *Global) Prepare(ctx context.Context, plan blip.Plan) error {
+func (c *Global) Prepare(ctx context.Context, plan blip.Plan) (func(), error) {
 LEVEL:
 	for levelName, level := range plan.Levels {
 		dom, ok := level.Collect[DOMAIN]
@@ -82,10 +84,10 @@ LEVEL:
 		}
 		err := c.prepareLevel(levelName, dom.Metrics, dom.Options)
 		if err != nil {
-			return err
+			return nil, err
 		}
 	}
-	return nil
+	return nil, nil
 }
 
 func (c *Global) Collect(ctx context.Context, levelName string) ([]blip.MetricValue, error) {

@@ -1,4 +1,4 @@
-package repl
+package repllag
 
 import (
 	"context"
@@ -10,7 +10,7 @@ import (
 )
 
 const (
-	DOMAIN = "repl"
+	DOMAIN = "repl.lag"
 
 	OPT_AUTO   = "auto"
 	OPT_WRITER = "writer"
@@ -21,25 +21,26 @@ const (
 	DEFAULT_TABLE  = "blip.heartbeat"
 )
 
-type Repl struct {
+type Lag struct {
 	db        *sql.DB
-	lagReader map[string]heartbeat.Reader
-	enabled   map[string]bool
+	lagReader heartbeat.Reader
+	atLevel   map[string]bool
 }
 
-func NewRepl(db *sql.DB) *Repl {
-	return &Repl{
-		db:        db,
-		lagReader: map[string]heartbeat.Reader{},
-		enabled:   map[string]bool{},
+var _ blip.Collector = &Lag{}
+
+func NewLag(db *sql.DB) *Lag {
+	return &Lag{
+		db:      db,
+		atLevel: map[string]bool{},
 	}
 }
 
-func (c *Repl) Domain() string {
+func (c *Lag) Domain() string {
 	return DOMAIN
 }
 
-func (c *Repl) Help() blip.CollectorHelp {
+func (c *Lag) Help() blip.CollectorHelp {
 	return blip.CollectorHelp{
 		Domain:      DOMAIN,
 		Description: "Replication lag",
@@ -70,27 +71,21 @@ func (c *Repl) Help() blip.CollectorHelp {
 				Default: DEFAULT_TABLE,
 			},
 			OPT_SOURCE: {
-				Name:    OPT_SOURCE,
-				Desc:    "Source MySQL instance",
-				Default: "%%{monitor.meta.repl-source}",
+				Name: OPT_SOURCE,
+				Desc: "Source MySQL instance (suggested: %%{monitor.meta.repl-source})",
 			},
 		},
 		Metrics: []blip.CollectorMetric{
 			{
-				Name: "lag",
+				Name: "max",
 				Type: blip.GAUGE,
-				Desc: "Replication lag (milliseconds)",
+				Desc: "Maximum replication lag (milliseconds) during collect interval",
 			},
 		},
 	}
 }
 
-// Prepares queries for all levels in the plan that contain the "var.global" domain
-func (c *Repl) Prepare(ctx context.Context, plan blip.Plan) error {
-
-	// Stop and remove all readers from previous plans, if any
-	heartbeat.RemoveReaders(c.db)
-
+func (c *Lag) Prepare(ctx context.Context, plan blip.Plan) (func(), error) {
 LEVEL:
 	for _, level := range plan.Levels {
 		dom, ok := level.Collect[DOMAIN]
@@ -111,27 +106,37 @@ LEVEL:
 
 		switch dom.Options[OPT_WRITER] {
 		case DEFAULT_WRITER, "":
-			r := heartbeat.NewBlipReader(
-				c.db,
-				table,
-				source,
-				&heartbeat.SlowFastWaiter{NetworkLatency: 50 * time.Millisecond}, // todo OPT_NETWORK_LATENCY
-			)
-			c.lagReader[level.Name] = r
-			go r.Start()
-			heartbeat.AddReader(r, c.db, plan.Name, level.Name, dom.Options[OPT_WRITER])
+			if c.lagReader == nil {
+				// Only 1 reader per plan
+				c.lagReader = heartbeat.NewBlipReader(
+					c.db,
+					table,
+					source,
+					&heartbeat.SlowFastWaiter{NetworkLatency: 50 * time.Millisecond}, // todo OPT_NETWORK_LATENCY
+				)
+				go c.lagReader.Start()
+				blip.Debug("started heartbeat.Reader for %s %s", plan.Name, level.Name)
+			}
+			c.atLevel[level.Name] = true
 		}
 	}
 
-	return nil
+	var cleanup func()
+	if c.lagReader != nil {
+		cleanup = func() {
+			blip.Debug("%s: stopping reader", plan.MonitorId)
+			c.lagReader.Stop()
+		}
+	}
+
+	return cleanup, nil
 }
 
-func (c *Repl) Collect(ctx context.Context, levelName string) ([]blip.MetricValue, error) {
-	r := c.lagReader[levelName]
-	if r == nil {
+func (c *Lag) Collect(ctx context.Context, levelName string) ([]blip.MetricValue, error) {
+	if !c.atLevel[levelName] {
 		return nil, nil
 	}
-	lag, _, err := r.Lag(ctx)
+	lag, _, err := c.lagReader.Lag(ctx)
 	if err != nil {
 		return nil, err
 	}

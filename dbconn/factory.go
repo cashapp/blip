@@ -169,16 +169,7 @@ func (f factory) Make(cfg blip.ConfigMonitor) (*sql.DB, string, error) {
 		f.modifyDB(db, dsn)
 	}
 
-	// Parse DSN only so we can s/password/.../ to return a print-safe DSN string
-	// for info and debugging. This shouldn't erorr because we know from above
-	// that DSN is valid, which is why we can ignore the error.
-	redactedPassword, err := mysql.ParseDSN(dsn)
-	if err != nil { // ok to ignore
-		blip.Debug("mysql.ParseDSN error: %s", err)
-	}
-	redactedPassword.Passwd = "..."
-
-	return db, redactedPassword.FormatDSN(), nil
+	return db, RedactedDSN(dsn), nil
 }
 
 // Password creates a password reload function (callback) based on the
@@ -298,4 +289,14 @@ func isSocket(file string) bool {
 		return false
 	}
 	return fi.Mode()&fs.ModeSocket != 0
+}
+
+func RedactedDSN(dsn string) string {
+	redactedPassword, err := mysql.ParseDSN(dsn)
+	if err != nil { // ok to ignore
+		blip.Debug("mysql.ParseDSN error: %s", err)
+	}
+	redactedPassword.Passwd = "..."
+	return redactedPassword.FormatDSN()
+
 }

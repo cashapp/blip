@@ -44,6 +44,8 @@ type InnoDB struct {
 	query map[string]string
 }
 
+var _ blip.Collector = &InnoDB{}
+
 func NewInnoDB(db *sql.DB) *InnoDB {
 	return &InnoDB{
 		db:    db,
@@ -79,7 +81,7 @@ func (c *InnoDB) Help() blip.CollectorHelp {
 
 const baseQuery = "SELECT subsystem, name, count FROM information_schema.innodb_metrics"
 
-func (c *InnoDB) Prepare(ctx context.Context, plan blip.Plan) error {
+func (c *InnoDB) Prepare(ctx context.Context, plan blip.Plan) (func(), error) {
 LEVEL:
 	for _, level := range plan.Levels {
 		dom, ok := level.Collect[DOMAIN]
@@ -97,7 +99,7 @@ LEVEL:
 			c.query[level.Name] = baseQuery + " WHERE name IN (" + sqlutil.INList(dom.Metrics, "'") + ")"
 		}
 	}
-	return nil
+	return nil, nil
 }
 
 func (c *InnoDB) Collect(ctx context.Context, levelName string) ([]blip.MetricValue, error) {

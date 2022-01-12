@@ -40,6 +40,9 @@ type Global struct {
 	all  map[string]bool            // level => true (collect all vars)
 }
 
+// Verify collector implements blip.Collector interface
+var _ blip.Collector = &Global{}
+
 // NewGlobal makes a new Global collector.
 func NewGlobal(db *sql.DB) *Global {
 	return &Global{
@@ -60,7 +63,7 @@ func (c *Global) Help() blip.CollectorHelp {
 		Collector help and options are required and used to validate options
 		given in a plan. Therefore, this info isn't merely for print, it's
 		also functional: it defines options accepted by the collector and any
-		valid value for those options. This is second level plan validateion
+		valid value for those options. This is second level plan validation
 		done in plan/PlanLoader.ValidatePlans.
 
 		The Blip docs describe domains at a high level, so don't reproduce that here.
@@ -86,7 +89,7 @@ func (c *Global) Help() blip.CollectorHelp {
 }
 
 // Prepare prepares the collector for the given plan.
-func (c *Global) Prepare(ctx context.Context, plan blip.Plan) error {
+func (c *Global) Prepare(ctx context.Context, plan blip.Plan) (func(), error) {
 	/*
 		Prepare varies slightly for each collector, but the following LEVEL block
 		is standard: iterate the plan levels, skip levels that do not collect
@@ -97,7 +100,7 @@ func (c *Global) Prepare(ctx context.Context, plan blip.Plan) error {
 		Prepare should do all up-front work so that Collect simply collects
 		metrics--no more checks or validations.
 
-		This function is seralized, so don't worry about concurrency here.
+		This function is serialized, so don't worry about concurrency here.
 	*/
 LEVEL:
 	for _, level := range plan.Levels {
@@ -136,7 +139,7 @@ LEVEL:
 		just return it. Blip will handle the rest.
 	*/
 
-	return nil
+	return nil, nil
 }
 
 // Collect collects metrics at the given level.
@@ -165,7 +168,7 @@ func (c *Global) Collect(ctx context.Context, levelName string) ([]blip.MetricVa
 	metrics := []blip.MetricValue{} // status vars converted to Blip metrics
 	filter := !c.all[levelName]     // keep all status vars or only some?
 
-	// Iteratate rows from SHOW GLOBAL STATUS, convert and save values
+	// Iterate rows from SHOW GLOBAL STATUS, convert and save values
 	var (
 		val  string
 		name string
@@ -207,7 +210,7 @@ func (c *Global) Collect(ctx context.Context, levelName string) ([]blip.MetricVa
 	return metrics, nil
 }
 
-// gauge is a list of known gauge metrics in SHOW GLOBLA STATUS.
+// gauge is a list of known gauge metrics in SHOW GLOBAL STATUS.
 var gauge = map[string]bool{
 	"threads_running":                true,
 	"threads_connected":              true,

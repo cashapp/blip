@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"log"
 	"runtime"
 	"sync"
 	"time"
@@ -15,28 +16,43 @@ import (
 	"github.com/cashapp/blip/status"
 )
 
+// CollectParallel sets how many domains to collect in parallel. Currently, this
+// is not configurable via Blip config; it can only be changed via integration.
+var CollectParallel = 2
+
+// mc represents one active metric collector, including its cleanup func (if any)
+// and its last error. There's only one mc per domain, even if the domain is used
+// at multiple levels (because the mc prepares itself for each level). When plans
+// change, we start over (we don't reset/reuse mcs): discard all old mc (calling
+// their cleanup funcs), then create a new list of mcs.
+type amc struct {
+	c       blip.Collector
+	cleanup func()
+	err     error
+}
+
 // Engine does the real work: collect metrics.
 type Engine struct {
 	monitorId string
 	db        *sql.DB
 	// --
-	*sync.RWMutex
-	mcList    map[string]blip.Collector // keyed on domain
-	mcError   map[string]error
-	atLevel   map[string][]blip.Collector // keyed on level
-	plan      blip.Plan
-	event     event.MonitorSink
-	sem       chan bool
-	semSize   int
-	status    proto.MonitorEngineStatus
-	errMux    *sync.Mutex
+	event event.MonitorSink
+	sem   chan bool // semaphore for CollectParallel
+
+	planMux *sync.RWMutex
+	plan    blip.Plan
+	atLevel map[string][]blip.Collector // keyed on level
+
+	mcMux  *sync.Mutex
+	mcList map[string]*amc // keyed on domain
+
 	statusMux *sync.Mutex
+	status    proto.MonitorEngineStatus
 }
 
 func NewEngine(monitorId string, db *sql.DB) *Engine {
-	sem := make(chan bool, 2)
-	semSize := 2
-	for i := 0; i < semSize; i++ {
+	sem := make(chan bool, CollectParallel)
+	for i := 0; i < CollectParallel; i++ {
 		sem <- true
 	}
 
@@ -44,16 +60,17 @@ func NewEngine(monitorId string, db *sql.DB) *Engine {
 		monitorId: monitorId,
 		db:        db,
 		// --
-		atLevel:   map[string][]blip.Collector{},
-		mcList:    map[string]blip.Collector{},
-		mcError:   map[string]error{},
-		RWMutex:   &sync.RWMutex{},
-		event:     event.MonitorSink{MonitorId: monitorId},
-		sem:       sem,
-		semSize:   semSize,
-		status:    proto.MonitorEngineStatus{},
-		errMux:    &sync.Mutex{},
+		event: event.MonitorSink{MonitorId: monitorId},
+		sem:   sem,
+
+		planMux: &sync.RWMutex{},
+		atLevel: map[string][]blip.Collector{},
+
+		mcMux:  &sync.Mutex{},
+		mcList: map[string]*amc{},
+
 		statusMux: &sync.Mutex{},
+		status:    proto.MonitorEngineStatus{},
 	}
 }
 
@@ -70,30 +87,21 @@ func (e *Engine) Status() proto.MonitorEngineStatus {
 	cp := e.status // copy
 	e.statusMux.Unlock()
 
-	e.errMux.Lock()
+	e.mcMux.Lock()
 	errs := map[string]string{}
-	for k, v := range e.mcError {
-		if v == nil {
+	for domain := range e.mcList {
+		if e.mcList[domain].err == nil {
 			continue
 		}
-		errs[k] = v.Error()
+		errs[domain] = e.mcList[domain].err.Error()
 	}
+	e.mcMux.Unlock()
+
 	if len(errs) > 0 {
 		cp.CollectorErrors = errs
 	}
-	e.errMux.Unlock()
 
 	return cp
-}
-
-func (e *Engine) setErr(err error) {
-	e.errMux.Lock()
-	if err == nil {
-		e.status.Error = ""
-	} else {
-		e.status.Error = err.Error()
-	}
-	e.errMux.Unlock()
 }
 
 // Prepare prepares the monitor to collect metrics for the plan. The monitor
@@ -110,12 +118,17 @@ func (e *Engine) Prepare(ctx context.Context, plan blip.Plan, before, after func
 	e.event.Sendf(event.MONITOR_PREPARE_PLAN, plan.Name)
 	status.Monitor(e.monitorId, "engine-prepare", "preparing plan %s", plan.Name)
 
+	// Report last error, if any
 	var lerr error
 	defer func() {
+		e.statusMux.Lock()
 		if lerr == nil {
 			status.RemoveComponent(e.monitorId, "engine-prepare")
+			e.status.Error = ""
+		} else {
+			e.status.Error = lerr.Error()
 		}
-		e.setErr(lerr) // report last error, if any
+		e.statusMux.Unlock()
 	}()
 
 	e.statusMux.Lock()
@@ -142,7 +155,7 @@ func (e *Engine) Prepare(ctx context.Context, plan blip.Plan, before, after func
 	// Create and prepare metric collectors for every level. Return on error
 	// because the error might be fatal, e.g. something misconfigured and the
 	// plan cannot work.
-	mcList := map[string]blip.Collector{} // keyed on domain
+	mcNew := map[string]*amc{} // keyed on domain
 	atLevel := map[string][]blip.Collector{}
 	for levelName, level := range plan.Levels {
 		for domain, _ := range level.Collect {
@@ -151,39 +164,36 @@ func (e *Engine) Prepare(ctx context.Context, plan blip.Plan, before, after func
 				plan.Name, levelName, domain)
 
 			// Make collector if needed
-			mc, ok := mcList[domain]
+			mc, ok := mcNew[domain]
 			if !ok {
-				mc, lerr = metrics.Make(
+				// Make and prepare collector once because collectors prepare
+				// themselves for all levels in the plan
+				c, err := metrics.Make(
 					domain,
 					blip.CollectorFactoryArgs{
 						MonitorId: e.monitorId,
 						DB:        e.db,
 					},
 				)
-				if lerr != nil {
-					blip.Debug(lerr.Error())
-					return lerr
+				if err != nil {
+					blip.Debug(err.Error())
+					return err
 				}
-				mcList[domain] = mc
-			}
 
-			if err := mc.Prepare(ctx, plan); err != nil {
-				if ctx.Err() != nil {
-					lerr = fmt.Errorf("cancelled while preparing plan")
-					return nil // cancellation is not an error
+				cleanup, err := c.Prepare(ctx, plan)
+				if err != nil {
+					return err
 				}
-				lerr = fmt.Errorf("prepare collector %s: %s", domain, err)
-				return lerr
+
+				mc = &amc{
+					c:       c,
+					cleanup: cleanup,
+				}
+				mcNew[domain] = mc
 			}
 
 			// At this level, collect from this domain
-			atLevel[levelName] = append(atLevel[levelName], mc)
-
-			// OK to keep working?
-			if ctx.Err() != nil {
-				lerr = fmt.Errorf("cancelled while preparing plan")
-				return nil // cancellation is not an error
-			}
+			atLevel[levelName] = append(atLevel[levelName], mc.c)
 		}
 	}
 
@@ -191,20 +201,31 @@ func (e *Engine) Prepare(ctx context.Context, plan blip.Plan, before, after func
 
 	before() // notify caller (LPC.changePlan) that we're about to swap the plan
 
-	e.Lock() // block Collect
-	e.mcList = mcList
-	e.atLevel = atLevel
-	e.mcError = map[string]error{}
-	e.plan = plan
-	e.Unlock() // allow Collect (new plan)
+	e.planMux.Lock() // LOCK plan -------------------------------------------
+	e.mcMux.Lock()   // LOCK mc
 
-	e.statusMux.Lock()
-	e.status.Plan = plan.Name
-	e.statusMux.Unlock()
+	// Clean up old mc before swapping lists. Currently, the repl collector
+	// uses this to stop its heartbeat.BlipReader goroutine.
+	for _, mc := range e.mcList {
+		if mc.cleanup != nil {
+			blip.Debug("%s cleanup", mc.c.Domain())
+			mc.cleanup()
+		}
+	}
+	e.mcList = mcNew    // new mcs
+	e.plan = plan       // new plan
+	e.atLevel = atLevel // new levels
+
+	e.mcMux.Unlock()   // UNLCOK mc
+	e.planMux.Unlock() // UNLOCK plan ---------------------------------------
 
 	blip.Debug("changed plan to %s", plan.Name)
 
 	after() // notify caller (LPC.changePlan) that we have swapped the plan
+
+	e.statusMux.Lock()
+	e.status.Plan = plan.Name
+	e.statusMux.Unlock()
 
 	return nil
 }
@@ -216,8 +237,8 @@ func (e *Engine) Collect(ctx context.Context, levelName string) (*blip.Metrics, 
 
 	// READ lock while collecting so Prepare cannot change plan while using it.
 	// Must be read lock to allow concurrent calls.
-	e.RLock()
-	defer e.RUnlock()
+	e.planMux.RLock()
+	defer e.planMux.RUnlock()
 
 	mc := e.atLevel[levelName]
 	if mc == nil {
@@ -244,15 +265,19 @@ func (e *Engine) Collect(ctx context.Context, levelName string) (*blip.Metrics, 
 		go func(mc blip.Collector) {
 			defer func() {
 				e.sem <- true
-				if err := recover(); err != nil {
+				wg.Done()
+
+				// Print panic everywhere: log, event, and collector status
+				if r := recover(); r != nil {
 					b := make([]byte, 4096)
 					n := runtime.Stack(b, false)
-					e.errMux.Lock()
-					e.mcError[mc.Domain()] = fmt.Errorf("PANIC: %s\n%s", err, string(b[0:n]))
-					e.errMux.Unlock()
-					// @todo log or even the panic err?
+					perr := fmt.Errorf("PANIC: monitor ID %s: %v\n%s", e.monitorId, r, string(b[0:n]))
+					log.Println(perr)
+					e.event.Sendf(event.COLLECTOR_PANIC, perr.Error())
+					e.mcMux.Lock()
+					e.mcList[mc.Domain()].err = perr
+					e.mcMux.Unlock()
 				}
-				wg.Done()
 			}()
 
 			// **************************************************************
@@ -264,11 +289,18 @@ func (e *Engine) Collect(ctx context.Context, levelName string) (*blip.Metrics, 
 			vals, err := mc.Collect(ctx, levelName)
 			// **************************************************************
 
-			// @todo ignore err when ctx cancelled
-			e.errMux.Lock()
-			e.mcError[mc.Domain()] = err
-			e.errMux.Unlock()
+			// Update collector status: set new error or clear old error
+			e.mcMux.Lock()
+			e.mcList[mc.Domain()].err = err
+			e.mcMux.Unlock()
 
+			// Return early if context canceled or timeout; discard metrics
+			// because it's unlikely they're valid on context cancel/timeout
+			if err != nil && ctx.Err() != nil {
+				return
+			}
+
+			// Save collector metric values
 			mux.Lock()
 			bm.Values[mc.Domain()] = vals
 			mux.Unlock()
@@ -277,11 +309,10 @@ func (e *Engine) Collect(ctx context.Context, levelName string) (*blip.Metrics, 
 	wg.Wait()
 	bm.End = time.Now()
 
-	// @todo don't overwrite concurrent calls
-	status.Monitor(e.monitorId, "engine", "idle")
+	status.Monitor(e.monitorId, "engine", "idle") // @todo don't overwrite concurrent calls
 
 	e.statusMux.Lock()
-	e.status.CollectOK += 1 // @todo not thread-safe
+	e.status.CollectOK += 1
 	e.statusMux.Unlock()
 
 	return bm, nil
