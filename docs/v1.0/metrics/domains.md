@@ -2,60 +2,110 @@
 layout: default
 parent: Metrics
 title: Domains
-nav_order: 3
+nav_order: 4
 ---
 
-# Metric Domains
+# Domains
 {: .no_toc }
+
+This page is the full domain list and reference.
+Blip collects only the domains and metrics specified in [plans](../plans/).
+
+Each domain that Blip currently implements begins with a table with these fields:
+
+Blip version
+: Blip version collector was added or changed.
+
+MySQL config
+: * _no_ = No config required; all metrics available if MySQL default config
+* _required_ = Metrics require MySQL config as documented
+* _optional_ = Limited metrics unless MySQL config as documented
+
+Sources
+: Usual source of metrics, but might have mulitple sources.
+
+Group keys
+: [Metric groups](reporting#groups). Omitted if collector does not group metrics.
+
+Meta key-values
+: [Metric meta](reporting#meta) Omitted if collector does not set meta.
+
+Collector metrics
+: [Collector metrics](conventions#collector-metrics). Omitted if collector does not report derived metrics.
+
+Run `blip --print-domains` to list available domains and [collector options](collectors#options).
+
+---
 
 * TOC
 {:toc}
 
 ---
 
+{: .config-section-title .dark }
 ## access
 _Access statistics_
+
+Not implemented yet but planned.
 
 ### access.index
 _Index access statistics_
 
-Reserved for future use.
+Not implemented yet but planned.
+
+(Metrics from `sys.schema_index_statistics`.)
 
 ### access.table
 _Table access statistics_
 
-Reserved for future use.
+Not implemented yet but planned.
 
+(Metrics from `sys.schema_table_statistics`.)
+
+{: .config-section-title .dark }
 ## aria
 _MariaDB Aria Storage Engine_
 
 Reserved for future use.
 
+{: .config-section-title .dark }
 ## autoinc
 _Auto-increment Columns_
 
 Not implemented yet but planned.
 
+{: .config-section-title .dark }
 ## aws
 _Amazon Web Services_
 
 ### aws.rds
 _Amazon RDS for MySQL_
 
+Not implemented yet but planned.
+
 ### aws.aurora
 _Amazon Aurora_
 
+Not implemented yet but planned.
+
+{: .config-section-title .dark }
 ## azure
 _Microsoft Azure_
 
 Reserved for future use.
 
+{: .config-section-title .dark }
 ## error
+_MySQL, Client, and Query Errors_
+
+Not implemented yet but planned.
+
 ### error.global
 ### error.query
 ### error.repl
 ### error.client
 
+{: .config-section-title .dark }
 ## event
 _MySQL Events_
 
@@ -66,35 +116,39 @@ Reserved for future use.
 ### event.trx
 ### event.wait
 
+{: .config-section-title .dark }
 ## file
 _Files and Tablespaces_
 
 Reserved for future use.
 
+{: .config-section-title .dark }
 ## galera
 _Percona XtraDB Cluster and MariaDB Cluster (wsrep)_
 
 Reserved for future use.
 
+{: .config-section-title .dark }
 ## gcp
 _Google Cloud_
 
 Reserved for future use.
 
+{: .config-section-title .dark }
 ## gr
 _MySQL Group Replication_
 
 Reserved for future use.
 
+{: .config-section-title .dark }
 ## host
 _Host (Client)_
 
-.COUNT_HOST_BLOCKED_ERRORS
+Reserved for future use.
 
+{: .config-section-title }
 ## innodb
 _InnoDB Metrics_
-
-Metrics from [`INFORMATION_SCHEMA.INNODB_METRICS`](https://dev.mysql.com/doc/refman/en/information-schema-innodb-metrics-table.html).
 
 {: .var-table}
 |Blip version|v1.0.0|
@@ -103,28 +157,34 @@ Metrics from [`INFORMATION_SCHEMA.INNODB_METRICS`](https://dev.mysql.com/doc/ref
 |Group keys||
 |Meta|subsystem=`SUBSYSTEM` column|
 
+Metrics from [`INFORMATION_SCHEMA.INNODB_METRICS`](https://dev.mysql.com/doc/refman/en/information-schema-innodb-metrics-table.html).
+
 ### innodb.mutex
 _InnoDB Mutexes_
 
-Metrics from `SHOW ENGINE INNODB MUTEX`.
-Not implement yet.
+Reserved for future use.
 
+(Metrics from `SHOW ENGINE INNODB MUTEX`.)
 
+{: .config-section-title .dark }
 ## mariadb
 _MariaDB Enhancements_
 
 Reserved for future use.
 
+{: .config-section-title .dark }
 ## ndb
 _MySQL NDB Cluster_
 
 Reserved for future use.
 
+{: .config-section-title .dark }
 ## oracle
 _Oracle Cloud and Enterprise Enhancements_
 
 Reserved for future use.
 
+{: .config-section-title .dark }
 ## percona
 _Percona Server Enhancements_
 
@@ -151,24 +211,31 @@ _Percona `userstat` Table Statistics_
 |Group keys||
 |Meta||
 
+{: .config-section-title .dark }
 ## processlist
 _Processlist_
 
-SHOW PROCESSLIST; — or — I_S.PROCESSLIST;
+Reserved for future use.
 
+(Metrics from `SHOW PROCESSLIST` or `I_S.PROCESSLIST`.)
+
+{: .config-section-title .dark }
 ## pfs
 _Performance Schema_
 
-SHOW ENGINE PERFORMANCE_SCHEMA STATUS;
+Reserved for future use.
 
+(Metrics from `SHOW ENGINE PERFORMANCE_SCHEMA STATUS`.)
+
+{: .config-section-title .dark }
 ## pxc
 _Percona XtraDB Cluster_
 
-Reserved: use galera.
+Reserved for future use, or use `galera`.
 
+{: .config-section-title }
 ## query
 _Query Metrics_
-
 
 ### query.global
 _Global Query Response Time_
@@ -179,36 +246,40 @@ _Global Query Response Time_
 |Sources|MySQL 8.0 [p_s.events_statements_histogram_global](https://dev.mysql.com/doc/refman/8.0/en/performance-schema-statement-histogram-summary-tables.html), Percona Server 5.7 [RTD plugin](https://www.percona.com/doc/percona-server/5.7/diagnostics/response_time_distribution.html)|
 |Group keys||
 |Meta key-values|&bull; `pN=pA`: where `pN` is configured percentile (default: `p999`) and `pA` is actual percentile (see note 1)|
+|Collector metrics|&bull; `reponse_time` (gauge)<br>|
 
 The `query.global` domain includes metrics for all queries, which is currently only response time.
 By default, it reports the P999 (99.9th percentile) reponse time using either MySQL 8.0 [performance_schema.events_statements_histogram_global](https://dev.mysql.com/doc/refman/8.0/en/performance-schema-statement-histogram-summary-tables.html) or Percona Server 5.7 [Response Time Distribution plugin](https://www.percona.com/doc/percona-server/5.7/diagnostics/response_time_distribution.html).
 
-Multiple percentiles can be collect&mdash;`p95`, `p99`, and `p999` for example.
+Multiple percentiles can be collected&mdash;`p95`, `p99`, and `p999` for example.
 The metric for each percentile is denoted by meta key `pN`.
 
-#### Notes
+{: .note}
+To convert units, use the [TransformMetrics plugin](../integrate#transformmetrics) or write a [custom sink](../sinks/custom).
 
-1. MySQL (and Percona Server) use histograms with varible bucket ranges.
-Therefore, the P99 might actually be P98.9 or P99.2.
-Meta key `pN` indicates the configured percentile, and its value `pA` indicates the actual percentile that was used.
-
-#### Derived Metrics
+#### Collector Metrics
 {: .no_toc }
 
 * `reponse_time`<br>
 Type: gauge<br>
-Response time for all queries, reported as a percentile (default: P999) in milliseconds.
+Response time for all queries, reported as a percentile (default: P999) in microseconds.
 The true percentile might be slightly more or less depending on how the histogram buckets are configured (see note 1).
+
+#### Notes
+{: .no_toc }
+
+1. MySQL (and Percona Server) use histograms with varible bucket ranges.
+Therefore, the P99 might actually be P98.9 or P99.2.
+Meta key `pN` indicates the configured percentile, and its value `pA` indicates the actual percentile that was used.
 
 ### query.id
 _Not implemented yet._
 
 The `query.id` domain includes metrics for unique queries identified by digest SHA and set in `meta` as `id`.
 
+{: .config-section-title}
 ## repl
 _MySQL Replication_
-
-Not implemented yet.
 
 ### repl.lag
 _MySQL Replication Lag_
@@ -239,11 +310,13 @@ monitors:
       repl-source: source.db
 ```
 
+{: .config-section-title .dark}
 ## rocksdb
 _RocksDB Store Engine_
 
 Reserved for future use.
 
+{: .config-section-title }
 ## size
 _Data, Index, and File Sizes_
 
@@ -257,7 +330,7 @@ _Binary Log Storage Size_
 |Group keys||
 |Meta||
 
-#### Derived Metrics
+#### Collector Metrics
 {: .no_toc }
 
 * `bytes`<br>
@@ -279,9 +352,9 @@ _Index Storage Size_
 ### size.file
 _File Storage Size_
 
-.innodb_undo
-.innodb_temp
+(Metrics `innodb_undo` and `innodb_temp`.)
 
+{: .config-section-title }
 ## status
 _MySQL Status Variables_
 
@@ -319,15 +392,19 @@ _Status by User_
 
 Reserved for future use.
 
+{: .config-section-title .dark }
 ## thd
 Threads
 
 Reserved for future use.
 
+{: .config-section-title .dark }
 ## tls
 TLS (SSL) Status and Configuration
 
-#### Derived Metrics
+Not implemented yet but planned.
+
+#### Collector Metrics
 {: .no_toc }
 
 * enabled (have_ssl)
@@ -335,11 +412,13 @@ TLS (SSL) Status and Configuration
 * ssl_server_not_after	(date-time converted to Unix timestamp)
 * current_tls_version
 
+{: .config-section-title .dark }
 ## tokudb
 TokuDB Storage Engine
 
 Reserved for future use.
 
+{: .config-section-title }
 ## var.global
 _MySQL System Variables_
 

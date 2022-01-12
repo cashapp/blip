@@ -205,495 +205,495 @@
   },"34": {
     "doc": "Conventions",
     "title": "Conventions",
-    "content": "Blip conventions provide consistency and structure to make writing plans and reporting metrics easier. Although the built-in sinks report fully-qualified metric names (status.global.threads_running), your custom sink can rename and report metrics however you want. For example, your sink could ignore Blip domains completely and report only metric names (threads_running), or report a simpler custom prefix (mysql.threads_running). ",
+    "content": "Blip conventions provide consistency and structure to make writing plans and reporting metrics easier. Although the built-in sinks report fully-qualified metric names (status.global.threads_running), your custom sink can rename and report metrics however you want. For example, your sink could ignore Blip domains completely and report only metric names (threads_running), or report a simpler custom prefix (mysql.threads_running). | Metrics . | Naming | Types | Values | Units | . | Collector Metrics | Domain Naming . | Sub-domains | . | . ",
     "url": "/v1.0/metrics/conventions",
     "relUrl": "/v1.0/metrics/conventions"
   },"35": {
     "doc": "Conventions",
-    "title": "Domain Naming",
-    "content": "Blip metric domain names have three requirements: . | Always lowercase | One word: [a-z]+ | Singular noun: “size” not “sizes”; “query” not “queries” | . Common abbreviation and acrynomym are prefered, especially when they match MySQL usage: “thd” not “thread”; “pfs” not “performanceschema”; and so on. Currently, domain names fit this convention, but if a need arises to allow hyphenation (“domain-name”), it might be allowed. Snake case (“domain_name”) and camel case (“domainName”) are not allowed: the former is used by metrics, and the latter is not Blip style. Sub-domains . Blip uses sub-domains for two purposes: MySQL-grouped metrics, or metrics that are related but different. The error domain is an exmaple of metrics that are related by different. error.query and error.repl both comprise error-related metrics, hence the common root domain, but the specific metrics for each are different. Thestatus domain is an example of MySQL-grouped metrics. MySQL provides status metrics grouped by account, global, host, thread, and user. (Global is the most common, as in SHOW GLOBAL STATUS.) Blip has a sub-domain for each group—status.account, status.global, and so on—that makes advacned plans like the following possible: . level: collect: status.global: options: all: yes status.host: options: host: 10.1.1.1 metrics: - queries - threads_running . The plan snippet above collects all global status metrics (status.global) but only two status metrics for host 10.1.1.1 (status.host). MySQL-grouped metrics are an explicit group: status.host explicitly groups by host. See Grouping for more details. For simplicitly, sub-domains are called “domains” in the rest of the docs. The term is only used here to clarify the distinction and usage. ",
-    "url": "/v1.0/metrics/conventions#domain-naming",
-    "relUrl": "/v1.0/metrics/conventions#domain-naming"
+    "title": "Metrics",
+    "content": "Naming . Blip strives to report MySQL metric names as-is—no modifications—so that what you see in MySQL is what you get in Blip. However, MySQL metric names are very inconsistent: . | Foo_bar (most common) | Foo_Bar (replica status) | foo_bar (InnoDB metrics) | foo_bar_count (type suffix) | foo_bar_usec (unit suffix) | . For consistency, Blip metric names have three requirements: . | Only snake_case | Always lowercase | No prefixes or suffixes | . A fully-qualified metric name includes a domain: status.global.threads_running. The metric name is always the last field (split on .). Types . Blip metric types are standard: . | UNKNOWN | COUNTER | GAUGE | BOOL | EVENT | . Most metrics are counters; a few are gauges. Blip, like MySQL, does not distinguish between “counter” and “cumulative counter”. Blip counter metrics can reset to zero if MySQL is restarted; otherwise, the value only increases. Currently, Blip does not report bool or event metrics, but these are reserved for future use. The unknown type is used only for error detection. Values . All values, regardless of type, are float64. Units . MySQL metrics use a variety of units—from picoseconds to seconds. When the MySQL metric unit is documented and consistent, Blip reports the value as-is. For example, innodb.buffer_flush_avg_time is documented as “Avg time (ms) spent for flushing recently.”, therefore Blip reports the value as-is: as milliseconds. When the MySQL metric unit is variable, Blip uses the following units: . | Metric Type | Unit | . | Query time | microseconds (μs) | . | Lock time | microseconds (μs) | . | Wait time | microseconds (μs) | . | Replication (lag) | milliseconds (ms) | . | Data size | bytes | . For example, query response time ranges from nanoseconds to seconds (with microsecond precision) depending on the source. But regardless of the source, Blip reports query.*.response_time as microseconds (μs). To convert units, use the TransformMetrics plugin or write a custom sink. Blip does not suffix metric names with units, and it does not strip the few MySQL metrics that have unit suffixes. ",
+    "url": "/v1.0/metrics/conventions#metrics",
+    "relUrl": "/v1.0/metrics/conventions#metrics"
   },"36": {
     "doc": "Conventions",
-    "title": "Metric Naming",
-    "content": "Blip strives to report MySQL metric names as-is—no modifications—so that what you see in MySQL is what you get in Blip. However, MySQL metric names are very inconsistent: . | Foo_bar (most common) | Foo_Bar (replica status) | foo_bar (InnoDB metrics) | foo_bar_count (type suffix) | foo_bar_usec (unit suffix) | . For consistency, Blip metric names have three requirements: . | Only snake_case | Always lowercase | No additional suffixes or prefixes | . A fully-qualified metric name includes a domain: status.global.threads_running. The metric name is always the last field (split on .). ",
-    "url": "/v1.0/metrics/conventions#metric-naming",
-    "relUrl": "/v1.0/metrics/conventions#metric-naming"
+    "title": "Collector Metrics",
+    "content": "Most metrics are MySQL metrics: Blip simply reports the MySQL metric (after making it lowercase). For example, MySQL metric Threads_running is simply threads_running, and InnoDB metric trx_rseg_history_len is simply trx_rseg_history_len. Even in cases like trx_rseg_history_len, Blip never renames MySQL metrics to something more friendly, like history_list_length, which the MySQL metric really represents. Blip never renames MySQL metrics. MySQL metrics are not listed in Domains; see the listed MySQL sources for metrics. Collector metrics are metrics created by the collector, usually derived from MySQL metrics. For example, the repl.lag collector reports a metric named lag. There is no MySQL metric by that name; it’s created by the collector. To rename metrics, use the TransformMetrics plugin or write a custom sink. ",
+    "url": "/v1.0/metrics/conventions#collector-metrics",
+    "relUrl": "/v1.0/metrics/conventions#collector-metrics"
   },"37": {
     "doc": "Conventions",
-    "title": "Units",
-    "content": "MySQL metrics use a variety of units—from picoseconds to seconds. When the MySQL metric unit is documented and consistent, Blip reports the value as-is. For example, innodb.buffer_flush_avg_time is documented as “Avg time (ms) spent for flushing recently.”, therefore Blip reports the value as-is: as milliseconds. When the MySQL metric unit is variable, Blip uses the following units: . | Metric Type | Unit | . | Query time | milliseconds (ms) | . | Lock time | milliseconds (ms) | . | Wait time | milliseconds (ms) | . | Replication (lag) | milliseconds (ms) | . | Data size | bytes | . For example, query response time can be nanoseconds or seconds with microsecond precision (%.6f). Regardless of the source, Blip reports query.*.response_time as milliseconds with microsecond precision (%.3f). Blip does not suffix metric names with units, and it does not strip the few MySQL metrics that have unit suffixes. ",
-    "url": "/v1.0/metrics/conventions#units",
-    "relUrl": "/v1.0/metrics/conventions#units"
+    "title": "Domain Naming",
+    "content": "Blip metric domain names have three requirements: . | Always lowercase | One word: [a-z]+ | Singular noun: “size” not “sizes”; “query” not “queries” | . Common abbreviation and acrynomym are prefered, especially when they match MySQL usage: “thd” not “thread”; “pfs” not “performanceschema”; and so on. Currently, domain names fit this convention, but if a need arises to allow hyphenation (“domain-name”), it might be allowed. Snake case (“domain_name”) and camel case (“domainName”) are not allowed: the former is used by metrics, and the latter is not Blip style. Sub-domains . Blip uses sub-domains for two purposes: MySQL-grouped metrics, or metrics that are related but different. The error domain is an exmaple of metrics that are related by different. error.query and error.repl both comprise error-related metrics, hence the common root domain, but the specific metrics for each are different. Thestatus domain is an example of MySQL-grouped metrics. MySQL provides status metrics grouped by account, global, host, thread, and user. (Global is the most common, as in SHOW GLOBAL STATUS.) Blip has a sub-domain for each group—status.account, status.global, and so on—that makes advacned plans like the following possible: . level: collect: status.global: options: all: yes status.host: options: host: 10.1.1.1 metrics: - queries - threads_running . The plan snippet above collects all global status metrics (status.global) but only two status metrics for host 10.1.1.1 (status.host). MySQL-grouped metrics are an explicit group: status.host explicitly groups by host. See Reporting &gt; Groups for more details. For simplicitly, sub-domains are called “domains” in the rest of the docs. The term is only used here to clarify the distinction and usage. ",
+    "url": "/v1.0/metrics/conventions#domain-naming",
+    "relUrl": "/v1.0/metrics/conventions#domain-naming"
   },"38": {
-    "doc": "Conventions",
-    "title": "Grouping",
-    "content": "Certain domains (as documented) implicitly or explicitly group metrics. In both cases, the group key-value pairs are set in the blip.MetricValue.Group map. Groups, labels, and dimensions serve the same purpose. Blip uses the term group because it’s similar to MySQL GROUP BY. Implicit grouping means the metrics collector (for the domain) groups metrics automatically. For example, the size.data collector, which collects database and table sizes, groups metrics by databse name. As a result, each metric has a key-value pair like db=foo. Explicit grouping refers to MySQL-grouped metrics—see Sub-domains. For example, the status.host collector is explicitly grouped by host. Therefore, each metric has a key-value pair like host=10.1.1.1. global is the only exception to explicit grouping: global metrics do not set anything in the blip.MetricValue.Group map (the map is nil). ",
-    "url": "/v1.0/metrics/conventions#grouping",
-    "relUrl": "/v1.0/metrics/conventions#grouping"
-  },"39": {
     "doc": "Blip",
     "title": "Blip",
     "content": "A running instance of the blip binary is a server. Internally, it’s a singleton instances of a Server data type. ",
     "url": "/v1.0/server/core",
     "relUrl": "/v1.0/server/core"
-  },"40": {
+  },"39": {
     "doc": "Blip",
     "title": "Startup",
     "content": "Blip boots then runs. Command line option --run=false stop it from running. Monitors . Monitors have indepdent of the server. A monitor can . ",
     "url": "/v1.0/server/core#startup",
     "relUrl": "/v1.0/server/core#startup"
-  },"41": {
+  },"40": {
     "doc": "Blip",
     "title": "Controls",
     "content": ". | Command line | API | Plan Loader | Monitor Loader | Sighnal handlers | . ",
     "url": "/v1.0/server/core#controls",
     "relUrl": "/v1.0/server/core#controls"
-  },"42": {
+  },"41": {
     "doc": "Custom",
     "title": "Custom Sink",
     "content": " ",
     "url": "/v1.0/sinks/custom#custom-sink",
     "relUrl": "/v1.0/sinks/custom#custom-sink"
-  },"43": {
+  },"42": {
     "doc": "Custom",
     "title": "Custom",
     "content": " ",
     "url": "/v1.0/sinks/custom",
     "relUrl": "/v1.0/sinks/custom"
-  },"44": {
+  },"43": {
     "doc": "Db Maker",
     "title": "Db Maker",
     "content": "The database connection factory—db maker for short—makes connections to MySQL. ",
     "url": "/v1.0/server/db-maker",
     "relUrl": "/v1.0/server/db-maker"
-  },"45": {
+  },"44": {
     "doc": "Db Maker",
     "title": "Authentication",
     "content": ". | Amazon RDS IAM authentication (config.aws-rds.iam-auth-token) | Amazon Secrets Manager (config.aws-rds.password-secret) | TLS certificate (config.tls) | Password file (config.mysql.password-file) | my.cnf (config.mysql.mycnf) | Password (config.mysql.password) | No password | . Source code: dbconn/factory.go . ",
     "url": "/v1.0/server/db-maker#authentication",
     "relUrl": "/v1.0/server/db-maker#authentication"
-  },"46": {
+  },"45": {
     "doc": "Db Maker",
     "title": "Password Reloading",
     "content": "Blip automatically reloads the password for all authentication methods. It uses go-mysql/hotswap-dsn-driver. ",
     "url": "/v1.0/server/db-maker#password-reloading",
     "relUrl": "/v1.0/server/db-maker#password-reloading"
-  },"47": {
+  },"46": {
     "doc": "Defaults",
     "title": "Default Plans",
     "content": " ",
     "url": "/v1.0/plans/defaults#default-plans",
     "relUrl": "/v1.0/plans/defaults#default-plans"
-  },"48": {
+  },"47": {
     "doc": "Defaults",
     "title": "Blip",
     "content": "--- performance: freq: 5s collect: innodb: metrics: - trx_active_transactions - lock_timeouts - lock_row_lock_current_waits - lock_row_lock_waits - lock_row_lock_time - buffer_flush_adaptive_total_pages - buffer_LRU_batch_flush_total_pages - buffer_flush_background_total_pages - log_lsn_checkpoint_age_total - log_max_modified_age_async - innodb_os_log_pending_writes - innodb_log_waits - trx_rseg_history_len - lock_deadlocks status.global: metrics: - queries - threads_running - com_begin - com_commit - com_rollback - com_select - com_delete - com_delete_multi - com_insert - com_insert_select - com_replace - com_replace_select - com_update - com_update_multi - innodb_data_reads - innodb_data_writes - innodb_data_written - innodb_data_read - innodb_buffer_pool_read_requests - innodb_buffer_pool_reads - Innodb_buffer_pool_wait_free - innodb_buffer_pool_pages_dirty - innodb_buffer_pool_pages_free - innodb_buffer_pool_pages_total - innodb_buffer_pool_pages_flushed - innodb_os_log_written additional: freq: 20s collect: status.global: metrics: - created_tmp_disk_tables - created_tmp_tables - created_tmp_files - connections - threads_connected - max_used_connections - bytes_sent - bytes_received - binlog_cache_disk_use - prepared_stmt_count - com_stmt_execute - com_stmt_prepare - aborted_clients - aborted_connects - select_full_join - select_full_range_join - select_range_check - select_scan - com_flush - com_kill - com_purge - com_admin_commands - com_show_processlist - com_show_slave_status - com_show_status - com_show_variables - com_show_warnings data-size: freq: 5m collect: size.binlogs: {} size.data: {} sysvars: freq: 15m collect: var.global: metrics: - max_connections - max_prepared_stmt_count - innodb_log_file_size . ",
     "url": "/v1.0/plans/defaults#blip",
     "relUrl": "/v1.0/plans/defaults#blip"
-  },"49": {
+  },"48": {
     "doc": "Defaults",
     "title": "Prometheus",
     "content": " ",
     "url": "/v1.0/plans/defaults#prometheus",
     "relUrl": "/v1.0/plans/defaults#prometheus"
-  },"50": {
+  },"49": {
     "doc": "Defaults",
     "title": "Defaults",
     "content": " ",
     "url": "/v1.0/plans/defaults",
     "relUrl": "/v1.0/plans/defaults"
-  },"51": {
+  },"50": {
     "doc": "Defaults",
     "title": "Default Metrics",
-    "content": "See Default Plans. ",
+    "content": "Blip collects over 70 metrics by default—see Default Plans. To collect different metrics, first see which metric domains Blip collects, then write and use a new plan to collect the metrics you need. ",
     "url": "/v1.0/metrics/defaults#default-metrics",
     "relUrl": "/v1.0/metrics/defaults#default-metrics"
-  },"52": {
+  },"51": {
     "doc": "Defaults",
     "title": "Defaults",
     "content": " ",
     "url": "/v1.0/metrics/defaults",
     "relUrl": "/v1.0/metrics/defaults"
+  },"52": {
+    "doc": "Domains",
+    "title": "Domains",
+    "content": "This page is the full domain list and reference. Blip collects only the domains and metrics specified in plans. Each domain that Blip currently implements begins with a table with these fields: . Blip version Blip version collector was added or changed. MySQL config . | no = No config required; all metrics available if MySQL default config | required = Metrics require MySQL config as documented | optional = Limited metrics unless MySQL config as documented | . Sources Usual source of metrics, but might have mulitple sources. Group keys Metric groups. Omitted if collector does not group metrics. Meta key-values Metric meta Omitted if collector does not set meta. Collector metrics Collector metrics. Omitted if collector does not report derived metrics. Run blip --print-domains to list available domains and collector options. | access . | access.index | access.table | . | aria | autoinc | aws . | aws.rds | aws.aurora | . | azure | error . | error.global | error.query | error.repl | error.client | . | event . | event.stage | event.stmt | event.trx | event.wait | . | file | galera | gcp | gr | host | innodb . | innodb.mutex | . | mariadb | ndb | oracle | percona . | percona.userstat.index | percona.userstat.table | . | processlist | pfs | pxc | query . | query.global | query.id | . | repl . | repl.lag | . | rocksdb | size . | size.binlog | size.data | size.index | size.file | . | status . | status.account | status.global | status.host | status.thread | status.user | . | thd | tls | tokudb | var.global | . ",
+    "url": "/v1.0/metrics/domains",
+    "relUrl": "/v1.0/metrics/domains"
   },"53": {
     "doc": "Domains",
-    "title": "Metric Domains",
-    "content": ". | access . | access.index | access.table | . | aria | autoinc | aws . | aws.rds | aws.aurora | . | azure | error . | error.global | error.query | error.repl | error.client | . | event . | event.stage | event.stmt | event.trx | event.wait | . | file | galera | gcp | gr | host | innodb . | innodb.mutex | . | mariadb | ndb | oracle | percona . | percona.userstat.index | percona.userstat.table | . | processlist | pfs | pxc | query . | query.global . | Notes | . | query.id | . | repl . | repl.lag | . | rocksdb | size . | size.binlog | size.data | size.index | size.file | . | status . | status.account | status.global | status.host | status.thread | status.user | . | thd | tls | tokudb | var.global | . ",
-    "url": "/v1.0/metrics/domains#metric-domains",
-    "relUrl": "/v1.0/metrics/domains#metric-domains"
-  },"54": {
-    "doc": "Domains",
     "title": "access",
-    "content": "Access statistics . access.index . Index access statistics . Reserved for future use. access.table . Table access statistics . Reserved for future use. ",
+    "content": "Access statistics . Not implemented yet but planned. access.index . Index access statistics . Not implemented yet but planned. (Metrics from sys.schema_index_statistics.) . access.table . Table access statistics . Not implemented yet but planned. (Metrics from sys.schema_table_statistics.) . ",
     "url": "/v1.0/metrics/domains#access",
     "relUrl": "/v1.0/metrics/domains#access"
-  },"55": {
+  },"54": {
     "doc": "Domains",
     "title": "aria",
     "content": "MariaDB Aria Storage Engine . Reserved for future use. ",
     "url": "/v1.0/metrics/domains#aria",
     "relUrl": "/v1.0/metrics/domains#aria"
-  },"56": {
+  },"55": {
     "doc": "Domains",
     "title": "autoinc",
     "content": "Auto-increment Columns . Not implemented yet but planned. ",
     "url": "/v1.0/metrics/domains#autoinc",
     "relUrl": "/v1.0/metrics/domains#autoinc"
-  },"57": {
+  },"56": {
     "doc": "Domains",
     "title": "aws",
-    "content": "Amazon Web Services . aws.rds . Amazon RDS for MySQL . aws.aurora . Amazon Aurora . ",
+    "content": "Amazon Web Services . aws.rds . Amazon RDS for MySQL . Not implemented yet but planned. aws.aurora . Amazon Aurora . Not implemented yet but planned. ",
     "url": "/v1.0/metrics/domains#aws",
     "relUrl": "/v1.0/metrics/domains#aws"
-  },"58": {
+  },"57": {
     "doc": "Domains",
     "title": "azure",
     "content": "Microsoft Azure . Reserved for future use. ",
     "url": "/v1.0/metrics/domains#azure",
     "relUrl": "/v1.0/metrics/domains#azure"
-  },"59": {
+  },"58": {
     "doc": "Domains",
     "title": "error",
-    "content": "error.global . error.query . error.repl . error.client . ",
+    "content": "MySQL, Client, and Query Errors . Not implemented yet but planned. error.global . error.query . error.repl . error.client . ",
     "url": "/v1.0/metrics/domains#error",
     "relUrl": "/v1.0/metrics/domains#error"
-  },"60": {
+  },"59": {
     "doc": "Domains",
     "title": "event",
     "content": "MySQL Events . Reserved for future use. event.stage . event.stmt . event.trx . event.wait . ",
     "url": "/v1.0/metrics/domains#event",
     "relUrl": "/v1.0/metrics/domains#event"
-  },"61": {
+  },"60": {
     "doc": "Domains",
     "title": "file",
     "content": "Files and Tablespaces . Reserved for future use. ",
     "url": "/v1.0/metrics/domains#file",
     "relUrl": "/v1.0/metrics/domains#file"
-  },"62": {
+  },"61": {
     "doc": "Domains",
     "title": "galera",
     "content": "Percona XtraDB Cluster and MariaDB Cluster (wsrep) . Reserved for future use. ",
     "url": "/v1.0/metrics/domains#galera",
     "relUrl": "/v1.0/metrics/domains#galera"
-  },"63": {
+  },"62": {
     "doc": "Domains",
     "title": "gcp",
     "content": "Google Cloud . Reserved for future use. ",
     "url": "/v1.0/metrics/domains#gcp",
     "relUrl": "/v1.0/metrics/domains#gcp"
-  },"64": {
+  },"63": {
     "doc": "Domains",
     "title": "gr",
     "content": "MySQL Group Replication . Reserved for future use. ",
     "url": "/v1.0/metrics/domains#gr",
     "relUrl": "/v1.0/metrics/domains#gr"
-  },"65": {
+  },"64": {
     "doc": "Domains",
     "title": "host",
-    "content": "Host (Client) .COUNT_HOST_BLOCKED_ERRORS . ",
+    "content": "Host (Client) . Reserved for future use. ",
     "url": "/v1.0/metrics/domains#host",
     "relUrl": "/v1.0/metrics/domains#host"
-  },"66": {
+  },"65": {
     "doc": "Domains",
     "title": "innodb",
-    "content": "InnoDB Metrics . Metrics from INFORMATION_SCHEMA.INNODB_METRICS. | Blip version | v1.0.0 | . | MySQL config | maybe | . | Sources | I_S | . | Group keys |   | . | Meta | subsystem=SUBSYSTEM column | . innodb.mutex . InnoDB Mutexes . Metrics from SHOW ENGINE INNODB MUTEX. Not implement yet. ",
+    "content": "InnoDB Metrics . | Blip version | v1.0.0 | . | MySQL config | maybe | . | Sources | I_S | . | Group keys |   | . | Meta | subsystem=SUBSYSTEM column | . Metrics from INFORMATION_SCHEMA.INNODB_METRICS. innodb.mutex . InnoDB Mutexes . Reserved for future use. (Metrics from SHOW ENGINE INNODB MUTEX.) . ",
     "url": "/v1.0/metrics/domains#innodb",
     "relUrl": "/v1.0/metrics/domains#innodb"
-  },"67": {
+  },"66": {
     "doc": "Domains",
     "title": "mariadb",
     "content": "MariaDB Enhancements . Reserved for future use. ",
     "url": "/v1.0/metrics/domains#mariadb",
     "relUrl": "/v1.0/metrics/domains#mariadb"
-  },"68": {
+  },"67": {
     "doc": "Domains",
     "title": "ndb",
     "content": "MySQL NDB Cluster . Reserved for future use. ",
     "url": "/v1.0/metrics/domains#ndb",
     "relUrl": "/v1.0/metrics/domains#ndb"
-  },"69": {
+  },"68": {
     "doc": "Domains",
     "title": "oracle",
     "content": "Oracle Cloud and Enterprise Enhancements . Reserved for future use. ",
     "url": "/v1.0/metrics/domains#oracle",
     "relUrl": "/v1.0/metrics/domains#oracle"
-  },"70": {
+  },"69": {
     "doc": "Domains",
     "title": "percona",
     "content": "Percona Server Enhancements . Metrics from Percona User Statistics. percona.userstat.index . Percona userstat Index Statistics . | Blip version | v1.0.0 | . | MySQL config | yes | . | Sources | INFORMATION_SCHEMA.INDEX_STATISTICS | . | Group keys |   | . | Meta |   | . percona.userstat.table . Percona userstat Table Statistics . | Blip version | v1.0.0 | . | MySQL config | yes | . | Sources | INFORMATION_SCHEMA.TABLE_STATISTICS | . | Group keys |   | . | Meta |   | . ",
     "url": "/v1.0/metrics/domains#percona",
     "relUrl": "/v1.0/metrics/domains#percona"
-  },"71": {
+  },"70": {
     "doc": "Domains",
     "title": "processlist",
-    "content": "Processlist . SHOW PROCESSLIST; — or — I_S.PROCESSLIST; . ",
+    "content": "Processlist . Reserved for future use. (Metrics from SHOW PROCESSLIST or I_S.PROCESSLIST.) . ",
     "url": "/v1.0/metrics/domains#processlist",
     "relUrl": "/v1.0/metrics/domains#processlist"
-  },"72": {
+  },"71": {
     "doc": "Domains",
     "title": "pfs",
-    "content": "Performance Schema . SHOW ENGINE PERFORMANCE_SCHEMA STATUS; . ",
+    "content": "Performance Schema . Reserved for future use. (Metrics from SHOW ENGINE PERFORMANCE_SCHEMA STATUS.) . ",
     "url": "/v1.0/metrics/domains#pfs",
     "relUrl": "/v1.0/metrics/domains#pfs"
-  },"73": {
+  },"72": {
     "doc": "Domains",
     "title": "pxc",
-    "content": "Percona XtraDB Cluster . Reserved: use galera. ",
+    "content": "Percona XtraDB Cluster . Reserved for future use, or use galera. ",
     "url": "/v1.0/metrics/domains#pxc",
     "relUrl": "/v1.0/metrics/domains#pxc"
-  },"74": {
+  },"73": {
     "doc": "Domains",
     "title": "query",
-    "content": "Query Metrics . query.global . Global Query Response Time . | Blip version | v1.0.0 | . | MySQL config | yes | . | Sources | MySQL 8.0 p_s.events_statements_histogram_global, Percona Server 5.7 RTD plugin | . | Group keys |   | . | Meta key-values | • pN=pA: where pN is configured percentile (default: p999) and pA is actual percentile (see note 1) | . The query.global domain includes metrics for all queries, which is currently only response time. By default, it reports the P999 (99.9th percentile) reponse time using either MySQL 8.0 performance_schema.events_statements_histogram_global or Percona Server 5.7 Response Time Distribution plugin. Multiple percentiles can be collect—p95, p99, and p999 for example. The metric for each percentile is denoted by meta key pN. Notes . | MySQL (and Percona Server) use histograms with varible bucket ranges. Therefore, the P99 might actually be P98.9 or P99.2. Meta key pN indicates the configured percentile, and its value pA indicates the actual percentile that was used. | . Derived Metrics . | reponse_time Type: gauge Response time for all queries, reported as a percentile (default: P999) in milliseconds. The true percentile might be slightly more or less depending on how the histogram buckets are configured (see note 1). | . query.id . Not implemented yet. The query.id domain includes metrics for unique queries identified by digest SHA and set in meta as id. ",
+    "content": "Query Metrics . query.global . Global Query Response Time . | Blip version | v1.0.0 | . | MySQL config | yes | . | Sources | MySQL 8.0 p_s.events_statements_histogram_global, Percona Server 5.7 RTD plugin | . | Group keys |   | . | Meta key-values | • pN=pA: where pN is configured percentile (default: p999) and pA is actual percentile (see note 1) | . | Collector metrics | • reponse_time (gauge) | . The query.global domain includes metrics for all queries, which is currently only response time. By default, it reports the P999 (99.9th percentile) reponse time using either MySQL 8.0 performance_schema.events_statements_histogram_global or Percona Server 5.7 Response Time Distribution plugin. Multiple percentiles can be collected—p95, p99, and p999 for example. The metric for each percentile is denoted by meta key pN. To convert units, use the TransformMetrics plugin or write a custom sink. Collector Metrics . | reponse_time Type: gauge Response time for all queries, reported as a percentile (default: P999) in microseconds. The true percentile might be slightly more or less depending on how the histogram buckets are configured (see note 1). | . Notes . | MySQL (and Percona Server) use histograms with varible bucket ranges. Therefore, the P99 might actually be P98.9 or P99.2. Meta key pN indicates the configured percentile, and its value pA indicates the actual percentile that was used. | . query.id . Not implemented yet. The query.id domain includes metrics for unique queries identified by digest SHA and set in meta as id. ",
     "url": "/v1.0/metrics/domains#query",
     "relUrl": "/v1.0/metrics/domains#query"
-  },"75": {
+  },"74": {
     "doc": "Domains",
     "title": "repl",
-    "content": "MySQL Replication . Not implemented yet. repl.lag . MySQL Replication Lag . | Blip version | v1.0.0 | . | Sources | Blip Heartbeat, Percona pt-heartbeat, or ~~MySQL | . | MySQL config | MySQL: no; other sources: yes | . | Group keys |   | . | Meta |   | . | Metrics | • max (gauge): Maximum replication lag (milliseconds) observed during collect interval. | . Requires option source in the plan; use %{monitor.meta.repl-source} like: . level: collect: repl.lag: options: source: \"%{monitor.meta.repl-source}\" . Then define config.monitor.meta.repl-source in the monitor meta: . monitors: - hostname: replica.db meta: repl-source: source.db . ",
+    "content": "MySQL Replication . repl.lag . MySQL Replication Lag . | Blip version | v1.0.0 | . | Sources | Blip Heartbeat, Percona pt-heartbeat, or ~~MySQL | . | MySQL config | MySQL: no; other sources: yes | . | Group keys |   | . | Meta |   | . | Metrics | • max (gauge): Maximum replication lag (milliseconds) observed during collect interval. | . Requires option source in the plan; use %{monitor.meta.repl-source} like: . level: collect: repl.lag: options: source: \"%{monitor.meta.repl-source}\" . Then define config.monitor.meta.repl-source in the monitor meta: . monitors: - hostname: replica.db meta: repl-source: source.db . ",
     "url": "/v1.0/metrics/domains#repl",
     "relUrl": "/v1.0/metrics/domains#repl"
-  },"76": {
+  },"75": {
     "doc": "Domains",
     "title": "rocksdb",
     "content": "RocksDB Store Engine . Reserved for future use. ",
     "url": "/v1.0/metrics/domains#rocksdb",
     "relUrl": "/v1.0/metrics/domains#rocksdb"
-  },"77": {
+  },"76": {
     "doc": "Domains",
     "title": "size",
-    "content": "Data, Index, and File Sizes . size.binlog . Binary Log Storage Size . | Blip version | v1.0.0 | . | Sources | SHOW BINARY LOGS | . | MySQL config | no | . | Group keys |   | . | Meta |   | . Derived Metrics . | bytes Type: gauge Total size of all binary logs in bytes. | . size.data . Database and Table Storage Size . | Blip version | v1.0.0 | . | MySQL config | no | . | Group keys | db, tbl | . | Meta |   | . size.index . Index Storage Size . size.file . File Storage Size .innodb_undo .innodb_temp . ",
+    "content": "Data, Index, and File Sizes . size.binlog . Binary Log Storage Size . | Blip version | v1.0.0 | . | Sources | SHOW BINARY LOGS | . | MySQL config | no | . | Group keys |   | . | Meta |   | . Collector Metrics . | bytes Type: gauge Total size of all binary logs in bytes. | . size.data . Database and Table Storage Size . | Blip version | v1.0.0 | . | MySQL config | no | . | Group keys | db, tbl | . | Meta |   | . size.index . Index Storage Size . size.file . File Storage Size . (Metrics innodb_undo and innodb_temp.) . ",
     "url": "/v1.0/metrics/domains#size",
     "relUrl": "/v1.0/metrics/domains#size"
-  },"78": {
+  },"77": {
     "doc": "Domains",
     "title": "status",
     "content": "MySQL Status Variables . Classic MySQL status variables. status.account . Status by Account . Reserved for future use. status.global . Global Status Variables . | Blip version | v1.0.0 | . | MySQL config | no | . | Group keys |   | . | Meta |   | . Classic SHOW GLOBAL STATUS. Might used performance_schema.global_status table. status.host . Status by Host (Client) . Reserved for future use. status.thread . Status by Thread . Reserved for future use. status.user . Status by User . Reserved for future use. ",
     "url": "/v1.0/metrics/domains#status",
     "relUrl": "/v1.0/metrics/domains#status"
-  },"79": {
+  },"78": {
     "doc": "Domains",
     "title": "thd",
     "content": "Threads . Reserved for future use. ",
     "url": "/v1.0/metrics/domains#thd",
     "relUrl": "/v1.0/metrics/domains#thd"
-  },"80": {
+  },"79": {
     "doc": "Domains",
     "title": "tls",
-    "content": "TLS (SSL) Status and Configuration . Derived Metrics . | enabled (have_ssl) | ssl_server_not_before (date-time converted to Unix timestamp) | ssl_server_not_after (date-time converted to Unix timestamp) | current_tls_version | . ",
+    "content": "TLS (SSL) Status and Configuration . Not implemented yet but planned. Collector Metrics . | enabled (have_ssl) | ssl_server_not_before (date-time converted to Unix timestamp) | ssl_server_not_after (date-time converted to Unix timestamp) | current_tls_version | . ",
     "url": "/v1.0/metrics/domains#tls",
     "relUrl": "/v1.0/metrics/domains#tls"
-  },"81": {
+  },"80": {
     "doc": "Domains",
     "title": "tokudb",
     "content": "TokuDB Storage Engine . Reserved for future use. ",
     "url": "/v1.0/metrics/domains#tokudb",
     "relUrl": "/v1.0/metrics/domains#tokudb"
-  },"82": {
+  },"81": {
     "doc": "Domains",
     "title": "var.global",
     "content": "MySQL System Variables . | Blip version | v1.0.0 | . | Sources | SHOW, SELECT @@GLOBAL, p_s | . | MySQL config | no | . | Group keys |   | . | Meta |   | . Classic MySQL SHOW GLOBAL VARIBLES. ",
     "url": "/v1.0/metrics/domains#varglobal",
     "relUrl": "/v1.0/metrics/domains#varglobal"
-  },"83": {
-    "doc": "Domains",
-    "title": "Domains",
-    "content": " ",
-    "url": "/v1.0/metrics/domains",
-    "relUrl": "/v1.0/metrics/domains"
-  },"84": {
+  },"82": {
     "doc": "Engine",
     "title": "Engine",
     "content": " ",
     "url": "/v1.0/monitor/engine",
     "relUrl": "/v1.0/monitor/engine"
-  },"85": {
+  },"83": {
     "doc": "File",
     "title": "Plan File",
     "content": "One YAML file specifies one Blip plan. ",
     "url": "/v1.0/plans/file#plan-file",
     "relUrl": "/v1.0/plans/file#plan-file"
-  },"86": {
+  },"84": {
     "doc": "File",
     "title": "Syntax",
     "content": "Plan files use YAML syntax. The high-level pseudo structure is: . --- level-name: &lt;level config&gt; collect: &lt;domain name&gt;: &lt;domain config&gt; . That structure repeats for each level, which is given a unique name. Following is a small but realistic example: . --- performance: freq: 5s collect: status.global: options: all: yes metrics: # ALL because of option ^ innodb: metrics: - trx_rseg_history_len # HLL data-size: freq: 60m collect: data.size: # All defaults . The example above specifies two levels, “performance” and “data-size”. The “performance” level is collected every 5 seconds. For this level, Blip collect metrics from two domains: status.global and innodb. The “data-size” level is collected every 60 minutes. For this level, Blip collects metrics for one domain: data.size. When the two levels overlap (every 60 minutes), Blip collects metrics for both levels. The “data-size” level demonstrates the minimum valid level config: freq and at least one domain with all defaults. Level Config . | Parameter | Value | Required? | Purpose | . | collect | Domain Config | YES | Configures which domains and metrics to collect | . | freq | Go duration string | YES | Interval at which level is collected | . Domain Config . | Parameter | Value | Required? | Purpose | . | metrics | list of strings | no | List of metrics to collect; not required but common unless domain has option to collect all metrics, or only collects a fixed list of metrics | . | options | key-value pairs (strings) | no | Sets collector options | . Values for both metrics and options are domain (and collector) specific. See Domains for the latter, and Collectors &gt; Options for the latter. ",
     "url": "/v1.0/plans/file#syntax",
     "relUrl": "/v1.0/plans/file#syntax"
-  },"87": {
+  },"85": {
     "doc": "File",
     "title": "Naming",
     "content": "Plan names are exactly as written in the plans section of the Blip config file. For example: . plans: files: - \"/blip/plan1.yaml\" - ../plan2.yaml - ${HOME}/plan3.yaml . The first plan name is /blip/plan1.yaml (Blip does not strip base paths). The second plan name is ../plan2.yaml (Blip does not replace relative paths). The third plan name is /home/user/plan3.yaml where HOME=/home/user because interpolation happens first. ",
     "url": "/v1.0/plans/file#naming",
     "relUrl": "/v1.0/plans/file#naming"
-  },"88": {
+  },"86": {
     "doc": "File",
     "title": "Interpolation",
     "content": "Blip interpolates option values in the domain config. Interpolation in plan files is identical to interpolation in the config file (see Config File &gt; Interpolation). Environment variable ${FOO} Environment variable with default value ${FOO:-default} Monitor variable %{monitor.VAR} NOTE: ${} and %{} are always required. ",
     "url": "/v1.0/plans/file#interpolation",
     "relUrl": "/v1.0/plans/file#interpolation"
-  },"89": {
+  },"87": {
     "doc": "File",
     "title": "File",
     "content": " ",
     "url": "/v1.0/plans/file",
     "relUrl": "/v1.0/plans/file"
-  },"90": {
+  },"88": {
     "doc": "Heartbeat",
     "title": "Heartbeat",
     "content": "Blip has a built-in heartbeat feature for measuring replication lag. ",
     "url": "/v1.0/heartbeat",
     "relUrl": "/v1.0/heartbeat"
-  },"91": {
-    "doc": "Release Notes",
-    "title": "Release Notes",
-    "content": " ",
-    "url": "/release-notes",
-    "relUrl": "/release-notes"
-  },"92": {
-    "doc": "Release Notes",
-    "title": "v1.0",
-    "content": "v1.0.0 (not released yet) . | First GA, production-ready release. | . ",
-    "url": "/release-notes#v10",
-    "relUrl": "/release-notes#v10"
-  },"93": {
+  },"89": {
     "doc": "Home",
     "title": "GitHub Repo",
     "content": "https://github.com/cashapp/blip . Official releases are tagged with version. Only the latest version is stable and supported. ",
     "url": "/#github-repo",
     "relUrl": "/#github-repo"
-  },"94": {
+  },"90": {
     "doc": "Home",
     "title": "Support",
     "content": "For bugs and general issues, please create a new GitHub issue. If submitting code changes, please also see the contributing guide. ",
     "url": "/#support",
     "relUrl": "/#support"
-  },"95": {
+  },"91": {
     "doc": "Home",
     "title": "Release Notes",
     "content": ". | Release Notes | . ",
     "url": "/#release-notes",
     "relUrl": "/#release-notes"
-  },"96": {
+  },"92": {
     "doc": "Home",
     "title": "Home",
     "content": ". Blip is the most advanced MySQL metrics collector ever built. | Connects to MySQL anywhere—local, remote, bare metal, cloud | Monitors one or many MySQL instances per blip instance | Configurable metrics collection—metrics are not hard-coded | Different metric collection frequencies—collect metrics at different intervals | Built-in support for Amazon RDS include Secrets Manager and IAM authentication | Send metrics to any back end—built-in support for SignalFx and Chronosphere | Plugins and factories to integrate with any environment | . Start by reading the Introduction. Then read the Quick Start to give Blip a try. ",
     "url": "/",
     "relUrl": "/"
-  },"97": {
+  },"93": {
+    "doc": "Release Notes",
+    "title": "Release Notes",
+    "content": " ",
+    "url": "/release-notes",
+    "relUrl": "/release-notes"
+  },"94": {
+    "doc": "Release Notes",
+    "title": "v1.0",
+    "content": "v1.0.0 (not released yet) . | First GA, production-ready release. | . ",
+    "url": "/release-notes#v10",
+    "relUrl": "/release-notes#v10"
+  },"95": {
     "doc": "Integrate",
     "title": "Integrate",
     "content": "Blip was designed from the ground up to integrate with your MySQL environment. To accomplish that, Blip has two mains points of integration: . Plugins Plugins are function callbacks that let you override specific functionality of Blip. Every plugin is optional: if specified, it overrides the built-in functionality. Factories Factories are interfaces that let you override certain object creation of Blip. Every factory is optional: if specified, it overrides the built-in factory. ",
     "url": "/v1.0/integrate",
     "relUrl": "/v1.0/integrate"
-  },"98": {
+  },"96": {
+    "doc": "Integrate",
+    "title": "Plugins",
+    "content": "LoadConfig . LoadConfig func(Config) (Config, error) . LoadMonitors . LoadMonitors func(Config) ([]ConfigMonitor, error) . LoadLevelPlans . LoadLevelPlans func(ConfigPlans) ([]Plan, error) . ModifyDB . ModifyDB func(*sql.DB) . TransformMetrics . TransformMetrics func(*Metrics) error . ",
+    "url": "/v1.0/integrate#plugins",
+    "relUrl": "/v1.0/integrate#plugins"
+  },"97": {
     "doc": "Introduction",
     "title": "Introduction to Blip",
     "content": " ",
     "url": "/v1.0/intro/#introduction-to-blip",
     "relUrl": "/v1.0/intro/#introduction-to-blip"
-  },"99": {
+  },"98": {
     "doc": "Introduction",
     "title": "Introduction",
     "content": " ",
     "url": "/v1.0/intro/",
     "relUrl": "/v1.0/intro/"
-  },"100": {
+  },"99": {
     "doc": "Laptop",
     "title": "Laptop",
     "content": "Presuming a standard MySQL insstance runs on your laptop, first create a blip user: . CREATE USER IF NOT EXISTS 'blip' IDENTIFIED BY ''; -- no password GRANT SELECT ON `performance_schema`.* TO 'blip'@'%'; -- no privlieges . Then run blip (after compiling it in bin/blip/, of course): . $ blip . By default, Blip automatically finds local MySQL instances, and tries a few default username-password combinations. If successful, it will dump metrics to STDOUT. If not successful, run with --debug. ",
     "url": "/v1.0/quick-start/laptop",
     "relUrl": "/v1.0/quick-start/laptop"
-  },"101": {
+  },"100": {
     "doc": "Level Plan Adjuster",
     "title": "Level Plan Adjuster",
     "content": " ",
     "url": "/v1.0/monitor/level-adjuster",
     "relUrl": "/v1.0/monitor/level-adjuster"
-  },"102": {
+  },"101": {
     "doc": "Level Plan Adjuster",
     "title": "Connection States",
     "content": "| State | Connected to MySQL | Collecting Metrics | Description | . | offline | no | no | Completely offline, no connection to MySQL | . | standby | YES | YES | Connected to MySQL but HA passive mode | . | read-only | YES | YES | MySQL is read-only | . | active | YES | YES | MySQL is writable | . When HA is disabled, standby state is not used. ",
     "url": "/v1.0/monitor/level-adjuster#connection-states",
     "relUrl": "/v1.0/monitor/level-adjuster#connection-states"
-  },"103": {
+  },"102": {
     "doc": "Level Plan Collector",
     "title": "Level Plan Collector",
     "content": " ",
     "url": "/v1.0/monitor/level-collector",
     "relUrl": "/v1.0/monitor/level-collector"
-  },"104": {
+  },"103": {
     "doc": "Metrics",
     "title": "Metrics",
     "content": " ",
     "url": "/v1.0/metrics/",
     "relUrl": "/v1.0/metrics/"
-  },"105": {
+  },"104": {
     "doc": "Monitor Loader",
     "title": "Monitor Loader",
     "content": " ",
     "url": "/v1.0/server/monitor-loader",
     "relUrl": "/v1.0/server/monitor-loader"
-  },"106": {
+  },"105": {
     "doc": "Monitor Loader",
     "title": "Auto Reloading",
     "content": " ",
     "url": "/v1.0/server/monitor-loader#auto-reloading",
     "relUrl": "/v1.0/server/monitor-loader#auto-reloading"
-  },"107": {
+  },"106": {
     "doc": "Monitor Loader",
     "title": "Stop-loss",
     "content": "Stop-loss is a feature of auto reloading that prevents Bip from dropping too many MySQL instances due to unrelated external issues. ",
     "url": "/v1.0/server/monitor-loader#stop-loss",
     "relUrl": "/v1.0/server/monitor-loader#stop-loss"
-  },"108": {
+  },"107": {
     "doc": "Monitor",
     "title": "Monitor",
     "content": " ",
     "url": "/v1.0/monitor/",
     "relUrl": "/v1.0/monitor/"
-  },"109": {
+  },"108": {
     "doc": "Monitors",
     "title": "Monitors",
     "content": "Every MySQL instance that Blip monitors is called a moniotr. For simplicity, the terms monitor and MySQL instance are synonymous because a monitor requires and represents only one MySQL instance. But there is more to a monitor than its MySQL instance. NOTE: Monitor and MySQL instance are synonymous in Blip. Monitors are usually specififed in the Blip config file, but they can be loaded various ways—more on this later. For now, it’s only necessary to know that monitors are listed in the YAML config file under the aptly named section moniotrs. The most basic Blip monitor is a simple hostname, username, and password: . monitors: - hostname: 127.0.0.1 username: blip password: aStrongRandomPassword . Or, if you want to use a my.cnf file: . monitors: - mycnf: ${HOME}/.my.cnf . A single Blip instances can monitor any number of MySQL instances. Here is a snippet of config that specifies three different MySQL instances: . monitors: - socket: /tmp/mysql.sock username: blip password-file: /dev/shm/metrics-password - hostname: 10.1.1.53 username: metrics password: foo - hostname: db3.us-east-1.amazonaws.com aws-rds: auth-token: true . The first instance is local: Blip connects using socket file /tmp/mysql.sock. The second instance is remote: Blip connects to IP 10.1.1.53. The third instance is an Amazon RDS for MySQL instance, and Blip uses IAM authentication. The point of these contrived examples is: Blip can monitor any MySQL instance anywhere it’s running. (If you have a case where this is not true, please file an issue.) . By default, Blip first attempts to load monitors from its config file (which is blip.yaml in the current working directory, by default). But the config file can specify other ways to load monitors: . monitor-loader: freq: 60s files: [monitors1.yaml, monitors2.yaml] . In short, that config snippet makes Blip load (read) monitor configuration from files monitors1.yaml and monitors2.yaml every 60 seconds. (Blip can dynamically load [add] and unload [remove] monitors while running.) The monitor-load config is optional; by default, Blip loads monitors from the monitors section in its config file. To further ensure that Blip can monitory any MySQL instance, loading monitors is an optional plugin with this callback signature: . LoadMonitors func(Config) ([]ConfigMonitor, error) . Hopefully, bilt-in features cover every use case, but if you have particular requirements (filtering out certain MySQL instances, for example), you can plug in your own code to load monitors. In addition to basic MySQL configuration—how to connect to MySQL: hostname, username, and password, and so forth—monitors have other optional features and configuration, summarized briefly in the following table. | Monitor Confg | Feature | . | aws | Amazon RDS authentication | . | exporter | Prometheus mysqld_exporter emulation | . | ha | High availability (not implemented yet) | . | heartbeat | Heartbeat to measure replication lag | . | meta | User-defined key-value data | . | plans | Monitor-specific plans for metrics collection | . | sinks | Monitors-specific sinks for sending metrics | . | tags | Monitor-specific key-value data passed to sinks | . | tls | TLS configuration | . That’s a lot of information, but the point is a lot simpler: Blip monitors can do almost anything. For the most part, these features support Blip in large, automated environments. If you don’t need a feature, you can forget about it: Blip is simple (and fully automatic) by default. When you need a feature, Blip most likely already supports it. One last helpful tip: . $ blip --print-moniotrs --run=false . The command line above starts (but does not run) Blip so that it loads monitors and prints them, then exists. This can help debug monitor loading and configuration. Keep learning: Plans ↓ . ",
     "url": "/v1.0/intro/monitors",
     "relUrl": "/v1.0/intro/monitors"
-  },"110": {
+  },"109": {
     "doc": "Plan Loader",
     "title": "Plan Loader",
     "content": " ",
     "url": "/v1.0/server/plan-loader",
     "relUrl": "/v1.0/server/plan-loader"
-  },"111": {
+  },"110": {
     "doc": "Plan Loader",
     "title": "Load Order",
     "content": "--- # Zero config #plans: #default: blip plans: files: first.yaml plans: files: [first.yaml,second.yaml] #default: first.yaml plans: files: [first.yaml,second.yaml] default: second.yaml plans: files: [first.yaml,second.yaml] adjust: freq: 1s readonly: first.yaml active: second.yaml plans: files: first.yaml:second.yaml default: first.yaml adjust: # ERROR: default and adjust mutually exclusive freq: 1s readonly: first.yaml active: second.yaml plans: files: first.yaml:second.yaml table: blip.plans plans: table: blip.plans # WHERE 1=1 (all rows) #default: WHERE monitorId IS NULL ORDER BY name ASC LIMIT 1 plans: table: blip.plans default: plan1 monitors: - id: host1 plans: table: blip.plans # WHERE monitorId=host1 #default: WHERE monitorId=host1 ORDER BY name ASC LIMIT 1 . ",
     "url": "/v1.0/server/plan-loader#load-order",
     "relUrl": "/v1.0/server/plan-loader#load-order"
-  },"112": {
+  },"111": {
     "doc": "Plan Loader",
     "title": "Combining Levels",
     "content": "Levels are combined by the LPC (call stack): . sortedLevels() changePlan() . ",
     "url": "/v1.0/server/plan-loader#combining-levels",
     "relUrl": "/v1.0/server/plan-loader#combining-levels"
-  },"113": {
+  },"112": {
     "doc": "Plans",
     "title": "Plans",
     "content": " ",
     "url": "/v1.0/plans/",
     "relUrl": "/v1.0/plans/"
-  },"114": {
+  },"113": {
     "doc": "Plans",
     "title": "Plans",
     "content": "A level plan (or plan for short) configures which metrics to collect. Plans solve three problems: . | Which metrics to collect? | How to collect those metrics? | How often to collect those metrics? | . The first problem arises because there are over 1,000 MySQL metrics but 0 standards for which metrics to collect. Some engineers collect nearly all metrics and use what they need in graphs. Some engineers collect as few metrics as possible due to costs. Some engineers don’t know what to collect, relying on monitor defaults to be useful. Plans help solve the first problem by not hard-coding which metcis to collect. Write a plan to collect only the metrics you need. Blip has a built-in default plan that collects more than 60 of the most important MySQL metrics, which might be all you need. The second problem arises because there are many versions and distributions of MySQL, which makes some metrics a moving target. For example: where do you collect a MySQL replication lag metric? The oldest and perhaps still most common source is Seconds_Behind_Master in the SHOW SLAVE STATUS output. But those two changed to Seconds_Behind_Source and SHOW REPLICA STATUS, respectively. And what if you don’t use those and, instead, use pt-heartbeat or the Blip built-in heartbeat? Or what if you’re running MySQL Group Replication? Or what if you run MySQL in the cloud and the cloud provider emits its own replication lag metric? . Plans help solve the second problem by using metric domains (or domains for short) to name logically-related group of MySQL metrics. Probably the most well known group is SHOW GLOBAL STATUS, to which Blip gives the domain name status.global. A replication lag metric is scoped within the repl domain (short for “replication”), which hides (abstarcts way) the technical details of how it’s collected. When you write a plan that collects replication lag, the plan works everywhere because domains specify which metrics to collect, not necessarily how to collect them. The third problem arises from cost and storage limits: if everything was fast and free, you would collect all metrics every 1 second. But this is (almost) never done because it requires signfiicant storage and processing, which lead to significant costs. Instead, the norm is collecting all metrics every 10, 20, or 30 seconds. But even 10 seconds is too long for a busy database because, for example, at only 5,000 QPS, that resolution averages out the metrics for 50,000 queries. Plans help solve the third problem by allowing you to collect different metrics at different frequencies—which is the “level” in the full term: “level plan”. It helps to remember as: “Higher the level, higher the wait (time between collection).” For example, imagine three levels as shown below. Level 1, the base level, is collected frqeuently (shortest wait time): every 5 seconds. Level 2 is collected less frequently: every 20 seconds. Level 3, the highest level, is collected the most infrequently (longest wait time): every 30 seconds. Blip automatically combines levels when they overlap and collects all metrics at that time. At 20 seconds (since Blip started collecting metrics for this plan), Blip collects metrics for both levels 1 and 2 because 20 mod 5 = 0 and 20 mod 20 = 0, respectively. At 30 seconds, Blip collects metrics for both levels 1 anbd 3 because 30 mod 5 = 0 and 30 mod 20 = 0, respectively. And at 60 seconds, Blip collecgts metrics for all three levels because 60 mod freq = 0. Blip plans can do more, but for this introduction it’s sufficient to know that they allow you to fine-tune metrics collection, which increases the quality of monitoring while reducing costs. Keep going: Quick Start ↓ . ",
     "url": "/v1.0/intro/plans",
     "relUrl": "/v1.0/intro/plans"
-  },"115": {
+  },"114": {
     "doc": "Prometheus",
     "title": "Prometheus",
     "content": "Blip can emulate Prometheus mysqld_exporter. ",
     "url": "/v1.0/prometheus",
     "relUrl": "/v1.0/prometheus"
+  },"115": {
+    "doc": "Quick Reference",
+    "title": "Quick Reference",
+    "content": "The following are quick references, not complete or valid examples. See Config File for details. Interpolation . ${ENV_VAR} %{monitor.hostname} . Config File . --- # --------------------------------------------------------------------------- # Blip server # --------------------------------------------------------------------------- api: bind: 127.1:7090 disable: false monitor-loader: freq: 60s files: [one.yaml, two.yaml] stop-loss: 50% aws: regions: [\"auto\",\"us-east-1\"] local: disable-auto: true disable-auto-root: true strict: true # --------------------------------------------------------------------------- # Defaults for monitors # --------------------------------------------------------------------------- aws-rds: iam-auth-token: true password-secret: \"arn::::\" region: \"us-east-1\" disable-auto-region: false disable-auto-tls: false exporter: mode: dual|legacy flags: web.listen-address: :9001 heartbeat: freq: 1s table: blip.heartbeat mysql: mycnf: my.cnf username: blip password: blip password-file: \"\" timeout-connect: 5s plans: files: - none.yaml - ro-plan.yaml - active-plan.yaml table: blip.plans monitor: &lt;monitor&gt; adjust: offline: after: 1s plan: none.yaml standby: after: 1s plan: none.yaml read-only: after: 1s plan: ro-plan.yaml active: after: 1s plan: active-plan.yaml sinks: chronosphere: url: \"http://127.0.0.1:3030/openmetrics/write\" signalfx: auth-token: \"\" auth-token-file: \"\" log: # No options tags: env: ${ENVIRONMENT:-dev} dc: ${DATACENTER:-local} hostname: %{monitor.hostname} tls: ca: local.ca cert: /secrets/$%{monitor.hostname}.crt key: /secrets/%{monitor.hostname}.key # --------------------------------------------------------------------------- # MySQL instances to monitor # --------------------------------------------------------------------------- monitors: - id: host1 # mysql: hostname: host1.local socket: /tmp/mysql.sock mycnf: my.cnf username: metrics password: foo password-file: /dev/shm/mypasswd timeout-connect: 5s aws-rds: password-secret: \"arn::::\" iam-auth-token: true exporter: mode: dual|legacy flags: \"web.listen-address\": 127.0.0.1:9104 \"web.telemetry-path\": /metrics heartbeat: freq: 1s table: blip.heartbeat ha: # Reserved plans: table: \"blip.plans\" #monitor: &lt;monitor&gt; adjust: readonly: after: 2s plan: ro.yaml active: after: 1s plan: rw.yaml sinks: signalfx: auth-token: \"\" auth-token-file: \"\" log: # No options chronosphere: url: http://127.0.0.1:3030/openmetrics/write tags: env: staging monitor-id: %{monitor.id} tls: ca: my-ca cert: ${SECRETS}/%{monitor.hostname}.cert key: ${SECRETS}/%{monitor.hostname}.key meta: source: host2.local canary: no . ",
+    "url": "/v1.0/config/quick-ref",
+    "relUrl": "/v1.0/config/quick-ref"
   },"116": {
     "doc": "Quick Reference",
     "title": "Quick Reference",
@@ -701,84 +701,96 @@
     "url": "/v1.0/plans/quick-ref",
     "relUrl": "/v1.0/plans/quick-ref"
   },"117": {
-    "doc": "Quick Reference",
-    "title": "Quick Reference",
-    "content": "The following are quick references, not complete or valid examples. See Config File for details. Interpolation . ${ENV_VAR} %{monitor.hostname} . Config File . --- # --------------------------------------------------------------------------- # Blip server # --------------------------------------------------------------------------- api: bind: 127.1:7090 disable: false monitor-loader: freq: 60s files: [one.yaml, two.yaml] stop-loss: 50% aws: regions: [\"auto\",\"us-east-1\"] local: disable-auto: true disable-auto-root: true strict: true # --------------------------------------------------------------------------- # Defaults for monitors # --------------------------------------------------------------------------- aws-rds: iam-auth-token: true password-secret: \"arn::::\" region: \"us-east-1\" disable-auto-region: false disable-auto-tls: false exporter: mode: dual|legacy flags: web.listen-address: :9001 heartbeat: freq: 1s table: blip.heartbeat mysql: mycnf: my.cnf username: blip password: blip password-file: \"\" timeout-connect: 5s plans: files: - none.yaml - ro-plan.yaml - active-plan.yaml table: blip.plans monitor: &lt;monitor&gt; adjust: offline: after: 1s plan: none.yaml standby: after: 1s plan: none.yaml read-only: after: 1s plan: ro-plan.yaml active: after: 1s plan: active-plan.yaml sinks: chronosphere: url: \"http://127.0.0.1:3030/openmetrics/write\" signalfx: auth-token: \"\" auth-token-file: \"\" log: # No options tags: env: ${ENVIRONMENT:-dev} dc: ${DATACENTER:-local} hostname: %{monitor.hostname} tls: ca: local.ca cert: /secrets/$%{monitor.hostname}.crt key: /secrets/%{monitor.hostname}.key # --------------------------------------------------------------------------- # MySQL instances to monitor # --------------------------------------------------------------------------- monitors: - id: host1 # mysql: hostname: host1.local socket: /tmp/mysql.sock mycnf: my.cnf username: metrics password: foo password-file: /dev/shm/mypasswd timeout-connect: 5s aws-rds: password-secret: \"arn::::\" iam-auth-token: true exporter: mode: dual|legacy flags: \"web.listen-address\": 127.0.0.1:9104 \"web.telemetry-path\": /metrics heartbeat: freq: 1s table: blip.heartbeat ha: # Reserved plans: table: \"blip.plans\" #monitor: &lt;monitor&gt; adjust: readonly: after: 2s plan: ro.yaml active: after: 1s plan: rw.yaml sinks: signalfx: auth-token: \"\" auth-token-file: \"\" log: # No options chronosphere: url: http://127.0.0.1:3030/openmetrics/write tags: env: staging monitor-id: %{monitor.id} tls: ca: my-ca cert: ${SECRETS}/%{monitor.hostname}.cert key: ${SECRETS}/%{monitor.hostname}.key meta: source: host2.local canary: no . ",
-    "url": "/v1.0/config/quick-ref",
-    "relUrl": "/v1.0/config/quick-ref"
-  },"118": {
     "doc": "Quick Start",
     "title": "Quick Start",
     "content": " ",
     "url": "/v1.0/quick-start/",
     "relUrl": "/v1.0/quick-start/"
+  },"118": {
+    "doc": "Reporting",
+    "title": "Reporting",
+    "content": "Blip does not have a single format or protocol for reporting metrics. Instead, it has well-defined structures for collecting metrics that are passed to metric sinks, which convert and send metrics in various formats and protocols depending on the sink. In YAML, the basic structure of Blip metrics is: . domain: - metric: value: &lt;float64&gt; type: counter|gauge|... group: key1: val1 meta: key1: val1 . All metrics belong to a single domain. Each domain collector can collect any number of metrics. Each metric has a type and value (see Conventions &gt; Metrics). Groups and Meta are detailed below. A realistic example of two metrics from the status.global domain: . global.status: - threads_running: value: 16 type: gauge - queries: value: 138923 type: counter . The metric sink determines how those 2 metrics are reported. For example, a Prometheus sink might report them in Exposition format: . # TYPE mysql_global_status_threads_running gauge mysql_global_status_threads_running 16 # TYPE mysql_global_status_queries counter mysql_global_status_queries 138923 . Blip conventions terminate at each metric sink. ",
+    "url": "/v1.0/metrics/reporting",
+    "relUrl": "/v1.0/metrics/reporting"
   },"119": {
+    "doc": "Reporting",
+    "title": "Groups",
+    "content": "Certain domains (as documented) implicitly or explicitly group metrics. In both cases, group key-value pairs are set for each metric, and metrics are uniquely identified using all group keys. Groups, labels, and dimensions serve the same purpose. Blip uses the term group because it’s similar to MySQL GROUP BY. Implicit grouping means the metrics collector groups metrics automatically (or as configured in the plan by collector options). For example, the size.data collector, which collects database and table sizes, groups metrics by database name. As a result, each metric has a group key on db, like the following example: . size.database: - bytes: value: 50920482048 type: gauge group: db: foo - bytes: value: 8920482048 type: gauge group: db: bar - bytes: value: 59840964096 type: gauge group: db: \"\" # all databases . The metric is the same—bytes—but there are 3 instances of the metric for each of the 3 groups: db=foo, db=bar, and db=\"\". The last group, db=\"\", is how this collector represents the metric for all databases (the global group). Explicit grouping refers to MySQL-grouped metrics—see Sub-domains. For example, the status.host collector is explicitly grouped by host. As a result, each metric has a group key on host, like host=10.1.1.1. ",
+    "url": "/v1.0/metrics/reporting#groups",
+    "relUrl": "/v1.0/metrics/reporting#groups"
+  },"120": {
+    "doc": "Reporting",
+    "title": "Meta",
+    "content": "Certain domains (as documented) set metadata about a metric. The canonical example is the response_time collector metric reported by the query.global collector: . query.global: - response_time: value: 130493 type: gauge meta: p95: p948 - response_time: value: 255001 type: gauge meta: p999: p997 . As shown above, there are 2 response_time metrics that differ by meta=p95 and meta=p999: the former is the 95th percentile response time, and the latter is the 99.9th percentile response time. Blip uses meta rather than prefixing or suffixing the metric name (see Conventions &gt; Metrics &gt; Naming). This makes metrics (by name) consistent: the metric is always response_time, not pN_response_time or response_time_pN where N could be any number. It also allows for a greater variety of metrics without special case exceptions to naming or structure; for example, average response time could be denoted by meta key avg. ",
+    "url": "/v1.0/metrics/reporting#meta",
+    "relUrl": "/v1.0/metrics/reporting#meta"
+  },"121": {
     "doc": "Scope",
     "title": "Scope",
     "content": "Plans have two scopes: . Shared . Shared plans are scoped to Blip and can be used by any monitor that references them. All plans configured in config.plans and the built-in plans plans are shared. This is the normal case: you define one or more plan (or none, using the built-in Blip plan), and all the monitors use those plans. Since interpolation works in plan files (see File &gt; Interpolation), shared plans can still be tailored to each monitor, if necessary (although it’s usually not necessary). Monitor . Monitor plans are scoped to one monitor and can only be used by that monitor. All plans configured in config.monitor.plans are monitor plans. See [config.plans] . ",
     "url": "/v1.0/plans/scope",
     "relUrl": "/v1.0/plans/scope"
-  },"120": {
+  },"122": {
     "doc": "Scope",
     "title": "Built-in",
     "content": "Blip . Prometheus mysqld_exporter . ",
     "url": "/v1.0/plans/scope#built-in",
     "relUrl": "/v1.0/plans/scope#built-in"
-  },"121": {
-    "doc": "Server",
-    "title": "Server",
-    "content": " ",
-    "url": "/v1.0/server/",
-    "relUrl": "/v1.0/server/"
-  },"122": {
+  },"123": {
     "doc": "Server",
     "title": "Server",
     "content": "Server endpoints return information about the blip instance (the server) and high-level information about monitors. | GET /status | GET /version | . ",
     "url": "/v1.0/api/server",
     "relUrl": "/v1.0/api/server"
-  },"123": {
+  },"124": {
     "doc": "Server",
     "title": "GET /status",
     "content": "Returns high-level Blip server status. GET . /status . Response . { \"Started\" string // ISO timestamp (UTC) \"Uptime\" int64 // seconds \"MonitorCount\" uint // number of monitors loaded \"Internal\" map[string]string // Blip components \"Version\" string // Blip version } . Response Status Codes . 200: Successful operation. ",
     "url": "/v1.0/api/server#get-status",
     "relUrl": "/v1.0/api/server#get-status"
-  },"124": {
+  },"125": {
     "doc": "Server",
     "title": "GET /version",
     "content": "Return Bip version. GET . /version . Response . v1.0.75 . Response Status Codes . 200: Successful operation. ",
     "url": "/v1.0/api/server#get-version",
     "relUrl": "/v1.0/api/server#get-version"
-  },"125": {
+  },"126": {
+    "doc": "Server",
+    "title": "Server",
+    "content": " ",
+    "url": "/v1.0/server/",
+    "relUrl": "/v1.0/server/"
+  },"127": {
     "doc": "signalfx",
     "title": "SignalFx Sink",
     "content": "sinks: signalfx: auth-token: \"\" auth-token-file: \"\" . Must provide auth-token or auth-token-file in config. Reports all tags as dimensions. Reports domain-qualified metric names: status.global.threads_running. ",
     "url": "/v1.0/sinks/signalfx#signalfx-sink",
     "relUrl": "/v1.0/sinks/signalfx#signalfx-sink"
-  },"126": {
+  },"128": {
     "doc": "signalfx",
     "title": "signalfx",
     "content": " ",
     "url": "/v1.0/sinks/signalfx",
     "relUrl": "/v1.0/sinks/signalfx"
-  },"127": {
+  },"129": {
     "doc": "Sinks",
     "title": "Sinks",
     "content": "NOTE: You can skip this part of the introduction if: . | You use SignalFx, or | You use Chronosphere, or | You plan to use Blip to emulate and replace Prometheus `mysqld_exporter` | . Blip has built-in support for these three use cases. Blip ships with built-in and automatic support for almost everything, but the one thing we (the Blip developers) cannot know is where you (the user) will send metrics. Consequently, you might need to develop a Blip metric sink to translate and send Blip metrics to your metrics store or metrics graphing solution. Don’t worry: Bilp was intentially designed to make this easy. This brief introduction shows the high-level process of developing a new Blip metric sink. The following presumes that you’re an experienced Go programmer. All Blip sinks implement this interface: . type Sink interface { Send(context.Context, *Metrics) error Status() string } . Unsurprisingly, Blip calls the Send method to send metrics. The vast majority of work to implement a new sink is this one method. More on this in a moment. Blip calls the Status method to report real-time status of the sink (along with all other parts in the monitor). The reported status can be anything you think is useful to know; for exmaple, the last error sending metrics (if any). Let’s presume, for a moment, that you have implement a new sink. To allow Blip to make (instantiate) that sink, you implement one last interface: . type SinkFactory interface { Make(name, monitorId string, opts, tags map[string]string) (Sink, error) } . When a monitor uses your sink, Blip calls your sink factory to make a new sink for the monitor. Blip passes to your factory: . | Sink name (which is slightly redundant, but nobody is perfect) | Monitor ID (all monitors have a unique ID for status, logging, and so forth”) | Options (from the monitor config) | Tags (from the monitor config) | . Options are sink-specific options; for example, an API token is common for authenticating to hosted metrics soltuions. Tags describe the metrics; some metrics solutions calls these “dimensions”, others call them “labels”—Blip calls them “tags”. Options are tags are set in the monitor config, which you’ll learn more about later. Here’s a mock (incomplete and nonfunctional) implementation of a sink (called “Kim” for an engineer who left us [the Blip developers] to join a metrics solution startup) and sink factory, just to give you an idea: . import ( \"context\" \"github.com/cashapp/blip\" ) type Kim struct { tags map[string]string client Client // sink-specific client } func NewKim(monitorId string, opts, tags map[string]string) *Kim { return &amp;Kim{ tags: tags, client: NewClient(opts[\"addr\"], opts[\"api-token\"]), } } func (k *Kim) Send(cxt context.Context, metrics *blip.Metrics) error { // Metrics are grouped by/keyed on domain name for domain := range metrics { // Loop through metrics in each domain for i := range metrics[domain] { m := metrics[domain][i] // Name: m.Name (string) // Value: m.Value (float64) // Type: m.Type (const byte) // Transform Blip metrics to sink-specific struct/protocol } } // Send sink-specific struct/protocol (km) return k.client.Send(ctx, km) } func (k *Kim) Status() string { return \"I miss where I used to work\" } // -------------------------------------------------------------------------- type KimFactory struct{} func (f KimFactory) Make(name, monitorId string, opts, tags map[string]string) (blip.Sink, error) { k := NewKim(monitorId, opts, tags) return k, nil } . For real sinks, see the built-in Blip sinks: blip/sinks. Once your implementation is done, you register the sink with Blip: . sink.Register(\"kim\", KimFactory{}) . More on this later; for now, the point is that you register your sink with a given name (“kim”), and that name is important because it’s what you specify in a monitor config to make Blip instantiate the sink. Following is a snippet of a monitor config that shows how the “kim” sink is used and configured: . monitors: - id: host1 hostname: host1.local sinks: kim: addr: https://local.domain api-token: ABC123 tags: env: staging region: us-east-1 . On line 5, the “kim” sink is specified, and lines 6 and 7 are its options. Lines 9 and 10 are tags for the monitor, which are also passed to the sink when created. Keep learning: Monitors ↓ . ",
     "url": "/v1.0/intro/sinks",
     "relUrl": "/v1.0/intro/sinks"
-  },"128": {
+  },"130": {
     "doc": "Sinks",
     "title": "Sinks",
     "content": " ",
     "url": "/v1.0/sinks/",
     "relUrl": "/v1.0/sinks/"
-  },"129": {
+  },"131": {
     "doc": "Table",
     "title": "Plan Table",
     "content": "CREATE TABLE plans ( name varchar(100) not null, levels blob not null monitor_id varchar(1000) null default null PRIMARY KEY (name), INDEX (monitorId) ) . -- Defalut single state plan (DSSP) (\"default\", \"{...}\", NULL) -- Default multi-state plans (\"readonly\", \"{...}\", NULL) (\"active\", \"{...}\", NULL) -- Per-moitor single state plans (\"mon1\", \"{...}\", \"mon1\") (\"mon2\", \"{...}\", \"mon2\") -- Mixed plans (\"default\", \"{...}\", NULL) (\"mon1-ro\", \"{...}\", \"mon1\") (\"mon1-rw\", \"{...}\", \"mon1\") (\"mon2\", \"{...}\", \"mon2\") -- mon3 uses default plan . ",
     "url": "/v1.0/plans/table#plan-table",
     "relUrl": "/v1.0/plans/table#plan-table"
-  },"130": {
+  },"132": {
     "doc": "Table",
     "title": "Table",
     "content": " ",
