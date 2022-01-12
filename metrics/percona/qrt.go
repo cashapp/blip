@@ -104,11 +104,11 @@ func (c *Qrt) Help() blip.CollectorHelp {
 }
 
 // Prepare Prepares options for all levels in the plan that contain the percona.response-time domain
-func (c *Qrt) Prepare(ctx context.Context, plan blip.Plan) error {
+func (c *Qrt) Prepare(ctx context.Context, plan blip.Plan) (func(), error) {
 	_, err := c.db.Query(query)
 	if err != nil {
 		c.available = false
-		return fmt.Errorf("%s: qrt metrics not available", plan.Name)
+		return nil, fmt.Errorf("%s: qrt metrics not available", plan.Name)
 	}
 
 LEVEL:
@@ -121,10 +121,10 @@ LEVEL:
 		err := c.prepareLevel(dom, level)
 
 		if err != nil {
-			return err
+			return nil, err
 		}
 	}
-	return nil
+	return nil, nil
 }
 
 // Collect Collects query response time metrics for a particular level

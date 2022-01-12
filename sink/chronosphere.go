@@ -197,14 +197,6 @@ func (s *Chronosphere) Send(ctx context.Context, m *blip.Metrics) error {
 	return nil
 }
 
-func (s *Chronosphere) Status() error {
-	return nil
-}
-
-func (s *Chronosphere) Name() string {
-	return "chronosphere"
-}
-
-func (s *Chronosphere) MonitorId() string {
-	return s.monitorId
+func (s *Chronosphere) Status() string {
+	return ""
 }

@@ -22,18 +22,10 @@ func NewLogSink(monitorId string) (logSink, error) {
 }
 
 func (s logSink) Send(ctx context.Context, m *blip.Metrics) error {
-	log.Printf("%+v", m.Values)
+	log.Printf("in %s: %+v", m.End.Sub(m.Begin), m.Values)
 	return nil
 }
 
-func (s logSink) Status() error {
-	return nil
-}
-
-func (s logSink) Name() string {
-	return "log"
-}
-
-func (s logSink) MonitorId() string {
-	return s.monitorId
+func (s logSink) Status() string {
+	return ""
 }

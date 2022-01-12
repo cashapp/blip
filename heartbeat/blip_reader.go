@@ -51,11 +51,11 @@ func (r *BlipReader) run() {
 	blip.Debug("heartbeat reader: %s", q)
 
 	var (
-		lag      int64
-		waitTime time.Duration
-		now      time.Time
-		ts       sql.NullTime
-		f        int
+		now  time.Time     // now according to MySQL
+		last sql.NullTime  // last heartbeat
+		freq int           // freq of heartbeats (milliseconds)
+		lag  int64         // lag since last
+		wait time.Duration // wait time until next check
 	)
 	for {
 		select {
@@ -64,8 +64,8 @@ func (r *BlipReader) run() {
 		default:
 		}
 
-		ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond) // @todo
-		err := r.db.QueryRowContext(ctx, q).Scan(&now, &ts, &f)
+		ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond) // @todo
+		err := r.db.QueryRowContext(ctx, q).Scan(&now, &last, &freq)
 		cancel()
 		if err != nil {
 			switch {
@@ -79,15 +79,17 @@ func (r *BlipReader) run() {
 			continue
 		}
 
-		lag, waitTime = r.waiter.Wait(now, ts.Time, f)
+		lag, wait = r.waiter.Wait(now, last.Time, freq)
 
 		r.Lock()
-		r.lag = lag
-		r.last = ts.Time
+		if lag > r.lag {
+			r.lag = lag
+		}
+		r.last = last.Time
 		r.Unlock()
 
-		status.Monitor(r.source, "reader", "running (lag %d ms, sleep %s)", lag, waitTime)
-		time.Sleep(waitTime)
+		status.Monitor(r.source, "reader", "running (lag %d ms, sleep %s)", lag, wait)
+		time.Sleep(wait)
 	}
 }
 
@@ -105,55 +107,56 @@ func (r *BlipReader) Stop() {
 func (r *BlipReader) Lag(_ context.Context) (int64, time.Time, error) {
 	r.Lock()
 	defer r.Unlock()
-	return r.lag, r.last, nil
+	lag := r.lag
+	r.lag = 0
+	return lag, r.last, nil
 }
 
 // --------------------------------------------------------------------------
 
 type LagWaiter interface {
-	Wait(now, then time.Time, f int) (int64, time.Duration)
+	Wait(now, past time.Time, freq int) (int64, time.Duration)
 }
 
 type SlowFastWaiter struct {
 	NetworkLatency time.Duration
-	waits          int
-	lag            int64
 }
 
 var _ LagWaiter = &SlowFastWaiter{}
 
-func (w *SlowFastWaiter) Wait(now, then time.Time, freq int) (int64, time.Duration) {
-	next := then.Add(time.Duration(freq) * time.Millisecond)
-	blip.Debug("then=%s  now=%s  next=%s", then, now, next)
+func (w *SlowFastWaiter) Wait(now, last time.Time, freq int) (int64, time.Duration) {
+	next := last.Add(time.Duration(freq) * time.Millisecond)
+	blip.Debug("last=%s  now=%s  next=%s", last, now, next)
 
 	if now.Before(next) {
-		blip.Debug("next hb in %d ms", next.Sub(now).Milliseconds())
-		w.waits = 0
+		lag := now.Sub(last) - w.NetworkLatency
+		if lag < 0 {
+			lag = 0
+		}
 
 		// Wait until next hb
 		d := next.Sub(now) + w.NetworkLatency
-		if d < 0 {
-			d = w.NetworkLatency
-		}
-		return w.lag, d
+		blip.Debug("lagged: %d ms; next hb in %d ms", lag.Milliseconds(), next.Sub(now).Milliseconds())
+		return lag.Milliseconds(), d
 	}
 
 	// Next hb is late (lagging)
-	w.lag = now.Sub(next).Milliseconds()
-
-	w.waits += 1
-	var waitTime time.Duration
+	lag := now.Sub(next).Milliseconds()
+	var wait time.Duration
 	switch {
-	case w.waits <= 4: // first 200 ms
-		waitTime = time.Duration(50 * time.Millisecond)
+	case lag < 200:
+		wait = time.Duration(50 * time.Millisecond)
 		break
-	case w.waits <= 4: // next 400 ms (600 ms total)
-		waitTime = time.Duration(100 * time.Millisecond)
+	case lag < 600:
+		wait = time.Duration(100 * time.Millisecond)
 		break
-	default: // remaining >600ms lag
-		waitTime = time.Duration(500 * time.Millisecond)
+	case lag < 2000:
+		wait = time.Duration(500 * time.Millisecond)
+		break
+	default:
+		wait = time.Second
 	}
 
-	blip.Debug("lagging: %s past ETA, wait %s (%d)", now.Sub(next), waitTime, w.waits)
-	return w.lag, waitTime
+	blip.Debug("lagging: %s; wait %s", now.Sub(next), wait)
+	return lag, wait
 }

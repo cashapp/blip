@@ -16,6 +16,7 @@ import (
 	"github.com/cashapp/blip/aws"
 	"github.com/cashapp/blip/dbconn"
 	"github.com/cashapp/blip/event"
+	"github.com/cashapp/blip/metrics"
 	"github.com/cashapp/blip/monitor"
 	"github.com/cashapp/blip/plan"
 	"github.com/cashapp/blip/status"
@@ -126,6 +127,12 @@ func (s *Server) Boot(env blip.Env, plugin blip.Plugins, factory blip.Factories)
 		}
 	}
 
+	// --print-domains and exit
+	if s.cmdline.Options.PrintDomains {
+		fmt.Fprintf(os.Stdout, metrics.PrintDomains())
+		os.Exit(0)
+	}
+
 	// ----------------------------------------------------------------------
 	// Load config
 	event.Send(event.BOOT_CONFIG_LOADING)
@@ -172,6 +179,12 @@ func (s *Server) Boot(env blip.Env, plugin blip.Plugins, factory blip.Factories)
 	// here for initial plan loading, and level.Collector (LPC) to fetch the
 	// plan and set the Monitor to use it.
 	s.planLoader = plan.NewLoader(plugin.LoadLevelPlans)
+
+	if s.cmdline.Options.Plans != "" {
+		plans := strings.Split(s.cmdline.Options.Plans, ",")
+		blip.Debug("--plans override config.plans: %v -> %v", s.cfg.Plans.Files, plans)
+		s.cfg.Plans.Files = plans
+	}
 
 	if err := s.planLoader.LoadShared(s.cfg.Plans, factory.DbConn); err != nil {
 		event.Sendf(event.BOOT_PLANS_ERROR, err.Error())

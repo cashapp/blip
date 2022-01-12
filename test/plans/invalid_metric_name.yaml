@@ -1,0 +1,19 @@
+---
+level1:
+  freq: 5s
+  collect:
+    domain1:
+      metrics:
+        - metric1
+    domain2:
+      metrics:
+      - metric2
+level2:
+  freq: 10s
+  collect:
+    domain1:
+      metrics:
+        - foo bar
+    domain2:
+      metrics:
+      - metric2

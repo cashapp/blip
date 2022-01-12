@@ -139,7 +139,7 @@ func TestBlipWriter(t *testing.T) {
 // --------------------------------------------------------------------------
 
 func TestBlipReader(t *testing.T) {
-	//blip.Debugging = true
+	blip.Debugging = true
 
 	heartbeat.BlipReaderBackoff = 500 * time.Millisecond
 	defer func() { heartbeat.BlipReaderBackoff = 2 * time.Second }()
@@ -181,8 +181,9 @@ func TestBlipReader(t *testing.T) {
 	hr := heartbeat.NewBlipReader(db, blip_writer_table, "m1", mockWaiter)
 	hr.Start()
 
-	// First read: hearbeat says next one in 200 ms
 	timeout := time.After(5 * time.Second) // this whole test should take <1s
+
+	// First read: heartbeat says next one in 200 ms
 	var lag1, lag2 int64
 	select {
 	case lag1 = <-hbChan:
@@ -196,8 +197,8 @@ func TestBlipReader(t *testing.T) {
 	}
 
 	// Second read: should be slightly more than 200 ms after first because
-	// reader expect next hearbeat in 200 ms + some lag, so it waits 200 + N ms
-	// where N is current 50 ms to start.
+	// reader expect next heartbeat in 200 ms + some lag, so it waits 200 + N ms
+	// where N is currently 50 ms to start.
 	t0 := time.Now()
 	select {
 	case lag1 = <-hbChan:
@@ -213,7 +214,7 @@ func TestBlipReader(t *testing.T) {
 	// Lag should be reported because we're slightly after the expected ts
 	// of the next heartbeat, which this test hasn't written yet
 	if lag1 < 10 || lag1 > 60 {
-		t.Errorf("lag = %d ms, expected between 50 and 100 ms", lag1)
+		t.Errorf("lag = %d ms, expected between 10 and 60 ms", lag1)
 	}
 
 	// Third read: still lagging, so lag should be greater than before

@@ -1,9 +1,13 @@
 package sqlutil
 
 import (
+	"context"
+	"database/sql"
 	"strconv"
 	"strings"
 	"time"
+
+	ver "github.com/hashicorp/go-version"
 )
 
 // Float64 converts string to float64, if possible.
@@ -63,4 +67,22 @@ func SanitizeTable(table, db string) string {
 		return "`" + db + "`.`" + v[0] + "`"
 	}
 	return "`" + v[0] + "`.`" + v[1] + "`"
+}
+
+// MySQLVersionGTE returns true if the current MySQL version is >= version.
+// It returns false on any error.
+func MySQLVersionGTE(version string, db *sql.DB, ctx context.Context) (bool, error) {
+	var val string
+	err := db.QueryRowContext(ctx, "SELECT @@version").Scan(&val)
+	if err != nil {
+		return false, err
+	}
+	cuurentVersion, _ := ver.NewVersion(val)
+
+	targetVersion, err := ver.NewVersion(version)
+	if err != nil {
+		return false, err
+	}
+
+	return cuurentVersion.GreaterThanOrEqual(targetVersion), nil
 }

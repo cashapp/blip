@@ -20,6 +20,62 @@ const VERSION = "0.0.0"
 
 var SHA = ""
 
+// Metric types.
+const (
+	UNKNOWN byte = iota
+	COUNTER
+	GAUGE
+	BOOL
+	EVENT
+)
+
+// Metrics are metrics collected for one plan level, from one database instance.
+type Metrics struct {
+	Begin     time.Time                // when collection started
+	End       time.Time                // when collection completed
+	MonitorId string                   // ID of monitor (MySQL)
+	Plan      string                   // plan name
+	Level     string                   // level name
+	State     string                   // state of monitor
+	Values    map[string][]MetricValue // keyed on domain
+}
+
+// MetricValue is one metric and its name, type, value, and tags. Tags are optional;
+// the other fields are required and always set. This is the lowest-level data struct:
+// a Collector reports metric values, which the monitor.Engine organize into Metrics
+// by adding the appropriate metadata.
+type MetricValue struct {
+	// Name is the domain-specific metric name, like threads_running from the
+	// status.global collector. Names are lowercase but otherwise not modified
+	// (for example, hyphens and underscores are not changed).
+	Name string
+
+	// Value is the value of the metric. String values are not supported.
+	// Boolean values are reported as 0 and 1.
+	Value float64
+
+	// Type is the metric type: COUNTER, COUNTER, and other const.
+	Type byte
+
+	// Group is the set of name-value pairs that determine the group to which
+	// the metric value belongs. Only certain domains group metrics.
+	Group map[string]string
+
+	// Meta is optional key-value pairs that annotate or describe the metric value.
+	Meta map[string]string
+}
+
+// Sink sends metrics to an external destination.
+type Sink interface {
+	// Send sends metrics to the sink. It must respect the context timeout, if any.
+	Send(context.Context, *Metrics) error
+	Status() string
+}
+
+type SinkFactory interface {
+	Make(name, monitorId string, opts, tags map[string]string) (Sink, error)
+}
+
 // Plugins are function callbacks that let you override specific functionality of Blip.
 // Every plugin is optional: if specified, it overrides the built-in functionality.
 type Plugins struct {
@@ -60,94 +116,6 @@ type DbFactory interface {
 type HTTPClientFactory interface {
 	Make(cfg ConfigHTTP, usedFor string) (*http.Client, error)
 }
-
-// Collector collects metrics for a single metric domain.
-type Collector interface {
-	// Domain returns the Blip domain prefix.
-	Domain() string
-
-	// Help returns information about using the collector.
-	Help() CollectorHelp
-
-	// Prepare prepares a plan for future calls to Collect.
-	Prepare(ctx context.Context, plan Plan) error
-
-	// Collect collects metrics for the given in the previously prepared plan.
-	Collect(ctx context.Context, levelName string) ([]MetricValue, error)
-}
-
-// CollectorFactoryArgs are provided by Blip to a CollectorFactory when making
-// a Collector. The factory must use the args to create the collector.
-type CollectorFactoryArgs struct {
-	// MonitorId is the monitor identifier. The Collector must include
-	// this value in all errors, output, and so forth. Everything monitor-related
-	// in Blip is keyed on monitor ID.
-	MonitorId string
-
-	// DB is the connection to MySQL. It is safe for concurrent use, and it is
-	// used concurrently by other parts of a monitor. The Collector must not
-	// modify the connection, reconnect, and so forth--only use the connection.
-	DB *sql.DB
-}
-
-// A CollectorFactory makes one or more Collector.
-type CollectorFactory interface {
-	Make(domain string, args CollectorFactoryArgs) (Collector, error)
-}
-
-// Metrics are metrics collected for one plan level, from one database instance.
-type Metrics struct {
-	Begin     time.Time                // when collection started
-	End       time.Time                // when collection completed
-	MonitorId string                   // ID of monitor (MySQL)
-	Plan      string                   // plan name
-	Level     string                   // level name
-	State     string                   // state of monitor
-	Values    map[string][]MetricValue // keyed on domain
-}
-
-// MetricValue is one metric and its name, type, value, and tags. Tags are optional;
-// the other fields are required and always set. This is the lowest-level data struct:
-// a Collector reports metric values, which the monitor.Engine organize into Metrics
-// by adding the appropriate metadata.
-type MetricValue struct {
-	// Name is the domain-specific metric name, like threads_running from the
-	// status.global collector. Names are lowercase but otherwise not modified
-	// (for example, hyphens and underscores are not changed).
-	Name string
-
-	// Value is the value of the metric. String values are not supported.
-	// Boolean values are reported as 0 and 1.
-	Value float64
-
-	// Type is the metric type: COUNTER, COUNTER, and other const.
-	Type byte
-
-	// Tags are optional key-value pairs. This is used for tagging, dimensions,
-	// and so forth.
-	Tags map[string]string
-}
-
-// Sink sends metrics to an external destination.
-type Sink interface {
-	Send(context.Context, *Metrics) error
-	Status() error
-	Name() string
-	MonitorId() string
-}
-
-type SinkFactory interface {
-	Make(name, monitorId string, opts, tags map[string]string) (Sink, error)
-}
-
-// Metric types.
-const (
-	UNKNOWN byte = iota
-	COUNTER
-	GAUGE
-	BOOL
-	EVENT
-)
 
 // Monitor states used by level plan adjuster (LPA).
 const (

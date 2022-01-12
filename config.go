@@ -26,13 +26,16 @@ const (
 
 var envvar = regexp.MustCompile(`\${([\w_.-]+)(?:(\:\-)([\w_.-]*))?}`)
 
+// interpolateEnv changes ${FOO} to the value of environment variable FOO.
+// It also changes ${FOO:-bar} to "bar" if env var FOO is an empty string.
+// Only strict matching, else the original string is returned.
 func interpolateEnv(v string) string {
 	if !strings.Contains(v, "${") {
 		return v
 	}
 	m := envvar.FindStringSubmatch(v)
 	if len(m) != 4 {
-		// @todo error
+		return v // strict match only
 	}
 	v2 := os.Getenv(m[1])
 	if v2 == "" && m[2] != "" {
@@ -41,6 +44,10 @@ func interpolateEnv(v string) string {
 	return envvar.ReplaceAllString(v, v2)
 }
 
+// setBool sets c to the value of b if c is nil (not set). Pointers are required
+// because var b bool is false by default whether set or not, so we can't tell if
+// it's explicitly set in config file. But var b *bool is only false if explicitly
+// set b=false, else it's nil, so no we can tell if the var is set or not.
 func setBool(c *bool, b *bool) *bool {
 	if c == nil && b != nil {
 		c = new(bool)
@@ -390,7 +397,7 @@ func (c *ConfigMonitor) interpolateMon(v string) string {
 	}
 	m := monvar.FindStringSubmatch(v)
 	if len(m) != 3 {
-		// @todo error
+		return v // strict match only
 	}
 	if strings.HasPrefix(m[2], "tags.") {
 		if c.Tags == nil {
@@ -683,9 +690,8 @@ type ConfigPlans struct {
 }
 
 const (
-	DEFAULT_PLANS_FILES  = "plan.yaml"
-	DEFAULT_PLANS_TABLE  = "blip.plans"
-	DEFAULT_ADJUST_AFTER = "2s"
+	DEFAULT_PLANS_FILES = "plan.yaml"
+	DEFAULT_PLANS_TABLE = "blip.plans"
 )
 
 func DefaultConfigPlans() ConfigPlans {

@@ -41,13 +41,65 @@ div pre.highlight {
 	padding-left: 20px;
 }
 
+.main {
+	max-width: 1024px;
+	margin-left: 25%;
+}
 .main-content {
 	font-size:16px;
 	font-family:'Verdana';
 }
+.side-bar {
+	max-width:25%;
+}
 
-div.note {
+p.note, div.note {
 	border-left: 3px solid blue;
 	padding-left: 10px;
 	margin-left: 10px;
+}
+
+
+.help-option {
+	margin-left: 3em;
+}
+
+.help-option-default {
+	margin-left: 3em;
+	padding-left: 1em;
+	border-left: 3px solid gray;
+}
+
+ul.floating-toc {
+	float: left;
+	margin-top: 3em;
+	margin-right: 2em;
+	font-size: 14px;
+	//background: #f5f6fa;
+	//border-top: 3px solid #f5f6fa;
+	//border-bottom: 3px solid #f5f6fa;
+	z-index:500;
+
+	li {
+		margin-left:5px;
+	}
+}
+
+.var-table {
+	min-width: 0;
+}
+
+.src {
+	//text-align: right;
+	font-size: 10px;
+	//float: left;
+	//margin: 0;
+	//margin-top: -2em;
+}
+
+.config-section-title {
+	color: greenyellow;
+	text-align: center;
+	background: black;
+	border-radius: 25px;
 }

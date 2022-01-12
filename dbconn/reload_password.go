@@ -8,6 +8,7 @@ import (
 	"github.com/go-sql-driver/mysql"
 
 	"github.com/cashapp/blip"
+	"github.com/cashapp/blip/event"
 )
 
 func init() {
@@ -53,7 +54,7 @@ func (r *repo) ReloadPassword(ctx context.Context, currentDSN string) string {
 
 	newPassword, err := v.(PasswordFunc)(ctx)
 	if err != nil {
-		blip.Debug("password reload error: %s", err) // @todo event
+		event.Sendf(event.DB_RELOAD_PASSWORD_ERROR, "%s: %s", RedactedDSN(currentDSN), err.Error())
 		return ""
 	}
 

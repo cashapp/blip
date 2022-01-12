@@ -37,20 +37,12 @@ func NewRetryBuffer(sink blip.Sink, sendTimeout time.Duration, bufferSize int) *
 		max:      bufferSize - 1,
 		top:      -1,
 	}
-	blip.Debug("%s: buff %d, send timeout %s", rb.sink.MonitorId(), rb.max+1, rb.sendTimeout)
+	blip.Debug("buff %d, send timeout %s", rb.max+1, rb.sendTimeout)
 	return rb
 }
 
-func (rb *RetryBuffer) Name() string {
-	return rb.sink.Name()
-}
-
-func (rb *RetryBuffer) Status() error {
-	return nil
-}
-
-func (rb *RetryBuffer) MonitorId() string {
-	return rb.sink.MonitorId()
+func (rb *RetryBuffer) Status() string {
+	return rb.sink.Status()
 }
 
 func (rb *RetryBuffer) Send(ctx context.Context, m *blip.Metrics) error {

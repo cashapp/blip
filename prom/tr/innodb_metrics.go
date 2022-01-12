@@ -51,7 +51,7 @@ var (
 
 func (tr InnoDBMetrics) Translate(values []blip.MetricValue, ch chan<- prom.Metric) {
 	for i := range values {
-		subsystem, ok := values[i].Tags["subsystem"]
+		subsystem, ok := values[i].Meta["subsystem"]
 		if !ok {
 			continue
 		}

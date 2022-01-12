@@ -155,6 +155,7 @@ func (ml *Loader) Run() {
 		// connecting to MySQL, processing metrics. That'll make Blip
 		// CPU/net usage unnecessarily spiky.
 		time.Sleep(20 * time.Millisecond) // @todo
+		// xxxx1xxxx2xxxx3xxxx4xxxx5xxxx6xxxx7xxxx8xxxx9xxxx0
 	}
 }
 
@@ -263,19 +264,21 @@ func (ml *Loader) Changes(ctx context.Context) (Changes, error) {
 		}
 
 		// Third, monitors from the AWS RDS API
-		monitors, err = ml.rdsLoader.Load(ctx, ml.cfg)
-		if err != nil {
-			if !ml.cfg.MonitorLoader.AWS.Automatic() {
+		if ml.cfg.MonitorLoader.AWS.Automatic() || len(ml.cfg.MonitorLoader.AWS.Regions) > 0 {
+			monitors, err = ml.rdsLoader.Load(ctx, ml.cfg)
+			if err != nil {
+				if !ml.cfg.MonitorLoader.AWS.Automatic() {
+					return ch, err
+				}
+				blip.Debug("failed auto-AWS loading, ignoring: %s", err)
+			}
+			if err := ml.merge(monitors, all, &ch); err != nil {
 				return ch, err
 			}
-			blip.Debug("failed auto-AWS loading, ignoring: %s", err)
-		}
-		if err := ml.merge(monitors, all, &ch); err != nil {
-			return ch, err
 		}
 
 		// Last, local monitors auto-detected
-		if len(all) == 0 {
+		if len(all) == 0 && !ml.cfg.MonitorLoader.Local.DisableAuto {
 			monitors, err = ml.loadLocal(ctx)
 			if err != nil {
 				return ch, err
@@ -430,10 +433,6 @@ FILES:
 
 // loadLocal auto-detects local MySQL instances.
 func (ml *Loader) loadLocal(ctx context.Context) ([]blip.ConfigMonitor, error) {
-	// Do nothing if local auto-detect is explicitly disabled
-	if ml.cfg.MonitorLoader.Local.DisableAuto {
-		return nil, nil
-	}
 	status.Blip("monitor-loader", "auto-detect local")
 
 	// Auto-detect using default MySQL username (config.mysql.username),
