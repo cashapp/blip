@@ -8,7 +8,12 @@ import (
 )
 
 func TestPercentile(t *testing.T) {
+	// MySQL uses microsecond as max query time resolution, so as long as the calculated value
+	// is very close to expected value upto to 6 decimal places, it's correct
+	// So we calculate the percentile value and as long as the difference between it and the expected value
+	// is <= tolerance, it's correct.
 	tolerance := 0.000001
+
 	buckets := []percona.QRTBucket{
 		{Time: 0.000001, Count: 0, Total: 0},
 		{Time: 0.000003, Count: 0, Total: 0},
@@ -35,13 +40,30 @@ func TestPercentile(t *testing.T) {
 
 	h := percona.NewQRTHistogram(buckets)
 
-	p := [13]float64{0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.95, 0.99, 0.999, 1}
-	expectedResults := [13]float64{0.000012, 0.000019, 0.000019, 0.000046, 0.000046, 0.000081, 0.000081, 0.000081, 0.000172, 0.000316, 0.000658, 0.005511, 0.143531}
+	// List of input-output tests: firs value is percentile, second value is the
+	// expected output value for that percentile (from buckets).
+	tests := [][]float64{
+		{0.1, 0.000012},   // P10
+		{0.2, 0.000019},   // P20
+		{0.3, 0.000019},   // P30
+		{0.4, 0.000046},   // P40
+		{0.5, 0.000046},   // P50
+		{0.6, 0.000081},   // P60
+		{0.7, 0.000081},   // P70
+		{0.8, 0.000081},   // P80
+		{0.9, 0.000172},   // P90
+		{0.95, 0.000316},  // P95
+		{0.99, 0.000658},  // P99
+		{0.999, 0.005511}, // P999
+		{1, 0.143531},     // P100
+	}
+	var percentile, expected float64
 
-	for i, x := range p {
-		result := h.Percentile(x)
-		if math.Abs(result-expectedResults[i]) > tolerance {
-			t.Errorf("For Percentile: %v\tExpected: %v\tGot: %v\n", x, expectedResults[i], result)
+	for _, test := range tests {
+		percentile, expected = test[0], test[1]
+		result := h.Percentile(percentile)
+		if math.Abs(result-expected) > tolerance {
+			t.Errorf("For Percentile: %v\tExpected: %v\tGot: %v\n", percentile, expected, result)
 		}
 	}
 }

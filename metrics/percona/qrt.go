@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 
@@ -76,7 +77,7 @@ func (c *Qrt) Help() blip.CollectorHelp {
 		Options: map[string]blip.CollectorHelpOption{
 			OPT_PERCENTILES: {
 				Name:    OPT_PERCENTILES,
-				Desc:    "Query Response Time Percentiles, in format (percentile1,percentile2)",
+				Desc:    "Comma-separated list of percentiles, it can be in any of the following forms: p < 1 (example: .20,.99,.999) or 1 <= p <= 100 (example: 20, 99, 99.9) or p > 100 (example: 9599, 999, 9999)",
 				Default: default_percentile_option,
 				Values:  map[string]string{},
 			},
@@ -220,7 +221,22 @@ func (c *Qrt) prepareLevel(dom blip.Domain, level blip.Level) error {
 			return fmt.Errorf("%s: could not parse percentile value in qrt collector %s into a number", level.Name, percentileStr)
 		}
 
-		percentile := f / 100.0 // percentilesStr are provided as whole percentage numbers (e.g. 50, 60)
+		var percentile float64
+		if f < 1 {
+			// percentiles of the form 0.99, 0.999
+			percentile = f
+		} else if f >= 1 && f <= 100 {
+			// percentiles of the form 99, 99.9
+			percentile = f / 100.0
+		} else {
+			// f > 100
+			// percentiles of the form 999 (P99.9), 9999 (P99.99)
+			// To find the percentage as decimal, we want to convert this number into a float with no significant digits before decimal.
+			// we can do this with: f / (10 ^ (number of digits))
+
+			percentile = f / math.Pow10(len(percentileStr))
+		}
+
 		percentileAsDigitString := strings.Replace(percentileStr, ".", "", -1)
 		percentileMetricName := fmt.Sprintf("query_response_pctl%s", percentileAsDigitString)
 		c.percentiles[level.Name][percentileMetricName] = percentile
