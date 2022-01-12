@@ -194,7 +194,8 @@ func InternalLevelPlan() Plan {
 							"lock_deadlocks",
 						},
 					},
-					"repl": {
+					"repl.lag": {
+						Name: "repl.lag",
 						Options: map[string]string{
 							"source": "%{monitor.meta.repl-source}",
 						},
