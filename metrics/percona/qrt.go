@@ -216,6 +216,7 @@ func (c *Qrt) prepareLevel(dom blip.Domain, level blip.Level) error {
 	percentilesList := strings.Split(strings.TrimSpace(percentilesStr), ",")
 
 	for _, percentileStr := range percentilesList {
+		percentileStr = strings.TrimSpace(percentileStr)
 		f, err := strconv.ParseFloat(percentileStr, 64)
 		if err != nil {
 			return fmt.Errorf("%s: could not parse percentile value in qrt collector %s into a number", level.Name, percentileStr)
