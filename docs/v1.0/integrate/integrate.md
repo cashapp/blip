@@ -17,3 +17,36 @@ Every plugin is optional: if specified, it overrides the built-in functionality.
 _Factories_
 :  Factories are interfaces that let you override certain object creation of Blip.
 Every factory is optional: if specified, it overrides the built-in factory.
+
+
+## Plugins
+
+### LoadConfig
+
+```go
+LoadConfig func(Config) (Config, error)
+```
+
+### LoadMonitors
+
+```go
+LoadMonitors func(Config) ([]ConfigMonitor, error)
+```
+
+### LoadLevelPlans
+
+```go
+LoadLevelPlans func(ConfigPlans) ([]Plan, error)
+```
+
+### ModifyDB
+
+```go
+ModifyDB func(*sql.DB)
+```
+
+### TransformMetrics
+
+```go
+TransformMetrics func(*Metrics) error
+```
