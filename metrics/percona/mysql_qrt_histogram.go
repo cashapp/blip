@@ -40,7 +40,8 @@ func NewQRTHistogram(buckets []QRTBucket) QRTHistogram {
 // p should be p/100 where p is requested percentile (example: 0.10 for 10th percentile)
 // Percentile is defined as the weighted of the percentiles of
 // the lowest bin that is greater than the requested percentile rank
-func (h QRTHistogram) Percentile(p float64) float64 {
+// it returns the percentile value and the real percentile used
+func (h QRTHistogram) Percentile(p float64) (value float64, actualPercentile float64) {
 	var pCount float64
 	var curCount uint64
 
@@ -57,9 +58,12 @@ func (h QRTHistogram) Percentile(p float64) float64 {
 		if float64(curCount) >= pCount {
 			// we have found the bucket where our target pCount lies
 			// we take the average qrt of this bucket with (Total Time / Number of Queries) to find target percentile
-			return h.buckets[i].Total / float64(h.buckets[i].Count)
+			actualPercentile = float64(curCount) / float64(h.total)
+			value = h.buckets[i].Total / float64(h.buckets[i].Count)
+
+			return
 		}
 	}
 
-	return float64(0)
+	return
 }

@@ -35,6 +35,7 @@ Percona root@localhost:(none)> SELECT time, count, total FROM INFORMATION_SCHEMA
 
 const (
 	blip_domain = "percona.response-time"
+	metric_name = "response_time"
 )
 
 const (
@@ -52,7 +53,7 @@ const (
 type Qrt struct {
 	db          *sql.DB
 	available   bool
-	percentiles map[string]map[string]float64
+	percentiles map[string]map[float64]float64
 	optional    map[string]bool
 	flushQrt    map[string]bool
 }
@@ -60,7 +61,7 @@ type Qrt struct {
 func NewQrt(db *sql.DB) *Qrt {
 	return &Qrt{
 		db:          db,
-		percentiles: map[string]map[string]float64{},
+		percentiles: map[string]map[float64]float64{},
 		optional:    map[string]bool{},
 		available:   true,
 	}
@@ -172,11 +173,17 @@ func (c *Qrt) Collect(ctx context.Context, levelName string) ([]blip.MetricValue
 
 	h = NewQRTHistogram(buckets)
 
-	for name, val := range c.percentiles[levelName] {
+	for percentile := range c.percentiles[levelName] {
 		m := blip.MetricValue{Type: blip.GAUGE}
-		m.Name = name
-		m.Value = h.Percentile(val) * 100 // QRT is in sec and ODS want it in ms
+		m.Name = metric_name
+		value, actualPercentile := h.Percentile(percentile)
+		// QRT is in sec, convert it into more common/useful milliseconds
+		value = value * 100
+		metaKey := metaKey(percentile)
+		m.Meta = map[string]string{}
 
+		m.Meta[metaKey] = fmt.Sprintf("%.3f", actualPercentile)
+		m.Value = value
 		metrics = append(metrics, m)
 	}
 
@@ -204,7 +211,7 @@ func (c *Qrt) prepareLevel(dom blip.Domain, level blip.Level) error {
 		c.flushQrt[level.Name] = true // default
 	}
 
-	c.percentiles[level.Name] = map[string]float64{}
+	c.percentiles[level.Name] = map[float64]float64{}
 
 	var percentilesStr string
 	if percentilesOption, ok := dom.Options[OPT_PERCENTILES]; ok {
@@ -238,9 +245,18 @@ func (c *Qrt) prepareLevel(dom blip.Domain, level blip.Level) error {
 			percentile = f / math.Pow10(len(percentileStr))
 		}
 
-		percentileAsDigitString := strings.Replace(percentileStr, ".", "", -1)
-		percentileMetricName := fmt.Sprintf("query_response_pctl%s", percentileAsDigitString)
-		c.percentiles[level.Name][percentileMetricName] = percentile
+		c.percentiles[level.Name][percentile] = percentile
 	}
 	return nil
+}
+
+// metaKey coverts a percentile into the form pNNN
+// where NNN is the requested percentile upto 1 decimal point
+func metaKey(f float64) string {
+	percentile := f * 100
+	metaKey := fmt.Sprintf("%.1f", percentile)
+	metaKey = strings.Trim(metaKey, "0")
+	metaKey = strings.ReplaceAll(metaKey, ".", "")
+	metaKey = "p" + metaKey
+	return metaKey
 }
