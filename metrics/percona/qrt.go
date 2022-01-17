@@ -49,7 +49,7 @@ const (
 	flushQuery = "SET GLOBAL query_response_time_flush=1"
 )
 
-type Qrt struct {
+type QRT struct {
 	db          *sql.DB
 	available   bool
 	percentiles map[string]map[float64]float64
@@ -57,8 +57,8 @@ type Qrt struct {
 	flushQrt    map[string]bool
 }
 
-func NewQrt(db *sql.DB) *Qrt {
-	return &Qrt{
+func NewQRT(db *sql.DB) *QRT {
+	return &QRT{
 		db:          db,
 		percentiles: map[string]map[float64]float64{},
 		optional:    map[string]bool{},
@@ -66,11 +66,11 @@ func NewQrt(db *sql.DB) *Qrt {
 	}
 }
 
-func (c *Qrt) Domain() string {
+func (c *QRT) Domain() string {
 	return blip_domain
 }
 
-func (c *Qrt) Help() blip.CollectorHelp {
+func (c *QRT) Help() blip.CollectorHelp {
 	return blip.CollectorHelp{
 		Domain:      blip_domain,
 		Description: "Collect QRT (Query Response Time) metrics",
@@ -104,7 +104,7 @@ func (c *Qrt) Help() blip.CollectorHelp {
 }
 
 // Prepare Prepares options for all levels in the plan that contain the percona.response-time domain
-func (c *Qrt) Prepare(ctx context.Context, plan blip.Plan) (func(), error) {
+func (c *QRT) Prepare(ctx context.Context, plan blip.Plan) (func(), error) {
 	_, err := c.db.Query(query)
 	if err != nil {
 		c.available = false
@@ -118,7 +118,6 @@ LEVEL:
 		}
 
 		err := c.prepareLevel(dom, level)
-
 		if err != nil {
 			return nil, err
 		}
@@ -127,8 +126,7 @@ LEVEL:
 }
 
 // Collect Collects query response time metrics for a particular level
-func (c *Qrt) Collect(ctx context.Context, levelName string) ([]blip.MetricValue, error) {
-	var metrics []blip.MetricValue
+func (c *QRT) Collect(ctx context.Context, levelName string) ([]blip.MetricValue, error) {
 	if !c.available {
 		if !c.optional[levelName] {
 			errorStr := fmt.Sprintf("%s: required qrt metrics couldn't be collected", levelName)
@@ -145,7 +143,6 @@ func (c *Qrt) Collect(ctx context.Context, levelName string) ([]blip.MetricValue
 	}
 	defer rows.Close()
 
-	var h QRTHistogram
 	var buckets []QRTBucket
 
 	var time string
@@ -169,18 +166,23 @@ func (c *Qrt) Collect(ctx context.Context, levelName string) ([]blip.MetricValue
 		buckets = append(buckets, QRTBucket{Time: validatedTime, Count: count, Total: validatedTotal})
 	}
 
-	h = NewQRTHistogram(buckets)
+	h := NewQRTHistogram(buckets)
 
+	var metrics []blip.MetricValue
 	for percentile := range c.percentiles[levelName] {
-		m := blip.MetricValue{Type: blip.GAUGE}
-		m.Name = "response_time"
+		// Get value of percentile (e.g. p999) and actual percentile (e.g. p997).
+		// The latter is reported as meta so user can discard percentile if the
+		// actual percentile is too far off, which can happen if bucket range is
+		// configured too small.
 		value, actualPercentile := h.Percentile(percentile)
-		// QRT is in sec, convert it into more common/useful microseconds
-		value = value * 1000000
-		metaKey := metaKey(percentile)
-		m.Meta = map[string]string{}
-		m.Meta[metaKey] = fmt.Sprintf("%.3f", actualPercentile)
-		m.Value = value
+		m := blip.MetricValue{
+			Type:  blip.GAUGE,
+			Name:  "response_time",
+			Value: value * 1000000, // convert seconds to microseconds for consistency with PFS quantiles
+			Meta: map[string]string{
+				metaKey(percentile): fmt.Sprintf("%.3f", actualPercentile),
+			},
+		}
 		metrics = append(metrics, m)
 	}
 
@@ -191,11 +193,11 @@ func (c *Qrt) Collect(ctx context.Context, levelName string) ([]blip.MetricValue
 		}
 	}
 
-	return metrics, err
+	return metrics, nil
 }
 
 // prepareLevel sanitizes options for a particular level based on user-provided options
-func (c *Qrt) prepareLevel(dom blip.Domain, level blip.Level) error {
+func (c *QRT) prepareLevel(dom blip.Domain, level blip.Level) error {
 	if optional, ok := dom.Options[OPT_OPTIONAL]; ok && optional == "no" {
 		c.optional[level.Name] = false
 	} else {

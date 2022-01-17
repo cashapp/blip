@@ -206,7 +206,7 @@ func (f factory) Make(domain string, args blip.CollectorFactoryArgs) (blip.Colle
 	case "var.global":
 		return varglobal.NewGlobal(args.DB), nil
 	case "percona.response-time":
-		return percona.NewQrt(args.DB), nil
+		return percona.NewQRT(args.DB), nil
 	}
 	return nil, blip.ErrInvalidDomain{Domain: domain}
 }
