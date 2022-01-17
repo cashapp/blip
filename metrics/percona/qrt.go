@@ -35,14 +35,13 @@ Percona root@localhost:(none)> SELECT time, count, total FROM INFORMATION_SCHEMA
 
 const (
 	blip_domain = "percona.response-time"
-	metric_name = "response_time"
 )
 
 const (
 	OPT_PERCENTILES           = "percentiles"
 	OPT_OPTIONAL              = "optional"
 	OPT_FLUSH_QRT             = "flush"
-	default_percentile_option = "95"
+	default_percentile_option = "999"
 )
 
 const (
@@ -78,7 +77,7 @@ func (c *Qrt) Help() blip.CollectorHelp {
 		Options: map[string]blip.CollectorHelpOption{
 			OPT_PERCENTILES: {
 				Name:    OPT_PERCENTILES,
-				Desc:    "Comma-separated list of percentiles, it can be in any of the following forms: p < 1 (example: .20,.99,.999) or 1 <= p <= 100 (example: 20, 99, 99.9) or p > 100 (example: 9599, 999, 9999)",
+				Desc:    "Comma-separated list of percentiles formatted as 999, 0.999 or 99.9",
 				Default: default_percentile_option,
 				Values:  map[string]string{},
 			},
@@ -109,7 +108,6 @@ func (c *Qrt) Prepare(ctx context.Context, plan blip.Plan) (func(), error) {
 	_, err := c.db.Query(query)
 	if err != nil {
 		c.available = false
-		return nil, fmt.Errorf("%s: qrt metrics not available", plan.Name)
 	}
 
 LEVEL:
@@ -155,17 +153,17 @@ func (c *Qrt) Collect(ctx context.Context, levelName string) ([]blip.MetricValue
 	var total string
 	for rows.Next() {
 		if err := rows.Scan(&time, &count, &total); err != nil {
-			return nil, fmt.Errorf("%s: qrt response row is invalid", levelName)
+			return nil, err
 		}
 
 		validatedTime, ok := sqlutil.Float64(strings.TrimSpace(time))
 		if !ok {
-			return nil, fmt.Errorf("%s: qrt: time is not a valid number: %s ", levelName, time)
+			return nil, fmt.Errorf("%s: qrt: time could't be parsed into a valid float: %s ", levelName, time)
 		}
 
 		validatedTotal, ok := sqlutil.Float64(strings.TrimSpace(total))
 		if !ok {
-			return nil, fmt.Errorf("%s: qrt: total is not a valid number: %s ", levelName, total)
+			return nil, fmt.Errorf("%s: qrt: total couldn't be parsed into a valid float: %s ", levelName, total)
 		}
 
 		buckets = append(buckets, QRTBucket{Time: validatedTime, Count: count, Total: validatedTotal})
@@ -175,13 +173,12 @@ func (c *Qrt) Collect(ctx context.Context, levelName string) ([]blip.MetricValue
 
 	for percentile := range c.percentiles[levelName] {
 		m := blip.MetricValue{Type: blip.GAUGE}
-		m.Name = metric_name
+		m.Name = "response_time"
 		value, actualPercentile := h.Percentile(percentile)
-		// QRT is in sec, convert it into more common/useful milliseconds
-		value = value * 100
+		// QRT is in sec, convert it into more common/useful microseconds
+		value = value * 1000000
 		metaKey := metaKey(percentile)
 		m.Meta = map[string]string{}
-
 		m.Meta[metaKey] = fmt.Sprintf("%.3f", actualPercentile)
 		m.Value = value
 		metrics = append(metrics, m)
@@ -241,7 +238,6 @@ func (c *Qrt) prepareLevel(dom blip.Domain, level blip.Level) error {
 			// percentiles of the form 999 (P99.9), 9999 (P99.99)
 			// To find the percentage as decimal, we want to convert this number into a float with no significant digits before decimal.
 			// we can do this with: f / (10 ^ (number of digits))
-
 			percentile = f / math.Pow10(len(percentileStr))
 		}
 
