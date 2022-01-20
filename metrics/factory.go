@@ -9,6 +9,7 @@ import (
 	"github.com/cashapp/blip/event"
 	"github.com/cashapp/blip/metrics/aws.rds"
 	"github.com/cashapp/blip/metrics/innodb"
+	"github.com/cashapp/blip/metrics/percona"
 	"github.com/cashapp/blip/metrics/repl.lag"
 	"github.com/cashapp/blip/metrics/size.binlog"
 	"github.com/cashapp/blip/metrics/size.database"
@@ -234,6 +235,8 @@ func (f *factory) Make(domain string, args blip.CollectorFactoryArgs) (blip.Coll
 		return statusglobal.NewGlobal(args.DB), nil
 	case "var.global":
 		return varglobal.NewGlobal(args.DB), nil
+	case "percona.response-time":
+		return percona.NewQRT(args.DB), nil
 	}
 	return nil, blip.ErrInvalidDomain{Domain: domain}
 }
@@ -248,4 +251,5 @@ var builtinCollectors = []string{
 	"size.database",
 	"status.global",
 	"var.global",
+	"percona.response-time",
 }

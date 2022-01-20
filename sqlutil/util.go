@@ -11,7 +11,7 @@ import (
 	ver "github.com/hashicorp/go-version"
 )
 
-// ToFloat64 converts string to float64, if possible.
+// Float64 converts string to float64, if possible.
 func Float64(s string) (float64, bool) {
 	f, err := strconv.ParseFloat(s, 64)
 	if err == nil {
