@@ -8,14 +8,17 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/golang/snappy"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/cashapp/blip"
+	"github.com/cashapp/blip/event"
 	om "github.com/cashapp/blip/openmetrics"
 	"github.com/cashapp/blip/prom"
+	"github.com/cashapp/blip/status"
 )
 
 const DEFAULT_CHRONOSPHERE_URL = "http://127.0.0.1:3030/openmetrics/write"
@@ -28,6 +31,7 @@ type Chronosphere struct {
 	url    string
 	labels []*om.Label
 	debug  bool
+	event  event.MonitorReceiver
 }
 
 func NewChronosphere(monitorId string, opts, tags map[string]string) (*Chronosphere, error) {
@@ -35,7 +39,8 @@ func NewChronosphere(monitorId string, opts, tags map[string]string) (*Chronosph
 		monitorId: monitorId,
 		tags:      tags,
 		// --
-		url: DEFAULT_CHRONOSPHERE_URL,
+		url:   DEFAULT_CHRONOSPHERE_URL,
+		event: event.MonitorReceiver{MonitorId: monitorId},
 	}
 
 	for k, v := range opts {
@@ -73,13 +78,24 @@ func omName(s string) string {
 	return strings.ToLower(strings.ToLower(nameRe.ReplaceAllString(s, "_")))
 }
 
-func (s *Chronosphere) Send(ctx context.Context, m *blip.Metrics) error {
-	ts := timestamppb.New(m.Begin) // Go timestampp to protobuf timestamp
+func (s *Chronosphere) Send(ctx context.Context, m *blip.Metrics) (lerr error) {
+	status.Monitor(s.monitorId, "chronosphere", "sending metrics from %s", m.Begin)
+
+	n := 0
+	defer func() {
+		if lerr == nil {
+			status.Monitor(s.monitorId, "chronosphere", "last sent %d metrics at %s", n, time.Now())
+		} else {
+			s.event.Errorf(event.SINK_SEND_ERROR, lerr.Error())
+			status.Monitor(s.monitorId, "chronosphere", "error on last send at %s: %s", time.Now(), lerr)
+		}
+	}()
+
+	ts := timestamppb.New(m.Begin) // Go timestamp to protobuf timestamp
 
 	// Counter number of Blip metric values so we can pre-alloc OpenMetrics
 	// structs--just an easy micro-optimization to avoid unnecessary memory
 	// alloc using Go append(), because OpenMetrics structs are big
-	n := 0
 	for _, metrics := range m.Values {
 		n += len(metrics)
 	}
@@ -110,7 +126,13 @@ func (s *Chronosphere) Send(ctx context.Context, m *blip.Metrics) error {
 		// becomes mysql_status_threads_running.
 		tr := prom.Translator(domain)
 		if tr == nil {
-			continue // @todo
+			err := fmt.Errorf("no translator for %s", domain)
+			if blip.Strict {
+				lerr = err
+				return // implicit lerr
+			}
+			blip.Debug(err.Error() + ", ignoring")
+			continue
 		}
 		prefix, _, shortDomain := tr.Names()
 
@@ -158,10 +180,10 @@ func (s *Chronosphere) Send(ctx context.Context, m *blip.Metrics) error {
 		} // each metric in a Blip domain
 	} //each Blip domain
 
-	// If config.sinks.openmetrics.debug=true, then just print via debug, don't send
+	// If config.sinks.chronosphere.debug=true, then just print via debug, don't send
 	if s.debug {
 		blip.Debug(set.String())
-		return nil
+		return // success
 	}
 
 	// ----------------------------------------------------------------------
@@ -171,7 +193,8 @@ func (s *Chronosphere) Send(ctx context.Context, m *blip.Metrics) error {
 	// First, marshal the OpenMetrics data
 	data, err := proto.Marshal(set)
 	if err != nil {
-		return err
+		lerr = err
+		return // implicit lerr
 	}
 
 	// Second, compress data with Snappy
@@ -180,23 +203,24 @@ func (s *Chronosphere) Send(ctx context.Context, m *blip.Metrics) error {
 	// Last, HTTP POST the compressed data to Chronosphere collector
 	resp, err := http.Post(s.url, "application/octet-stream", buf)
 	if err != nil {
-		return err
+		lerr = err
+		return // implicit lerr
 	}
 	defer resp.Body.Close()
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		blip.Debug(err.Error())
-		// @todo
+		lerr = fmt.Errorf("error reading response to POST: %s", err)
+		return // implicit lerr
 	}
 	if resp.StatusCode >= 300 {
-		blip.Debug("error sending to Chrono collector: response code %d (expected 2xx code): %s",
-			resp.Status, string(body))
+		lerr = fmt.Errorf("chronocollector HTTP response code %d, expected 2xx: %s",
+			resp.StatusCode, string(body))
+		return // implicit lerr
 	}
 
-	blip.Debug("%s: sent %d metrics to chrono", s.monitorId, n)
-	return nil
+	return // success
 }
 
-func (s *Chronosphere) Status() string {
-	return ""
+func (s *Chronosphere) Name() string {
+	return "chronosphere"
 }

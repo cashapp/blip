@@ -59,7 +59,7 @@ type adjuster struct {
 	curr    state
 	pending state
 	first   bool
-	event   event.MonitorSink
+	event   event.MonitorReceiver
 	retry   *backoff.ExponentialBackOff
 	lerr    error
 }
@@ -103,7 +103,7 @@ func NewLevelAdjuster(args LevelAdjusterArgs) *adjuster {
 		curr:    state{state: blip.STATE_OFFLINE},
 		pending: state{},
 		first:   true,
-		event:   event.MonitorSink{MonitorId: args.MonitorId},
+		event:   event.MonitorReceiver{MonitorId: args.MonitorId},
 		retry:   retry,
 	}
 }

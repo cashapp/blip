@@ -20,7 +20,9 @@ const (
 	SERVER_RUN_WAIT = "server-run-wait"
 	SERVER_RUN_STOP = "server-run-stop"
 
-	MONITOR_LOADER_LOADING = "monitor-loader-loading"
+	MONITOR_LOADER_LOADING  = "monitor-loader-loading"
+	MONITOR_LOADER_STOPLOSS = "monitor-loader-stoploss"
+	MONITOR_RELOAD_ERROR    = "monitor-reload-error"
 
 	MONITOR_PREPARE_PLAN = "monitor-prepare-plan"
 
@@ -51,4 +53,8 @@ const (
 
 	COLLECTOR_ERROR = "collector-error"
 	COLLECTOR_PANIC = "collector-panic"
+
+	ENGINE_COLLECT_ERROR = "engine-collect-error"
+
+	SINK_SEND_ERROR = "sink-send-error"
 )

@@ -35,7 +35,7 @@ type LevelCollector interface {
 	Pause()
 
 	// Status returns detailed internal status.
-	Status() proto.MonitorLevelStatus
+	Status() proto.MonitorCollectorStatus
 }
 
 var _ LevelCollector = &lpc{}
@@ -56,10 +56,16 @@ type lpc struct {
 	changePlanDoneChan   chan struct{}
 	changeMux            *sync.Mutex
 	stateMux             *sync.Mutex
-	event                event.MonitorSink
+	event                event.MonitorReceiver
 	levels               []level
 	paused               bool
 	stopped              bool
+	//
+	statsMux           *sync.Mutex
+	lastCollectTs      time.Time
+	lastCollectError   error
+	lastCollectErrorTs time.Time
+	sinkErrors         map[string]error
 }
 
 type LevelCollectorArgs struct {
@@ -81,8 +87,11 @@ func NewLevelCollector(args LevelCollectorArgs) *lpc {
 		monitorId: args.Config.MonitorId,
 		changeMux: &sync.Mutex{},
 		stateMux:  &sync.Mutex{},
-		event:     event.MonitorSink{MonitorId: args.Config.MonitorId},
+		event:     event.MonitorReceiver{MonitorId: args.Config.MonitorId},
 		paused:    true,
+
+		statsMux:   &sync.Mutex{},
+		sinkErrors: map[string]error{},
 	}
 }
 
@@ -189,28 +198,48 @@ func (c *lpc) collector(n int, col chan string, stopChan chan struct{}) {
 	lpc := fmt.Sprintf("lpc-%d", n)
 	var level string
 	for {
+		// Wait until main loop in Run sends a level to collect
 		status.Monitor(c.monitorId, lpc, "idle")
-
 		select {
-		case level = <-col: // signal
+		case level = <-col:
 		case <-stopChan:
 			return
 		}
+		status.Monitor(c.monitorId, lpc, "%s/%s: collecting", c.plan.Name, level)
 
-		status.Monitor(c.monitorId, lpc, "collecting plan %s level %s", c.plan.Name, level)
+		// **************************************************************
+		// COLLECT METRICS
+		//
+		// Collect all metrics at this level. This is where metrics
+		// collection begins. Then Engine.Collect does the real work.
 		metrics, err := c.engine.Collect(context.Background(), level)
+		// **************************************************************
 		if err != nil {
-			// @todo
+			c.event.Errorf(event.ENGINE_COLLECT_ERROR, "%s; see monitor status or event log for details", err)
+		}
+
+		c.statsMux.Lock()
+		c.lastCollectTs = time.Now()
+		c.lastCollectError = err
+		c.lastCollectErrorTs = time.Now()
+		c.statsMux.Unlock()
+
+		if metrics == nil {
+			continue
 		}
 
 		if c.transformMetrics != nil {
+			status.Monitor(c.monitorId, lpc, "%s/%s: TransformMetrics", c.plan.Name, level)
 			c.transformMetrics(metrics)
 		}
 
-		status.Monitor(c.monitorId, lpc, "sending metrics for plan %s level %s", c.plan.Name, level)
 		for i := range c.sinks {
-			c.sinks[i].Send(context.Background(), metrics)
-			// @todo error
+			sinkName := c.sinks[i].Name()
+			status.Monitor(c.monitorId, lpc, "%s/%s: sending to %s", c.plan.Name, level, sinkName)
+			err := c.sinks[i].Send(context.Background(), metrics)
+			c.statsMux.Lock()
+			c.sinkErrors[sinkName] = fmt.Errorf("[%s] %s", time.Now(), err)
+			c.statsMux.Unlock()
 		}
 	}
 }
@@ -399,14 +428,36 @@ func (c *lpc) Pause() {
 }
 
 // Status returns the current state and plan name.
-func (c *lpc) Status() proto.MonitorLevelStatus {
+func (c *lpc) Status() proto.MonitorCollectorStatus {
 	c.stateMux.Lock()
 	defer c.stateMux.Unlock()
-	return proto.MonitorLevelStatus{
-		State:  c.state,
-		Plan:   c.plan.Name,
-		Paused: c.paused,
+	c.statsMux.Lock()
+	defer c.statsMux.Unlock()
+
+	s := proto.MonitorCollectorStatus{
+		State:         c.state,
+		Plan:          c.plan.Name,
+		Paused:        c.paused,
+		LastCollectTs: c.lastCollectTs,
+		SinkErrors:    map[string]string{},
 	}
+	if c.lastCollectError != nil {
+		s.LastCollectError = c.lastCollectError.Error()
+
+		lastCollectErrorTs := c.lastCollectErrorTs // copy because we use pointer
+		s.LastCollectErrorTs = &lastCollectErrorTs
+	}
+	sinkErrors := map[string]string{}
+	for sinkName, err := range c.sinkErrors {
+		if err == nil {
+			continue
+		}
+		sinkErrors[sinkName] = err.Error()
+	}
+	if len(sinkErrors) > 0 {
+		s.SinkErrors = sinkErrors
+	}
+	return s
 }
 
 // ---------------------------------------------------------------------------

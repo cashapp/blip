@@ -1,4 +1,4 @@
-package sizedata
+package sizedatabase
 
 import (
 	"fmt"

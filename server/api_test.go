@@ -31,8 +31,10 @@ func setup(t *testing.T) testAPI {
 	cfg := blip.DefaultConfig(false)
 	blip.Debugging = true
 	ml := monitor.NewLoader(monitor.LoaderArgs{
-		Config:     cfg,
-		DbMaker:    dbconn.NewConnFactory(nil, nil),
+		Config: cfg,
+		Factories: blip.Factories{
+			DbConn: dbconn.NewConnFactory(nil, nil),
+		},
 		PlanLoader: plan.NewLoader(nil),
 		RDSLoader:  aws.RDSLoader{ClientFactory: mock.RDSClientFactory{}},
 	})

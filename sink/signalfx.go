@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io/ioutil"
+	"net/http"
 	"time"
 
 	"github.com/signalfx/golib/v3/datapoint"
@@ -11,22 +12,25 @@ import (
 
 	"github.com/cashapp/blip"
 	"github.com/cashapp/blip/event"
+	"github.com/cashapp/blip/status"
 )
 
-// Sink sends metrics to SignalFx.
-type sfxSink struct {
-	sink        *sfxclient.HTTPSink
+// SignalFx sends metrics to SignalFx.
+type SignalFx struct {
+	sfxSink     *sfxclient.HTTPSink
 	sendTimeout time.Duration
 	monitorId   string
 	dim         map[string]string
-	event       event.MonitorSink
+	event       event.MonitorReceiver
 }
 
-func NewSignalFxSink(monitorId string, opts, tags map[string]string) (*sfxSink, error) {
-	sink := sfxclient.NewHTTPSink()
-	s := &sfxSink{
-		sink:      sink,
-		event:     event.MonitorSink{MonitorId: monitorId},
+func NewSignalFx(monitorId string, opts, tags map[string]string, httpClient *http.Client) (*SignalFx, error) {
+	sfxSink := sfxclient.NewHTTPSink()
+	sfxSink.Client = httpClient // made by blip.Factory.HTTPClient
+
+	s := &SignalFx{
+		sfxSink:   sfxSink,
+		event:     event.MonitorReceiver{MonitorId: monitorId},
 		monitorId: monitorId,
 		dim:       tags,
 	}
@@ -36,15 +40,12 @@ func NewSignalFxSink(monitorId string, opts, tags map[string]string) (*sfxSink, 
 		case "auth-token-file":
 			bytes, err := ioutil.ReadFile(v)
 			if err != nil {
-				if blip.Strict {
-					return nil, err
-				}
-				// @todo
+				return nil, err
 			} else {
-				sink.AuthToken = string(bytes)
+				sfxSink.AuthToken = string(bytes)
 			}
 		case "auth-token":
-			sink.AuthToken = v
+			sfxSink.AuthToken = v
 		default:
 			if blip.Strict {
 				return nil, fmt.Errorf("invalid option: %s", k)
@@ -55,8 +56,14 @@ func NewSignalFxSink(monitorId string, opts, tags map[string]string) (*sfxSink, 
 	return s, nil
 }
 
-func (s *sfxSink) Send(ctx context.Context, m *blip.Metrics) error {
+func (s *SignalFx) Send(ctx context.Context, m *blip.Metrics) error {
+	status.Monitor(s.monitorId, "signalfx", "sending metrics")
+
 	n := 0
+	defer func() {
+		status.Monitor(s.monitorId, "signalfx", "last sent %d metrics at %s", n, time.Now())
+	}()
+
 	for _, metrics := range m.Values {
 		n += len(metrics)
 	}
@@ -75,10 +82,9 @@ func (s *sfxSink) Send(ctx context.Context, m *blip.Metrics) error {
 			n++
 		}
 	}
-	blip.Debug("%s: sent %d metrics", s.monitorId, n)
-	return s.sink.AddDatapoints(ctx, dp)
+	return s.sfxSink.AddDatapoints(ctx, dp)
 }
 
-func (s *sfxSink) Status() string {
-	return ""
+func (s *SignalFx) Name() string {
+	return "signalfx"
 }

@@ -89,7 +89,7 @@ func TestLevelCollector(t *testing.T) {
 	// starts working once a plan is set.
 	lpc := monitor.NewLevelCollector(monitor.LevelCollectorArgs{
 		Config:     moncfg,
-		Engine:     monitor.NewEngine(monitorId1, db),
+		Engine:     monitor.NewEngine(blip.ConfigMonitor{MonitorId: monitorId1}, db),
 		PlanLoader: pl,
 		Sinks:      []blip.Sink{mock.Sink{}},
 	})

@@ -7,6 +7,7 @@ import (
 	"log"
 	"runtime"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/cashapp/blip"
@@ -20,7 +21,7 @@ import (
 // is not configurable via Blip config; it can only be changed via integration.
 var CollectParallel = 2
 
-// mc represents one active metric collector, including its cleanup func (if any)
+// amc represents one active metric collector, including its cleanup func (if any)
 // and its last error. There's only one mc per domain, even if the domain is used
 // at multiple levels (because the mc prepares itself for each level). When plans
 // change, we start over (we don't reset/reuse mcs): discard all old mc (calling
@@ -33,10 +34,11 @@ type amc struct {
 
 // Engine does the real work: collect metrics.
 type Engine struct {
-	monitorId string
+	cfg       blip.ConfigMonitor
 	db        *sql.DB
+	monitorId string
 	// --
-	event event.MonitorSink
+	event event.MonitorReceiver
 	sem   chan bool // semaphore for CollectParallel
 
 	planMux *sync.RWMutex
@@ -48,19 +50,24 @@ type Engine struct {
 
 	statusMux *sync.Mutex
 	status    proto.MonitorEngineStatus
+
+	collectAll  uint64
+	collectSome uint64
+	collectFail uint64
 }
 
-func NewEngine(monitorId string, db *sql.DB) *Engine {
+func NewEngine(cfg blip.ConfigMonitor, db *sql.DB) *Engine {
 	sem := make(chan bool, CollectParallel)
 	for i := 0; i < CollectParallel; i++ {
 		sem <- true
 	}
 
 	return &Engine{
-		monitorId: monitorId,
+		cfg:       cfg,
 		db:        db,
+		monitorId: cfg.MonitorId,
 		// --
-		event: event.MonitorSink{MonitorId: monitorId},
+		event: event.MonitorReceiver{MonitorId: cfg.MonitorId},
 		sem:   sem,
 
 		planMux: &sync.RWMutex{},
@@ -86,6 +93,10 @@ func (e *Engine) Status() proto.MonitorEngineStatus {
 	e.statusMux.Lock()
 	cp := e.status // copy
 	e.statusMux.Unlock()
+
+	cp.CollectAll = atomic.LoadUint64(&e.collectAll)
+	cp.CollectSome = atomic.LoadUint64(&e.collectSome)
+	cp.CollectFail = atomic.LoadUint64(&e.collectFail)
 
 	e.mcMux.Lock()
 	errs := map[string]string{}
@@ -171,8 +182,9 @@ func (e *Engine) Prepare(ctx context.Context, plan blip.Plan, before, after func
 				c, err := metrics.Make(
 					domain,
 					blip.CollectorFactoryArgs{
-						MonitorId: e.monitorId,
+						Config:    e.cfg,
 						DB:        e.db,
+						MonitorId: e.monitorId,
 					},
 				)
 				if err != nil {
@@ -231,35 +243,40 @@ func (e *Engine) Prepare(ctx context.Context, plan blip.Plan, before, after func
 }
 
 func (e *Engine) Collect(ctx context.Context, levelName string) (*blip.Metrics, error) {
+	blip.Debug("collecting plan %s level %s", e.plan.Name, levelName)
+	engineNo := status.MonitorMulti(e.monitorId, "engine", "collecting at %s/%s", e.plan.Name, levelName)
+	defer status.RemoveComponent(e.monitorId, engineNo)
+
 	//
 	// *** This func can run concurrently! ***
 	//
-
 	// READ lock while collecting so Prepare cannot change plan while using it.
 	// Must be read lock to allow concurrent calls.
 	e.planMux.RLock()
 	defer e.planMux.RUnlock()
 
-	mc := e.atLevel[levelName]
-	if mc == nil {
-		blip.Debug("%s no mc at level '%s'", e.monitorId, levelName)
+	// All metric collectors at this level
+	collectors := e.atLevel[levelName]
+	if collectors == nil {
+		blip.Debug("%s: no collectors at %s/%s, ignoring", e.monitorId, e.plan.Name, levelName)
 		return nil, nil
 	}
 
-	status.Monitor(e.monitorId, "engine", "collecting plan %s level %s", e.plan.Name, levelName)
-	blip.Debug("collecting plan %s level %s", e.plan.Name, levelName)
-
-	bm := &blip.Metrics{
+	// Serialize writes to metrics struct because CollectParallel number of collectors
+	// run in parallel
+	mux := &sync.Mutex{}
+	metrics := &blip.Metrics{
 		Plan:      e.plan.Name,
 		Level:     levelName,
 		MonitorId: e.monitorId,
-		Values:    make(map[string][]blip.MetricValue, len(mc)),
+		Values:    make(map[string][]blip.MetricValue, len(collectors)),
+		Begin:     time.Now(),
 	}
-	mux := &sync.Mutex{} // serialize writes to Values ^
+	errs := map[string]error{}
 
+	// Collect metrics for each domain in parallel (limit: CollectParallel)
 	var wg sync.WaitGroup
-	bm.Begin = time.Now()
-	for i := range mc {
+	for i := range collectors {
 		<-e.sem
 		wg.Add(1)
 		go func(mc blip.Collector) {
@@ -273,10 +290,10 @@ func (e *Engine) Collect(ctx context.Context, levelName string) (*blip.Metrics, 
 					n := runtime.Stack(b, false)
 					perr := fmt.Errorf("PANIC: monitor ID %s: %v\n%s", e.monitorId, r, string(b[0:n]))
 					log.Println(perr)
-					e.event.Sendf(event.COLLECTOR_PANIC, perr.Error())
-					e.mcMux.Lock()
-					e.mcList[mc.Domain()].err = perr
-					e.mcMux.Unlock()
+					e.event.Errorf(event.COLLECTOR_PANIC, perr.Error())
+					mux.Lock()
+					errs[mc.Domain()] = perr
+					mux.Unlock()
 				}
 			}()
 
@@ -289,31 +306,49 @@ func (e *Engine) Collect(ctx context.Context, levelName string) (*blip.Metrics, 
 			vals, err := mc.Collect(ctx, levelName)
 			// **************************************************************
 
-			// Update collector status: set new error or clear old error
-			e.mcMux.Lock()
-			e.mcList[mc.Domain()].err = err
-			e.mcMux.Unlock()
-
-			// Return early if context canceled or timeout; discard metrics
-			// because it's unlikely they're valid on context cancel/timeout
-			if err != nil && ctx.Err() != nil {
-				return
-			}
-
-			// Save collector metric values
 			mux.Lock()
-			bm.Values[mc.Domain()] = vals
+			errs[mc.Domain()] = err // save err, even if nil
+			if err == nil {         // save metrics only if no error
+				metrics.Values[mc.Domain()] = vals
+			}
 			mux.Unlock()
-		}(mc[i])
+		}(collectors[i])
 	}
+
+	// Wait for all collectors to finish, then record end time
 	wg.Wait()
-	bm.End = time.Now()
+	metrics.End = time.Now()
 
-	status.Monitor(e.monitorId, "engine", "idle") // @todo don't overwrite concurrent calls
+	// Process collector errors, if any
+	errCount := 0
+	e.mcMux.Lock()
+	for domain, err := range errs {
+		// Update MonitorEngineStatus: set new error or clear old error
+		if err == nil {
+			e.mcList[domain].err = nil
+			continue
+		}
+		errCount += 1
+		errMsg := fmt.Sprintf("error collecting %s/%s/%s: %s", e.plan.Name, levelName, domain, err)
+		e.mcList[domain].err = fmt.Errorf("[%s] %s", metrics.Begin, errMsg) // status
+		e.event.Errorf(event.COLLECTOR_ERROR, errMsg)                       // log by default
+	}
+	e.mcMux.Unlock()
 
-	e.statusMux.Lock()
-	e.status.CollectOK += 1
-	e.statusMux.Unlock()
+	// Total success? Yes if no errors.
+	if errCount == 0 {
+		atomic.AddUint64(&e.collectAll, 1)
+		return metrics, nil
+	}
 
-	return bm, nil
+	// Partial success? Yes if there are some metrics values.
+	if len(metrics.Values) > 0 {
+		atomic.AddUint64(&e.collectSome, 1)
+		return metrics, fmt.Errorf("%d errors collecting %s/%s: some metrics were not collected",
+			errCount, e.plan.Name, levelName)
+	}
+
+	// Errors and zero metrics: all collectors failee
+	atomic.AddUint64(&e.collectFail, 1)
+	return nil, fmt.Errorf("failed to collect %s/%s", e.plan.Name, levelName)
 }

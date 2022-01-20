@@ -9,8 +9,9 @@ import (
 	"net/http"
 	"testing"
 
+	"gopkg.in/yaml.v2"
+
 	"github.com/cashapp/blip"
-	"github.com/cashapp/blip/plan"
 )
 
 // blip.Confg* bool are *bool, so test.True is a convenience var
@@ -55,15 +56,39 @@ func MakeHTTPRequest(httpVerb, url string, payload []byte, respStruct interface{
 	return statusCode, nil
 }
 
-// ReadPlan reads a plan file and returns its blip.Plan data struct. If a
-// file name is not given, it reads the default plan: test/plans/default.yaml.
+type planFile map[string]*blip.Level
+
+// ReadPlan is nearly the same as plan.ReadFile but recreated in pkg test
+// because it creates an import cycle like: metrics/foo imports test,
+// which imports plan, which imports metrics/, which importas all the metrics
+// include metrics/foo. It's more important for plan to import metrics,
+// so it can do plan validation, so we work around the issue here instead.
 func ReadPlan(t *testing.T, file string) blip.Plan {
 	if file == "" {
 		file = "../../test/plans/default.yaml"
 	}
-	plan, err := plan.ReadPlanFile(file)
+
+	bytes, err := ioutil.ReadFile(file)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return plan
+
+	var pf planFile
+	if err := yaml.Unmarshal(bytes, &pf); err != nil {
+		t.Fatal(err)
+	}
+
+	levels := make(map[string]blip.Level, len(pf))
+	for k := range pf {
+		levels[k] = blip.Level{
+			Name:    k, // must have, levels are collected by name
+			Freq:    pf[k].Freq,
+			Collect: pf[k].Collect,
+		}
+	}
+
+	return blip.Plan{
+		Name:   file,
+		Levels: levels,
+	}
 }

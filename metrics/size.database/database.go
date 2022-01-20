@@ -1,4 +1,4 @@
-package sizedata
+package sizedatabase
 
 import (
 	"context"
@@ -10,7 +10,7 @@ import (
 )
 
 const (
-	DOMAIN = "size.data"
+	DOMAIN = "size.database"
 
 	OPT_INCLUDE = "include"
 	OPT_EXCLUDE = "exclude"
@@ -18,39 +18,39 @@ const (
 	OPT_TOTAL   = "total"
 )
 
-// Data collects data sizes for domain size.data.
-type Data struct {
+// Database collects database sizes for domain size.database.
+type Database struct {
 	db *sql.DB
 	// --
 	query map[string]string // keyed on level
 	total map[string]bool   // keyed on level
 }
 
-var _ blip.Collector = &Data{}
+var _ blip.Collector = &Database{}
 
-func NewData(db *sql.DB) *Data {
-	return &Data{
+func NewDatabase(db *sql.DB) *Database {
+	return &Database{
 		db:    db,
 		query: map[string]string{},
 		total: map[string]bool{},
 	}
 }
 
-func (c *Data) Domain() string {
+func (c *Database) Domain() string {
 	return DOMAIN
 }
 
-func (c *Data) Help() blip.CollectorHelp {
+func (c *Database) Help() blip.CollectorHelp {
 	return blip.CollectorHelp{
 		Domain:      DOMAIN,
-		Description: "Collect size of databases (total data size)",
+		Description: "Database sizes",
 		Options: map[string]blip.CollectorHelpOption{
 			OPT_TOTAL: {
 				Name:    OPT_TOTAL,
-				Desc:    "Return total size of all databases (tag=\"\")",
+				Desc:    "Return total size of all databases",
 				Default: "no",
 				Values: map[string]string{
-					"only": "Only total database size",
+					"only": "Only total database size)",
 					"yes":  "Total and per-database sizes",
 					"no":   "Only per-database sizes",
 				},
@@ -81,14 +81,14 @@ func (c *Data) Help() blip.CollectorHelp {
 			{
 				Name: "bytes",
 				Type: blip.GAUGE,
-				Desc: "Total size of all binary logs in bytes",
+				Desc: "Database size",
 			},
 		},
 	}
 }
 
 // Prepares queries for all levels in the plan that contain the "var.global" domain
-func (c *Data) Prepare(ctx context.Context, plan blip.Plan) (func(), error) {
+func (c *Database) Prepare(ctx context.Context, plan blip.Plan) (func(), error) {
 LEVEL:
 	for _, level := range plan.Levels {
 		dom, ok := level.Collect[DOMAIN]
@@ -108,7 +108,7 @@ LEVEL:
 	return nil, nil
 }
 
-func (c *Data) Collect(ctx context.Context, levelName string) ([]blip.MetricValue, error) {
+func (c *Database) Collect(ctx context.Context, levelName string) ([]blip.MetricValue, error) {
 	q, ok := c.query[levelName]
 	if !ok {
 		return nil, nil // not collected in this level

@@ -124,7 +124,7 @@ func (pl *Loader) LoadShared(cfg blip.ConfigPlans, dbMaker blip.DbFactory) error
 		defer db.Close()
 
 		// Last arg "" = no monitorId, read all rows
-		plans, err := ReadPlanTable(cfg.Table, db, "")
+		plans, err := ReadTable(cfg.Table, db, "")
 		if err != nil {
 			return err
 		}
@@ -145,7 +145,7 @@ func (pl *Loader) LoadShared(cfg blip.ConfigPlans, dbMaker blip.DbFactory) error
 
 	// Read all plans from all files
 	if len(cfg.Files) > 0 {
-		blip.Debug("loading plans from %v", cfg.Files)
+		blip.Debug("loading shared plans from %v", cfg.Files)
 		plans, err := pl.readPlans(cfg.Files)
 		if err != nil {
 			blip.Debug(err.Error())
@@ -190,7 +190,7 @@ func (pl *Loader) LoadMonitor(mon blip.ConfigMonitor, dbMaker blip.DbFactory) er
 		}
 		defer db.Close()
 
-		plans, err := ReadPlanTable(table, db, mon.MonitorId)
+		plans, err := ReadTable(table, db, mon.MonitorId)
 		if err != nil {
 			return nil
 		}
@@ -216,7 +216,7 @@ func (pl *Loader) LoadMonitor(mon blip.ConfigMonitor, dbMaker blip.DbFactory) er
 
 	if len(mon.Plans.Files) > 0 {
 		// Monitor plans from files, load all
-		blip.Debug("monitor %s plans from %s", mon.MonitorId, mon.Plans.Files)
+		blip.Debug("loading monitor %s plans from %s", mon.MonitorId, mon.Plans.Files)
 		plans, err := pl.readPlans(mon.Plans.Files)
 		if err != nil {
 			return err
@@ -312,17 +312,10 @@ func (pl *Loader) readPlans(filePaths []string) ([]planMeta, error) {
 	meta := []planMeta{}   // return value
 	plans := []blip.Plan{} // ValidatePlans()
 
-PATHS:
 	for _, filePattern := range filePaths {
-
 		files, err := filepath.Glob(filePattern)
 		if err != nil {
-			if blip.Strict {
-				return nil, err
-			}
-			// @todo log bad glob
-			blip.Debug("invalid glob, skipping: %s: %s", filePattern, err)
-			continue PATHS
+			return nil, err
 		}
 		blip.Debug("files in %s: %v", filePattern, files)
 
@@ -352,7 +345,7 @@ PATHS:
 				continue FILES
 			}
 
-			plan, err := ReadPlanFile(file)
+			plan, err := ReadFile(file)
 			if err != nil {
 				blip.Debug("cannot read %s (%s), skipping: %s", file, fileabs, err)
 				continue FILES
@@ -387,7 +380,7 @@ func (pl *Loader) fileLoaded(file string) bool {
 
 // --------------------------------------------------------------------------
 
-func ReadPlanFile(file string) (blip.Plan, error) {
+func ReadFile(file string) (blip.Plan, error) {
 	bytes, err := ioutil.ReadFile(file)
 	if err != nil {
 		return blip.Plan{}, err
@@ -414,14 +407,14 @@ func ReadPlanFile(file string) (blip.Plan, error) {
 	return plan, nil
 }
 
-func ReadPlanTable(table string, db *sql.DB, monitorId string) ([]blip.Plan, error) {
+func ReadTable(table string, db *sql.DB, monitorId string) ([]blip.Plan, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	q := fmt.Sprintf("SELECT name, plan, COALESCE(monitorId, '') FROM %s", sqlutil.SanitizeTable(table, blip.DEFAULT_DATABASE))
 	if monitorId != "" {
-		q += " WHERE monitorId = '" + monitorId + "' ORDER BY name ASC" // @todo sanitize
+		q += " WHERE monitorId = ? ORDER BY name ASC"
 	}
-	rows, err := db.QueryContext(ctx, q)
+	rows, err := db.QueryContext(ctx, q, monitorId)
 	if err != nil {
 		return nil, err
 	}
@@ -475,7 +468,7 @@ func ValidatePlans(plans []blip.Plan) error {
 					// a collectory factory error, then the domain is invalid/
 					// doesn't exist
 					var err error
-					mc, err = metrics.Make(domainName, blip.CollectorFactoryArgs{})
+					mc, err = metrics.Make(domainName, blip.CollectorFactoryArgs{Validate: true})
 					if err != nil {
 						errMsgs = append(errMsgs, fmt.Sprintf("invalid plan: %s: at %s/%s: %s",
 							plans[i].Name, levelName, domainName, err))

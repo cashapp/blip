@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	my "github.com/go-mysql/errors"
 	ver "github.com/hashicorp/go-version"
 )
 
@@ -85,4 +86,12 @@ func MySQLVersionGTE(version string, db *sql.DB, ctx context.Context) (bool, err
 	}
 
 	return cuurentVersion.GreaterThanOrEqual(targetVersion), nil
+}
+
+func ReadOnly(err error) bool {
+	mysqlError, myerr := my.Error(err)
+	if !mysqlError {
+		return false
+	}
+	return myerr == my.ErrReadOnly
 }
