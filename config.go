@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -56,6 +57,46 @@ func setBool(c *bool, b *bool) *bool {
 	return c
 }
 
+var stoplosss = regexp.MustCompile(`^(\d+)(%?)$`)
+
+func StopLoss(v string) (uint, float64, error) {
+	if v == "" || v == "0" || v == "0%" {
+		return 0, 0, nil
+	}
+	if !stoplosss.MatchString(v) {
+		return 0, 0, fmt.Errorf("'%s' does not match /%s/", v, stoplosss)
+	}
+
+	m := stoplosss.FindStringSubmatch(v) // [v, $1, $2]
+	n, err := strconv.Atoi(m[1])         // $1 => int64
+	if err != nil {
+		return 0, 0, err
+	}
+	if m[2] == "%" {
+		return 0, float64(n), nil // percent stop-loss
+	}
+	return uint(n), 0, nil // number stop-loss
+}
+
+// validFreq validates the freq value for the given config section and returns
+// nil if valid, else returns an error.
+func validFreq(freq, config string) error {
+	if freq == "" {
+		return nil
+	}
+	if freq == "0" {
+		return fmt.Errorf("invalid %s: 0: must be greater than zero", config)
+	}
+	d, err := time.ParseDuration(freq)
+	if err != nil {
+		return fmt.Errorf("invalid %s: %s: %s", config, freq, err)
+	}
+	if d <= 0 {
+		return fmt.Errorf("invalid %s: %s (%d): value <= 0; must be greater than zero", config, freq, d)
+	}
+	return nil
+}
+
 func LoadConfig(filePath string, cfg Config) (Config, error) {
 	file, err := filepath.Abs(filePath)
 	if err != nil {
@@ -87,7 +128,6 @@ func LoadConfig(filePath string, cfg Config) (Config, error) {
 
 // Config represents the Blip startup configuration.
 type Config struct {
-	//
 	// Blip server
 	API           ConfigAPI           `yaml:"api,omitempty"`
 	HTTP          ConfigHTTP          `yaml:"http,omitempty"`
@@ -95,9 +135,7 @@ type Config struct {
 	Sinks         ConfigSinks         `yaml:"sinks,omitempty"`
 	Strict        bool                `yaml:"strict"`
 
-	//
-	// Defaults for monitors
-	//
+	// Monitor defaults
 	AWS       ConfigAWSRDS           `yaml:"aws-rds,omitempty"`
 	Exporter  ConfigExporter         `yaml:"exporter,omitempty"`
 	HA        ConfigHighAvailability `yaml:"ha,omitempty"`
@@ -140,6 +178,39 @@ func DefaultConfig(strict bool) Config {
 }
 
 func (c Config) Validate() error {
+	if err := c.API.Validate(); err != nil {
+		return err
+	}
+	if err := c.HTTP.Validate(); err != nil {
+		return err
+	}
+	if err := c.Sinks.Validate(); err != nil {
+		return err
+	}
+	if err := c.MonitorLoader.Validate(); err != nil {
+		return err
+	}
+	if err := c.AWS.Validate(); err != nil {
+		return err
+	}
+	if err := c.Exporter.Validate(); err != nil {
+		return err
+	}
+	if err := c.HA.Validate(); err != nil {
+		return err
+	}
+	if err := c.Heartbeat.Validate(); err != nil {
+		return err
+	}
+	if err := c.MySQL.Validate(); err != nil {
+		return err
+	}
+	if err := c.Plans.Validate(); err != nil {
+		return err
+	}
+	if err := c.TLS.Validate(); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -236,7 +307,12 @@ func DefaultConfigMonitorLoader() ConfigMonitorLoader {
 }
 
 func (c ConfigMonitorLoader) Validate() error {
-	// StopLoss match N%
+	if err := validFreq(c.Freq, "monitor-loader.freq"); err != nil {
+		return err
+	}
+	if _, _, err := StopLoss(c.StopLoss); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -551,14 +627,8 @@ func DefaultConfigHeartbeat() ConfigHeartbeat {
 }
 
 func (c ConfigHeartbeat) Validate() error {
-	if c.Freq != "" {
-		d, err := time.ParseDuration(c.Freq)
-		if err != nil {
-			return fmt.Errorf("invalid heartbeat.freq: %s: %s", c.Freq, err)
-		}
-		if d <= 0 {
-			return fmt.Errorf("invalid heartbeat.freq: %s (%d): value <= 0; must be >0", c.Freq, d)
-		}
+	if err := validFreq(c.Freq, "heartbeat.freq"); err != nil {
+		return err
 	}
 	return nil
 }

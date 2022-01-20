@@ -29,7 +29,7 @@ const (
 	EVENT
 )
 
-// Metrics are metrics collected for one plan level, from one database instance.
+// Metrics are metrics collected for one plan level, from one MySQL instance.
 type Metrics struct {
 	Begin     time.Time                // when collection started
 	End       time.Time                // when collection completed
@@ -69,11 +69,22 @@ type MetricValue struct {
 type Sink interface {
 	// Send sends metrics to the sink. It must respect the context timeout, if any.
 	Send(context.Context, *Metrics) error
-	Status() string
+
+	// Name returns the sink name (lowercase). It is used for monitor status to
+	// report sink errors, if any.
+	Name() string
 }
 
+// SinkFactory makes a Sink for a monitor.
 type SinkFactory interface {
-	Make(name, monitorId string, opts, tags map[string]string) (Sink, error)
+	Make(SinkFactoryArgs) (Sink, error)
+}
+
+type SinkFactoryArgs struct {
+	SinkName  string            // config.monitor.sinks.name (required)
+	MonitorId string            // config.monitor.id (required)
+	Options   map[string]string // config.monitor.sinks.name: key-value pairs
+	Tags      map[string]string // config.monitor.tags
 }
 
 // Plugins are function callbacks that let you override specific functionality of Blip.
@@ -81,8 +92,9 @@ type SinkFactory interface {
 type Plugins struct {
 	LoadConfig       func(Config) (Config, error)
 	LoadMonitors     func(Config) ([]ConfigMonitor, error)
-	LoadLevelPlans   func(ConfigPlans) ([]Plan, error)
+	LoadPlans        func(ConfigPlans) ([]Plan, error)
 	ModifyDB         func(*sql.DB)
+	StartMonitor     func(ConfigMonitor) bool
 	TransformMetrics func(*Metrics) error
 }
 
@@ -114,7 +126,7 @@ type DbFactory interface {
 }
 
 type HTTPClientFactory interface {
-	Make(cfg ConfigHTTP, usedFor string) (*http.Client, error)
+	MakeForSink(sinkName, monitorId string, opts, tags map[string]string) (*http.Client, error)
 }
 
 // Monitor states used by level plan adjuster (LPA).

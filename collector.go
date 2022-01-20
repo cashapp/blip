@@ -100,15 +100,24 @@ func (h CollectorHelp) Validate(opts map[string]string) error {
 // CollectorFactoryArgs are provided by Blip to a CollectorFactory when making
 // a Collector. The factory must use the args to create the collector.
 type CollectorFactoryArgs struct {
-	// MonitorId is the monitor identifier. The Collector must include
-	// this value in all errors, output, and so forth. Everything monitor-related
-	// in Blip is keyed on monitor ID.
-	MonitorId string
+	// Config is the full and final monitor config. Most collectors do not need
+	// this, but some that collect metrics outside MySQL, like cloud metrics,
+	// might need additional monitor config values.
+	Config ConfigMonitor
 
 	// DB is the connection to MySQL. It is safe for concurrent use, and it is
 	// used concurrently by other parts of a monitor. The Collector must not
 	// modify the connection, reconnect, and so forth--only use the connection.
 	DB *sql.DB
+
+	// MonitorId is the monitor identifier. The Collector must include
+	// this value in all errors, output, and so forth. Everything monitor-related
+	// in Blip is keyed on monitor ID.
+	MonitorId string
+
+	// Validate is true only when the plan loader is validating collectors.
+	// Do not use this field.
+	Validate bool
 }
 
 // A CollectorFactory makes one or more Collector.

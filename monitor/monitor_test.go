@@ -87,9 +87,6 @@ func TestMonitor(t *testing.T) {
 			mux.Unlock()
 			return nil
 		},
-		MonitorIdFunc: func() string {
-			return monitorId1
-		},
 	}
 
 	mon := monitor.NewMonitor(monitor.MonitorArgs{
@@ -109,11 +106,14 @@ func TestMonitor(t *testing.T) {
 	if status.MonitorId != monitorId1 {
 		t.Errorf("MonitorStatus.MonitorId = '%s', expected '%s'", status.MonitorId, monitorId1)
 	}
-	if status.Engine.CollectOK < 1 || status.Engine.CollectOK > 2 {
-		t.Errorf("MonitorStatus.Engine.CollectOK = %d, expected 1 or 2", status.Engine.CollectOK)
+	if status.Engine.CollectAll != 1 && status.Engine.CollectAll != 2 {
+		t.Errorf("MonitorStatus.Engine.CollectAll = %d, expected 1 or 2", status.Engine.CollectAll)
 	}
-	if status.Engine.CollectError != 0 {
-		t.Errorf("MonitorStatus.Engine.CollectError = %d, expected 0", status.Engine.CollectError)
+	if status.Engine.CollectSome != 0 {
+		t.Errorf("MonitorStatus.Engine.CollectSome= %d, expected 0", status.Engine.CollectSome)
+	}
+	if status.Engine.CollectFail != 0 {
+		t.Errorf("MonitorStatus.Engine.CollectFail = %d, expected 0", status.Engine.CollectFail)
 	}
 
 	err := mon.Stop()

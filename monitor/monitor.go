@@ -53,7 +53,7 @@ type Monitor struct {
 	promAPI *prom.API
 	lpc     LevelCollector
 	lpa     LevelAdjuster
-	hbw     *heartbeat.BlipWriter
+	hbw     *heartbeat.Writer
 
 	// Control chans and sync
 	stopChan     chan struct{}
@@ -189,7 +189,7 @@ func (m *Monitor) Run() {
 		m.promAPI = prom.NewAPI(
 			m.cfg.Exporter,
 			m.monitorId,
-			NewExporter(m.cfg.Exporter, NewEngine(m.monitorId, m.db)),
+			NewExporter(m.cfg.Exporter, NewEngine(m.cfg, m.db)),
 		)
 		m.doneChanProm = make(chan struct{})
 		go func() {
@@ -243,7 +243,7 @@ func (m *Monitor) Run() {
 	// at the configured frequence: cfg.monitors.M.heartbeat.freq.
 	if m.cfg.Heartbeat.Freq != "" {
 		status.Monitor(m.monitorId, "monitor", "starting heartbeat")
-		m.hbw = heartbeat.NewBlipWriter(m.monitorId, m.db, m.cfg.Heartbeat)
+		m.hbw = heartbeat.NewWriter(m.monitorId, m.db, m.cfg.Heartbeat)
 		m.doneChanHBW = make(chan struct{})
 		go m.hbw.Write(m.stopChan, m.doneChanHBW)
 	}
@@ -254,7 +254,7 @@ func (m *Monitor) Run() {
 	// LPC starts paused becuase there's no plan. The main loop in lpc.Run
 	// does nothing until lpc.ChangePlan is called, which is done next either
 	// indirectly via LPA or directly if LPA isn't enabled.
-	m.engine = NewEngine(m.monitorId, m.db)
+	m.engine = NewEngine(m.cfg, m.db)
 	m.lpc = NewLevelCollector(LevelCollectorArgs{
 		Config:     m.cfg,
 		Engine:     m.engine,

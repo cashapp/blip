@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"fmt"
 	"sync"
 	"time"
 
@@ -15,21 +16,26 @@ import (
 	"github.com/cashapp/blip"
 )
 
-type cfgFactory struct{}
-
-func NewConfigFactory() cfgFactory {
-	return cfgFactory{}
+type ConfigFactory struct {
+	region string
 }
 
-func (f cfgFactory) Make(ba blip.AWS) (aws.Config, error) {
+func (f *ConfigFactory) Make(ba blip.AWS) (aws.Config, error) {
 	if ba.Region == "auto" {
 		ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 		defer cancel()
 		var err error
 		ba.Region, err = Region(ctx)
 		if err != nil {
-			return aws.Config{}, err
+			blip.Debug("cannot auto-detect region: %s", err)
+			return aws.Config{}, fmt.Errorf("cannot auto-detect AWS region (EC2 IMDS query failed)")
 		}
+		if f.region == "" {
+			f.region = ba.Region
+		}
+	}
+	if ba.Region == "" && f.region != "" {
+		ba.Region = f.region
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)

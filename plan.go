@@ -261,12 +261,13 @@ func InternalLevelPlan() Plan {
 				Name: "data-size",
 				Freq: "5m",
 				Collect: map[string]Domain{
-					"size.data": {
-						Name: "size.data",
-						// All data sizes by default
+					"size.database": {
+						Name: "size.database",
+						// All databases by default
 					},
 					"size.binlog": {
 						Name: "size.binlog",
+						// No options, only collects total binlog size
 					},
 				},
 			}, // level: data-size (5m)

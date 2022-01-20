@@ -4,10 +4,11 @@ go 1.17
 
 require (
 	github.com/alexflint/go-arg v1.4.2
-	github.com/aws/aws-sdk-go-v2 v1.11.0
+	github.com/aws/aws-sdk-go-v2 v1.12.0
 	github.com/aws/aws-sdk-go-v2/config v1.6.0
 	github.com/aws/aws-sdk-go-v2/feature/ec2/imds v1.4.0
 	github.com/aws/aws-sdk-go-v2/feature/rds/auth v1.1.4
+	github.com/aws/aws-sdk-go-v2/service/cloudwatch v1.14.0
 	github.com/aws/aws-sdk-go-v2/service/rds v1.12.0
 	github.com/aws/aws-sdk-go-v2/service/secretsmanager v1.5.0
 	github.com/cenkalti/backoff/v4 v4.1.2
@@ -32,13 +33,13 @@ require (
 require (
 	github.com/alexflint/go-scalar v1.0.0 // indirect
 	github.com/aws/aws-sdk-go-v2/credentials v1.3.2 // indirect
-	github.com/aws/aws-sdk-go-v2/internal/configsources v1.1.0 // indirect
-	github.com/aws/aws-sdk-go-v2/internal/endpoints/v2 v2.0.0 // indirect
+	github.com/aws/aws-sdk-go-v2/internal/configsources v1.1.3 // indirect
+	github.com/aws/aws-sdk-go-v2/internal/endpoints/v2 v2.1.0 // indirect
 	github.com/aws/aws-sdk-go-v2/internal/ini v1.2.0 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/presigned-url v1.5.0 // indirect
 	github.com/aws/aws-sdk-go-v2/service/sso v1.3.2 // indirect
 	github.com/aws/aws-sdk-go-v2/service/sts v1.6.1 // indirect
-	github.com/aws/smithy-go v1.9.0 // indirect
+	github.com/aws/smithy-go v1.9.1 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/cespare/xxhash/v2 v2.1.1 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect

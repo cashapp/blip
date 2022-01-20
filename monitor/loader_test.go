@@ -44,11 +44,12 @@ func TestLoaderLoadOne(t *testing.T) {
 
 	// Create a new Loader and call its main method: Load.
 	args := monitor.LoaderArgs{
-		Config:       cfg,
-		DbMaker:      dbconn.NewConnFactory(nil, nil),
-		PlanLoader:   plan.NewLoader(nil),
-		LoadMonitors: nil,
-		RDSLoader:    aws.RDSLoader{ClientFactory: mock.RDSClientFactory{}},
+		Config: cfg,
+		Factories: blip.Factories{
+			DbConn: dbconn.NewConnFactory(nil, nil),
+		},
+		PlanLoader: plan.NewLoader(nil),
+		RDSLoader:  aws.RDSLoader{ClientFactory: mock.RDSClientFactory{}},
 	}
 	loader := monitor.NewLoader(args)
 	err := loader.Load(context.Background())

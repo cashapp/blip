@@ -81,6 +81,8 @@ _Amazon Web Services_
 ### aws.rds
 _Amazon RDS for MySQL_
 
+Collects [Amazon RDS metrics](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/monitoring-cloudwatch.html#rds-metrics).
+
 Not implemented yet but planned.
 
 ### aws.aurora

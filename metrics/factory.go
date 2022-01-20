@@ -7,11 +7,12 @@ import (
 
 	"github.com/cashapp/blip"
 	"github.com/cashapp/blip/event"
+	"github.com/cashapp/blip/metrics/aws.rds"
 	"github.com/cashapp/blip/metrics/innodb"
 	"github.com/cashapp/blip/metrics/percona"
 	"github.com/cashapp/blip/metrics/repl.lag"
 	"github.com/cashapp/blip/metrics/size.binlog"
-	"github.com/cashapp/blip/metrics/size.data"
+	"github.com/cashapp/blip/metrics/size.database"
 	"github.com/cashapp/blip/metrics/status.global"
 	"github.com/cashapp/blip/metrics/var.global"
 )
@@ -45,6 +46,14 @@ func List() []string {
 		names = append(names, k)
 	}
 	return names
+}
+
+// Exists returns true if a collector for the domain has been registered.
+func Exists(domain string) bool {
+	r.Lock()
+	defer r.Unlock()
+	_, ok := r.factory[domain]
+	return ok
 }
 
 // Make makes a metric collector for the domain using a previously registered factory.
@@ -181,18 +190,39 @@ var r = &repo{
 
 // factory is the built-in factory for creating all built-in collectors.
 // There's a single package instance below. It implements blip.CollectorFactory.
-type factory struct{}
+type factory struct {
+	AWSConfig  blip.AWSConfigFactory
+	HTTPClient blip.HTTPClientFactory
+}
 
 var _ blip.CollectorFactory = &factory{}
 
 // Internet package instance of factory that makes all built-it collectors.
 // This factory is registered in the init func above.
-var f = factory{}
+var f = &factory{}
+
+func InitFactory(factories blip.Factories) {
+	f.AWSConfig = factories.AWSConfig
+	f.HTTPClient = factories.HTTPClient
+}
 
 // Make makes a metric collector for the domain. This is the built-in factory
 // that makes the built-in collectors: status.global, var.global, and so on.
-func (f factory) Make(domain string, args blip.CollectorFactoryArgs) (blip.Collector, error) {
+func (f *factory) Make(domain string, args blip.CollectorFactoryArgs) (blip.Collector, error) {
 	switch domain {
+	case "aws.rds":
+		if args.Validate {
+			return awsrds.NewRDS(nil), nil
+		}
+		region := args.Config.AWS.Region
+		if region == "" && !blip.True(args.Config.AWS.DisableAutoRegion) {
+			region = "auto"
+		}
+		awsConfig, err := f.AWSConfig.Make(blip.AWS{Region: region})
+		if err != nil {
+			return nil, err
+		}
+		return awsrds.NewRDS(awsrds.NewCloudWatchClient(awsConfig)), nil
 	case "innodb":
 		return innodb.NewInnoDB(args.DB), nil
 	case "repl.lag":
@@ -200,7 +230,7 @@ func (f factory) Make(domain string, args blip.CollectorFactoryArgs) (blip.Colle
 	case "size.binlog":
 		return sizebinlog.NewBinlog(args.DB), nil
 	case "size.data":
-		return sizedata.NewData(args.DB), nil
+		return sizedatabase.NewDatabase(args.DB), nil
 	case "status.global":
 		return statusglobal.NewGlobal(args.DB), nil
 	case "var.global":
@@ -214,10 +244,11 @@ func (f factory) Make(domain string, args blip.CollectorFactoryArgs) (blip.Colle
 // List of built-in collectors. To add one, add its domain name here, and add
 // the same domain in the switch statement above (in factory.Make).
 var builtinCollectors = []string{
+	"aws.rds",
 	"innodb",
 	"repl.lag",
 	"size.binlog",
-	"size.data",
+	"size.database",
 	"status.global",
 	"var.global",
 	"percona.response-time",

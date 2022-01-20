@@ -90,6 +90,10 @@ plans:
       plan: active-plan.yaml
 
 sinks:
+  retry:
+    buffer-size: 60
+    send-timeout: 5s
+    send-retry-wait: 200ms
   chronosphere:
     url: "http://127.0.0.1:3030/openmetrics/write"
   signalfx:

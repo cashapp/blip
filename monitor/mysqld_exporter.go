@@ -11,6 +11,7 @@ import (
 	"github.com/prometheus/common/expfmt"
 
 	"github.com/cashapp/blip"
+	"github.com/cashapp/blip/event"
 	"github.com/cashapp/blip/prom"
 )
 
@@ -23,6 +24,7 @@ type Exporter struct {
 	*sync.Mutex
 	levelName string
 	prepared  bool
+	event     event.MonitorReceiver
 }
 
 func NewExporter(cfg blip.ConfigExporter, engine *Engine) *Exporter {
@@ -31,6 +33,7 @@ func NewExporter(cfg blip.ConfigExporter, engine *Engine) *Exporter {
 		engine:       engine,
 		promRegistry: prometheus.NewRegistry(),
 		Mutex:        &sync.Mutex{},
+		event:        event.MonitorReceiver{MonitorId: engine.MonitorId()},
 	}
 	e.promRegistry.MustRegister(e)
 	return e
@@ -85,8 +88,11 @@ func (e *Exporter) Collect(ch chan<- prometheus.Metric) {
 
 	metrics, err := e.engine.Collect(ctx, e.levelName)
 	if err != nil {
-		blip.Debug(err.Error())
-		// @todo
+		e.event.Errorf(event.ENGINE_COLLECT_ERROR, "%s; see monitor status or event log for details", err)
+	}
+
+	if len(metrics.Values) == 0 {
+		return
 	}
 
 	for domain, vals := range metrics.Values {
