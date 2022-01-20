@@ -75,7 +75,7 @@ func (c *RDS) Help() blip.CollectorHelp {
 			OPT_DB_ID: {
 				Name:    OPT_DB_ID,
 				Desc:    "Database instance identifier",
-				Default: "%{monitor.id}",
+				Default: "%%{monitor.id}",
 			},
 		},
 	}

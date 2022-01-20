@@ -81,7 +81,7 @@ func PrintDomains() string {
 
 	out := ""
 	for _, domain := range domains {
-		mc, _ := Make(domain, blip.CollectorFactoryArgs{})
+		mc, _ := Make(domain, blip.CollectorFactoryArgs{Validate: true})
 		help := mc.Help()
 		out += fmt.Sprintf("%s\n\t%s\n\n",
 			help.Domain, help.Description,
