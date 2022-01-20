@@ -225,18 +225,18 @@ func (f *factory) Make(domain string, args blip.CollectorFactoryArgs) (blip.Coll
 		return awsrds.NewRDS(awsrds.NewCloudWatchClient(awsConfig)), nil
 	case "innodb":
 		return innodb.NewInnoDB(args.DB), nil
+	case "percona.response-time":
+		return percona.NewQRT(args.DB), nil
 	case "repl.lag":
 		return repllag.NewLag(args.DB), nil
 	case "size.binlog":
 		return sizebinlog.NewBinlog(args.DB), nil
-	case "size.data":
+	case "size.database":
 		return sizedatabase.NewDatabase(args.DB), nil
 	case "status.global":
 		return statusglobal.NewGlobal(args.DB), nil
 	case "var.global":
 		return varglobal.NewGlobal(args.DB), nil
-	case "percona.response-time":
-		return percona.NewQRT(args.DB), nil
 	}
 	return nil, blip.ErrInvalidDomain{Domain: domain}
 }
@@ -246,10 +246,10 @@ func (f *factory) Make(domain string, args blip.CollectorFactoryArgs) (blip.Coll
 var builtinCollectors = []string{
 	"aws.rds",
 	"innodb",
+	"percona.response-time",
 	"repl.lag",
 	"size.binlog",
 	"size.database",
 	"status.global",
 	"var.global",
-	"percona.response-time",
 }
