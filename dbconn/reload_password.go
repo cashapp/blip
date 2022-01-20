@@ -63,7 +63,7 @@ func (r *repo) ReloadPassword(ctx context.Context, currentDSN string) string {
 		return ""
 	}
 
-	blip.Debug("password reladed")
+	blip.Debug("password reloaded")
 	cfg.Passwd = newPassword
 	return cfg.FormatDSN()
 }

@@ -51,7 +51,7 @@ func TestPrepareForSingleLevelAndNoSource(t *testing.T) {
 	c := NewGlobal(db)
 
 	defaultPlan := test.ReadPlan(t, "")
-	err := c.Prepare(context.Background(), defaultPlan)
+	_, err := c.Prepare(context.Background(), defaultPlan)
 	if err != nil {
 		t.Error(err)
 	}
@@ -78,8 +78,8 @@ func TestPrepareWithAllSources(t *testing.T) {
 	for src, query := range queries {
 		c := NewGlobal(db)
 		plan := test.ReadPlan(t, "")
-		plan.Levels["kpi"].Collect[blip_domain].Options[OPT_SOURCE] = src
-		err := c.Prepare(context.Background(), plan)
+		plan.Levels["kpi"].Collect[DOMAIN].Options[OPT_SOURCE] = src
+		_, err := c.Prepare(context.Background(), plan)
 		if err != nil {
 			t.Error(err)
 		}
@@ -97,8 +97,8 @@ func TestPrepareWithCustomInvalidSource(t *testing.T) {
 
 	c := NewGlobal(db)
 	plan := test.ReadPlan(t, "")
-	plan.Levels["kpi"].Collect[blip_domain].Options[OPT_SOURCE] = "this_causes_error"
-	err := c.Prepare(context.Background(), plan)
+	plan.Levels["kpi"].Collect[DOMAIN].Options[OPT_SOURCE] = "this_causes_error"
+	_, err := c.Prepare(context.Background(), plan)
 	assert.Error(t, err)
 }
 
@@ -110,11 +110,11 @@ func TestPrepareWithInvalidMetricName(t *testing.T) {
 	c := NewGlobal(db)
 
 	plan := test.ReadPlan(t, "")
-	dom := plan.Levels["kpi"].Collect[blip_domain]
+	dom := plan.Levels["kpi"].Collect[DOMAIN]
 	dom.Metrics = []string{"max_connections'); DROP TABLE students;--,", "max_prepared_stmt_count"}
-	plan.Levels["kpi"].Collect[blip_domain] = dom
+	plan.Levels["kpi"].Collect[DOMAIN] = dom
 
-	err := c.Prepare(context.Background(), plan)
+	_, err := c.Prepare(context.Background(), plan)
 	assert.Error(t, err)
 }
 
@@ -128,7 +128,7 @@ func TestCollectWithSingleLevelPlanAndNoSource(t *testing.T) {
 
 	c := NewGlobal(db)
 	plan := test.ReadPlan(t, "../../test/plans/var_global.yaml")
-	err := c.Prepare(context.Background(), plan)
+	_, err := c.Prepare(context.Background(), plan)
 	if err != nil {
 		t.Error(err)
 	}
@@ -152,9 +152,9 @@ func TestCollectWithAllSources(t *testing.T) {
 	for _, src := range srcs {
 		c := NewGlobal(db)
 		plan := test.ReadPlan(t, "../../test/plans/var_global.yaml")
-		plan.Levels["kpi"].Collect[blip_domain].Options[OPT_SOURCE] = src
+		plan.Levels["kpi"].Collect[DOMAIN].Options[OPT_SOURCE] = src
 
-		err := c.Prepare(context.Background(), plan)
+		_, err := c.Prepare(context.Background(), plan)
 		if err != nil {
 			t.Error(err)
 		}
@@ -174,7 +174,7 @@ func TestCollectWithMultipleLevels(t *testing.T) {
 
 	c := NewGlobal(db)
 	plan := test.ReadPlan(t, "../../test/plans/var_global_2_levels.yaml")
-	err := c.Prepare(context.Background(), plan)
+	_, err := c.Prepare(context.Background(), plan)
 	if err != nil {
 		t.Error(err)
 	}
@@ -200,7 +200,7 @@ func TestCollectWithOneNonExistentMetric(t *testing.T) {
 
 	c := NewGlobal(db)
 	plan := test.ReadPlan(t, "../../test/plans/var_global_bad_metric.yaml")
-	err := c.Prepare(context.Background(), plan)
+	_, err := c.Prepare(context.Background(), plan)
 	if err != nil {
 		t.Error(err)
 	}
