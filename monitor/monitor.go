@@ -1,3 +1,5 @@
+// Copyright 2022 Block, Inc.
+
 // Package monitor provides core Blip components that, together, monitor one
 // MySQL instance. Most monitoring logic happens in the package, but package
 // metrics is closely related: this latter actually collect metrics, but it

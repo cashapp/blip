@@ -1,3 +1,5 @@
+// Copyright 2022 Block, Inc.
+
 package event
 
 // Blip events (non-monitor)

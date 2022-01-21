@@ -1,3 +1,5 @@
+// Copyright 2022 Block, Inc.
+
 // Package dbconn provides a Factory that makes *sql.DB connections to MySQL.
 package dbconn
 

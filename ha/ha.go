@@ -1,3 +1,5 @@
+// Copyright 2022 Block, Inc.
+
 package ha
 
 type Manager interface {

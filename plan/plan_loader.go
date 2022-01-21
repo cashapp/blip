@@ -1,3 +1,5 @@
+// Copyright 2022 Block, Inc.
+
 // Package plan provides the Loader singleton that loads metric collection plans.
 package plan
 

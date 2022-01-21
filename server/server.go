@@ -1,3 +1,5 @@
+// Copyright 2022 Block, Inc.
+
 // Package server provides the core runtime for Blip.
 package server
 

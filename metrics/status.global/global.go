@@ -1,3 +1,5 @@
+// Copyright 2022 Block, Inc.
+
 // Package statusglobal provides the status.global metric domain collector.
 package statusglobal
 

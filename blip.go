@@ -1,3 +1,5 @@
+// Copyright 2022 Block, Inc.
+
 // Package blip provides high-level data structs and const for integrating with Blip.
 package blip
 

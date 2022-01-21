@@ -1,3 +1,5 @@
+// Copyright 2022 Block, Inc.
+
 // Package status provides real-time instantaneous status of every Blip component.
 // The only caller is server.API via GET /status.
 package status

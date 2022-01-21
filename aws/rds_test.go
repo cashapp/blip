@@ -1,3 +1,5 @@
+// Copyright 2022 Block, Inc.
+
 package aws_test
 
 import (

@@ -1,3 +1,5 @@
+// Copyright 2022 Block, Inc.
+
 // Package event provides a simple event stream in lieu of standard logging.
 package event
 

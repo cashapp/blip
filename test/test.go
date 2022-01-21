@@ -1,3 +1,5 @@
+// Copyright 2022 Block, Inc.
+
 // Package test provides helper functions for tests.
 package test
 

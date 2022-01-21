@@ -1,3 +1,5 @@
+// Copyright 2022 Block, Inc.
+
 // Package prom provides Prometheus emulation and translation.
 package prom
 
