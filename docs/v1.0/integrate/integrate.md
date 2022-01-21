@@ -33,16 +33,22 @@ LoadConfig func(Config) (Config, error)
 LoadMonitors func(Config) ([]ConfigMonitor, error)
 ```
 
-### LoadLevelPlans
+### LoadPlans
 
 ```go
-LoadLevelPlans func(ConfigPlans) ([]Plan, error)
+LoadPlans func(ConfigPlans) ([]Plan, error)
 ```
 
 ### ModifyDB
 
 ```go
 ModifyDB func(*sql.DB)
+```
+
+### StartMonitor
+
+```go
+StartMonitor func(ConfigMonitor) bool
 ```
 
 ### TransformMetrics

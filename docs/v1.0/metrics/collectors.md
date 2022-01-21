@@ -62,6 +62,8 @@ Blip automatically registers all built-in collectors, so a missing collector sho
 
 All collectors are plugins, even the Blip built-in collectors.
 
+See [metrics/status.global/global.go](https://github.com/cashapp/blip/blob/main/metrics/status.global/global.go) for a reference example with extensive code comments.
+
 ### 1. Develop
 
 Implement `blip.Collector` and `blip.CollectorFactory`.

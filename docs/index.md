@@ -5,7 +5,12 @@ nav_order: 1
 description: "Blip is the most advanced MySQL metrics collector ever built."
 permalink: /
 ---
-<img src="{{site.baseurl}}/assets/img/blip-logo.png" alt="Blip logo" />
+
+{: .blip-name }
+b&nbsp;l&nbsp;<span style="color:magenta">.</span>&nbsp;p
+
+{: .blip-tagline }
+Sublime MySQL monitoring
 
 Blip is the most advanced MySQL metrics collector ever built.
 
