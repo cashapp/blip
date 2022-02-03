@@ -127,7 +127,7 @@ func (e *Engine) Status() proto.MonitorEngineStatus {
 // Do not call this func concurrently! It does not guard against concurrent
 // calls. Instead, serialization is handled by the only caller: LevelCollector.ChangePlan().
 func (e *Engine) Prepare(ctx context.Context, plan blip.Plan, before, after func()) error {
-	blip.Debug("%s: prepare: %+v", e.monitorId, plan)
+	blip.Debug("%s: prepare %s (%s)", e.monitorId, plan.Name, plan.Source)
 	e.event.Sendf(event.MONITOR_PREPARE_PLAN, plan.Name)
 	status.Monitor(e.monitorId, "engine-prepare", "preparing plan %s", plan.Name)
 
@@ -196,7 +196,7 @@ func (e *Engine) Prepare(ctx context.Context, plan blip.Plan, before, after func
 
 				cleanup, err := c.Prepare(ctx, plan)
 				if err != nil {
-					return err
+					return fmt.Errorf("at %s/%s/%s: %s", plan.Name, levelName, domain, err)
 				}
 
 				mc = &amc{

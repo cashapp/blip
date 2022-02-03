@@ -5,9 +5,12 @@ package sqlutil
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"strconv"
 	"strings"
 	"time"
+
+	_ "github.com/go-sql-driver/mysql"
 
 	my "github.com/go-mysql/errors"
 	ver "github.com/hashicorp/go-version"
@@ -96,4 +99,46 @@ func ReadOnly(err error) bool {
 		return false
 	}
 	return myerr == my.ErrReadOnly
+}
+
+// RowToMap converts a single row from query (or the last row) to a map of
+// strings keyed on column name. All row values a converted to strings.
+// This is used for one-row command outputs like SHOW SLAVE|REPLICA STATUS
+// that have a mix of values and variaible columns (based on MySQL version)
+// but the caller only needs specific cols/vals, so it uses this generic map
+// rather than a specific struct.
+func RowToMap(db *sql.DB, query string) (map[string]string, error) {
+	rows, err := db.Query(query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	// Get list of columns returned by query
+	columns, err := rows.Columns()
+	if err != nil {
+		return nil, err
+	}
+
+	// Scan() takes pointers, so scanArgs is a list of pointers to values
+	scanArgs := make([]interface{}, len(columns))
+	values := make([]sql.RawBytes, len(columns))
+	for i := range values {
+		scanArgs[i] = &values[i]
+	}
+
+	for rows.Next() {
+		err = rows.Scan(scanArgs...)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	// Map column => value
+	m := map[string]string{}
+	for i, col := range columns {
+		m[col] = fmt.Sprintf("%s", string(values[i]))
+	}
+
+	return m, nil
 }

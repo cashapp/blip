@@ -42,6 +42,7 @@ const (
 	MONITOR_CONNECTING = "connecting"
 	MONITOR_CONNECTED  = "connected"
 	LPC_RUNNING        = "lpc-running"
+	LPC_BLOCKED        = "lpc-blocked"
 
 	CHANGE_PLAN_BEGIN   = "change-plan-begin"
 	CHANGE_PLAN_SUCCESS = "change-plan-success"
@@ -56,7 +57,12 @@ const (
 	COLLECTOR_ERROR = "collector-error"
 	COLLECTOR_PANIC = "collector-panic"
 
+	LPC_PANIC = "lpc-panic"
+
 	ENGINE_COLLECT_ERROR = "engine-collect-error"
 
 	SINK_SEND_ERROR = "sink-send-error"
+
+	MONITOR_ERROR = "monitor-error"
+	MONITOR_PANIC = "monitor-panic"
 )

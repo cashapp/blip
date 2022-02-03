@@ -30,9 +30,12 @@ type Plan struct {
 	// When default plans are loaded from a table (config.plans.table),
 	// the talbe is not filtered; all plans in the table are loaded.
 	//
-	// When a monitor (M) loads plans from a table (config.monitors.M.plans.table),
+	// When a monitor (M) loads plans from a table (config.monitors.plans.table),
 	// the table is filtered: WHERE monitorId = config.monitors.M.id.
 	MonitorId string `yaml:"-"`
+
+	// Source of plan: file name, table name, "plugin", or "blip" (internal plans).
+	Source string `yaml:"-"`
 }
 
 // Level is one collection frequency in a plan.
@@ -110,7 +113,8 @@ func (p *Plan) InterpolateMonitor(mon *ConfigMonitor) {
 
 func InternalLevelPlan() Plan {
 	return Plan{
-		Name: "blip",
+		Name:   "blip",
+		Source: "blip",
 		Levels: map[string]Level{
 			"performance": Level{
 				Name: "performance",
@@ -295,9 +299,10 @@ func InternalLevelPlan() Plan {
 
 func PromPlan() Plan {
 	return Plan{
-		Name: "mysqld_exporter",
+		Name:   "mysqld_exporter",
+		Source: "blip",
 		Levels: map[string]Level{
-			"all": Level{
+			"prom": Level{
 				Name: "all",
 				Freq: "0", // none, pulled/scaped on demand
 				Collect: map[string]Domain{

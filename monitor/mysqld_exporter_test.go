@@ -14,6 +14,7 @@ func TestProm(t *testing.T) {
 	// Test that the Prometheus-emulating Exporter scrapes from MySQL
 	exp := monitor.NewExporter(
 		blip.ConfigExporter{},
+		blip.PromPlan(),
 		monitor.NewEngine(blip.ConfigMonitor{MonitorId: monitorId1}, db),
 	)
 

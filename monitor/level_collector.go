@@ -5,6 +5,8 @@ package monitor
 import (
 	"context"
 	"fmt"
+	"log"
+	"runtime"
 	"sort"
 	"sync"
 	"time"
@@ -105,6 +107,8 @@ func TickerDuration(d time.Duration) {
 
 var tickerDuration = 1 * time.Second // used for testing
 
+const maxCollectors = 2
+
 func (c *lpc) Run(stopChan, doneChan chan struct{}) error {
 	defer close(doneChan)
 
@@ -114,21 +118,15 @@ func (c *lpc) Run(stopChan, doneChan chan struct{}) error {
 	// before the next whole second tick. But in the real world, there are
 	// always blips (yes, that's partly where Blip gets its name from):
 	// MySQL takes 1 or 2 seconds--or longer--to return metrics, especially
-	// for "big" domains like size.data that might need to iterator over
+	// for "big" domains like size.table that might need to iterator over
 	// hundreds or thousands of tables. Consequently, we collect metrics
-	// asynchronously in two collector goroutines: a primary (1) that should
-	// be all that's needed, but also a secondary/backup (2) to handle
-	// real world blips. This is hard-coded because the primary should
-	// be sufficient 99% of the time, and the backup is just that: a backup
-	// to handle rare blips. If both are slow/blocked, then that's a genuine
-	// problem to report and let the user deal with--don't hide the problem
-	// with more collector goroutines.
-	//
-	// Do not buffer collectLevelChan: a collector goroutine must be ready
-	// on send, else it means both are slow/blocked and that's a problem.
-	collectLevelChan := make(chan string)         // DO NOT BUFFER
-	go c.collector(1, collectLevelChan, stopChan) // primary
-	go c.collector(2, collectLevelChan, stopChan) // secondary/backup
+	// asynchronously in multiple goroutines. By default, 2 goroutines
+	// should be more than sufficient. If not, there's probably an underlying
+	// problem that needs to be fixed.
+	sem := make(chan bool, maxCollectors)
+	for i := 0; i < maxCollectors; i++ {
+		sem <- true
+	}
 
 	// -----------------------------------------------------------------------
 	// LPC main loop: collect metrics on whole second ticks
@@ -187,62 +185,91 @@ func (c *lpc) Run(stopChan, doneChan chan struct{}) error {
 		c.stateMux.Unlock() // -- UNLOCK --
 
 		select {
-		case collectLevelChan <- levelName:
+		case <-sem:
+			go func() {
+				defer func() {
+					sem <- true
+					if err := recover(); err != nil { // catch panic in collectors, TransformMetrics, and sinks
+						b := make([]byte, 4096)
+						n := runtime.Stack(b, false)
+						errMsg := fmt.Errorf("PANIC: %s: %s\n%s", c.monitorId, err, string(b[0:n]))
+						log.Println(errMsg) // extra logging on panic
+						c.setErr(errMsg, event.LPC_PANIC)
+					}
+				}()
+				c.collect(levelName)
+			}()
 		default:
 			// all collectors blocked
-			blip.Debug("all mon chan blocked")
+			errMsg := fmt.Errorf("cannot callect %s/%s: %d of %d collectors still running",
+				c.plan.Name, levelName, maxCollectors, maxCollectors)
+			c.setErr(errMsg, event.LPC_BLOCKED)
 		}
 	}
 	return nil
 }
 
-func (c *lpc) collector(n int, col chan string, stopChan chan struct{}) {
-	lpc := fmt.Sprintf("lpc-%d", n)
-	var level string
-	for {
-		// Wait until main loop in Run sends a level to collect
-		status.Monitor(c.monitorId, lpc, "idle")
-		select {
-		case level = <-col:
-		case <-stopChan:
-			return
-		}
-		status.Monitor(c.monitorId, lpc, "%s/%s: collecting", c.plan.Name, level)
+func (c *lpc) collect(levelName string) {
+	lpc := status.MonitorMulti(c.monitorId, "lpc", "%s/%s: collecting", c.plan.Name, levelName)
+	defer status.RemoveComponent(c.monitorId, lpc)
 
-		// **************************************************************
-		// COLLECT METRICS
-		//
-		// Collect all metrics at this level. This is where metrics
-		// collection begins. Then Engine.Collect does the real work.
-		metrics, err := c.engine.Collect(context.Background(), level)
-		// **************************************************************
-		if err != nil {
-			c.event.Errorf(event.ENGINE_COLLECT_ERROR, "%s; see monitor status or event log for details", err)
-		}
+	// **************************************************************
+	// COLLECT METRICS
+	//
+	// Collect all metrics at this level. This is where metrics
+	// collection begins. Then Engine.Collect does the real work.
+	metrics, err := c.engine.Collect(context.Background(), levelName)
+	// **************************************************************
+	if err != nil {
+		errMsg := fmt.Errorf("%s; see monitor status or event log for details", err)
+		c.setErr(errMsg, event.ENGINE_COLLECT_ERROR)
+	} else {
+		c.setErr(nil, "") // clear old error
 
+		// Set last collect ts only on success
 		c.statsMux.Lock()
 		c.lastCollectTs = time.Now()
-		c.lastCollectError = err
-		c.lastCollectErrorTs = time.Now()
 		c.statsMux.Unlock()
+	}
 
-		if metrics == nil {
-			continue
-		}
+	// Return early unless there are metrics
+	if metrics == nil {
+		return
+	}
 
-		if c.transformMetrics != nil {
-			status.Monitor(c.monitorId, lpc, "%s/%s: TransformMetrics", c.plan.Name, level)
-			c.transformMetrics(metrics)
-		}
+	// Call user-defined TransformMetrics plugin, if set
+	if c.transformMetrics != nil {
+		status.Monitor(c.monitorId, lpc, "%s/%s: TransformMetrics", c.plan.Name, levelName)
+		c.transformMetrics(metrics)
+	}
 
-		for i := range c.sinks {
-			sinkName := c.sinks[i].Name()
-			status.Monitor(c.monitorId, lpc, "%s/%s: sending to %s", c.plan.Name, level, sinkName)
-			err := c.sinks[i].Send(context.Background(), metrics)
-			c.statsMux.Lock()
-			c.sinkErrors[sinkName] = fmt.Errorf("[%s] %s", time.Now(), err)
-			c.statsMux.Unlock()
-		}
+	// Send metrics to all sinks configured for this monitor. This is done
+	// sync because sinks are supposed to be fast or async _and_ have their
+	// timeout, which is why we pass context.Background() here. Also, this
+	// func runs in parallel (up to maxCollectors), so if a sink is slow,
+	// that might be ok.
+	for i := range c.sinks {
+		sinkName := c.sinks[i].Name()
+		status.Monitor(c.monitorId, lpc, "%s/%s: sending to %s", c.plan.Name, levelName, sinkName)
+		err := c.sinks[i].Send(context.Background(), metrics)
+		c.statsMux.Lock()
+		c.sinkErrors[sinkName] = fmt.Errorf("[%s] %s", time.Now(), err)
+		c.statsMux.Unlock()
+	}
+}
+
+func (c *lpc) setErr(err error, event string) {
+	c.statsMux.Lock()
+	c.lastCollectError = err
+	if err != nil {
+		c.lastCollectErrorTs = time.Now()
+	} else {
+		c.lastCollectErrorTs = time.Time{}
+	}
+	c.statsMux.Unlock()
+
+	if event != "" {
+		c.event.Errorf(event, err.Error())
 	}
 }
 
@@ -445,7 +472,6 @@ func (c *lpc) Status() proto.MonitorCollectorStatus {
 	}
 	if c.lastCollectError != nil {
 		s.LastCollectError = c.lastCollectError.Error()
-
 		lastCollectErrorTs := c.lastCollectErrorTs // copy because we use pointer
 		s.LastCollectErrorTs = &lastCollectErrorTs
 	}

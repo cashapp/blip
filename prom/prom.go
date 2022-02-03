@@ -9,6 +9,7 @@ import (
 	"net/http"
 
 	"github.com/cashapp/blip"
+	"github.com/cashapp/blip/status"
 )
 
 // Exporter emulates a Prometheus mysqld_exporter.
@@ -27,6 +28,7 @@ type API struct {
 }
 
 func NewAPI(cfg blip.ConfigExporter, monitorId string, exp Exporter) *API {
+
 	return &API{
 		cfg:       cfg,
 		monitorId: monitorId,
@@ -40,9 +42,13 @@ func NewAPI(cfg blip.ConfigExporter, monitorId string, exp Exporter) *API {
 
 func (api *API) Run() error {
 	blip.Debug("%s: prom addr %s", api.monitorId, api.srv.Addr)
+	status.Monitor(api.monitorId, "exporter", "listening on %s", api.srv.Addr)
+	defer status.Monitor(api.monitorId, "exporter", "stopped")
 
 	path := blip.SetOrDefault(api.cfg.Flags["web.telemetry-path"], blip.DEFAULT_EXPORTER_PATH)
-	http.HandleFunc(path, api.metricsHandler)
+	mux := http.NewServeMux()
+	mux.HandleFunc(path, api.metricsHandler)
+	api.srv.Handler = mux
 
 	err := api.srv.ListenAndServe() // blocks
 	if err != nil && err != http.ErrServerClosed {

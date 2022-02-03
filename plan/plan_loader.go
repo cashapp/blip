@@ -85,7 +85,7 @@ func (pl *Loader) PlansLoaded(monitorId string) []proto.PlanLoaded {
 // the monitor's LPC calls Plan() because the monitor might not be online when Blip
 // starts.
 func (pl *Loader) LoadShared(cfg blip.ConfigPlans, dbMaker blip.DbFactory) error {
-
+	// If LoadPlans plugin is defined, it does all the work: call and return early
 	if pl.plugin != nil {
 		plans, err := pl.plugin(cfg)
 		if err != nil {
@@ -405,6 +405,7 @@ func ReadFile(file string) (blip.Plan, error) {
 	plan := blip.Plan{
 		Name:   file,
 		Levels: levels,
+		Source: file,
 	}
 	return plan, nil
 }
@@ -412,7 +413,8 @@ func ReadFile(file string) (blip.Plan, error) {
 func ReadTable(table string, db *sql.DB, monitorId string) ([]blip.Plan, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	q := fmt.Sprintf("SELECT name, plan, COALESCE(monitorId, '') FROM %s", sqlutil.SanitizeTable(table, blip.DEFAULT_DATABASE))
+	table = sqlutil.SanitizeTable(table, blip.DEFAULT_DATABASE)
+	q := fmt.Sprintf("SELECT name, plan, COALESCE(monitorId, '') FROM `%s`", table)
 	if monitorId != "" {
 		q += " WHERE monitorId = ? ORDER BY name ASC"
 	}
@@ -434,6 +436,7 @@ func ReadTable(table string, db *sql.DB, monitorId string) ([]blip.Plan, error) 
 		if err != nil {
 			return nil, err
 		}
+		plan.Source = table
 		plans = append(plans, plan)
 	}
 
