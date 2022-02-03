@@ -13,16 +13,16 @@ import (
 
 // Options represents typical command line options: --addr, --config, etc.
 type Options struct {
-	Config        string `env:"BLIP_CONFIG" default:"blip.yaml"`
-	Debug         bool   `env:"BLIP_DEBUG"`
+	Config        string `arg:"env:BLIP_CONFIG" default:"blip.yaml"`
+	Debug         bool   `arg:"env:BLIP_DEBUG"`
 	Help          bool
-	Plans         string `env:"BLIP_PLANS"`
+	Plans         string `arg:"env:BLIP_PLANS"`
 	PrintConfig   bool   `arg:"--print-config"`
 	PrintDomains  bool   `arg:"--print-domains"`
 	PrintMonitors bool   `arg:"--print-monitors"`
 	PrintPlans    bool   `arg:"--print-plans"`
-	Strict        bool   `env:"BLIP_STRICT"`
-	Run           bool   `env:"BLIP_RUN" default:"true"`
+	Strict        bool   `arg:"env:BLIP_STRICT"`
+	Run           bool   `arg:"env:BLIP_RUN" default:"true"`
 	Version       bool   `arg:"-v"`
 }
 

@@ -114,6 +114,7 @@ func (s *Server) Boot(env blip.Env, plugins blip.Plugins, factories blip.Factori
 	if s.cmdline.Options.Debug {
 		blip.Debugging = true
 	}
+	blip.Debug("cmdline: %+v", s.cmdline)
 	if v := os.Getenv(blip.ENV_DEBUG); v != "" {
 		switch strings.ToLower(v) {
 		case "yes", "on", "enable", "1":
