@@ -5,7 +5,6 @@ package monitor
 import (
 	"context"
 	"fmt"
-	"log"
 	"runtime"
 	"sort"
 	"sync"
@@ -193,7 +192,6 @@ func (c *lpc) Run(stopChan, doneChan chan struct{}) error {
 						b := make([]byte, 4096)
 						n := runtime.Stack(b, false)
 						errMsg := fmt.Errorf("PANIC: %s: %s\n%s", c.monitorId, err, string(b[0:n]))
-						log.Println(errMsg) // extra logging on panic
 						c.setErr(errMsg, event.LPC_PANIC)
 					}
 				}()
@@ -332,9 +330,7 @@ func (c *lpc) ChangePlan(newState, newPlanName string) error {
 	return nil
 }
 
-const (
-	cpName = "lpc-change-plan" // only for changePlan
-)
+const cpName = "lpc-change-plan" // only for changePlan
 
 // changePlan is a gorountine run by ChangePlan It's potentially long-running
 // because it waits for Engine.Prepare. If that function returns an error
@@ -354,7 +350,7 @@ func (c *lpc) changePlan(ctx context.Context, newState, newPlanName string) {
 	oldState := c.state
 	oldPlanName := c.plan.Name
 	change := fmt.Sprintf("state:%s plan:%s -> state:%s plan:%s", oldState, oldPlanName, newState, newPlanName)
-	c.event.Sendf(event.CHANGE_PLAN_BEGIN, change)
+	c.event.Sendf(event.CHANGE_PLAN, change)
 
 	// Load new plan from plan loader, which contains all plans. Try forever because
 	// that's what this func/gouroutine does: try forever (caller's expect that).
@@ -370,10 +366,13 @@ func (c *lpc) changePlan(ctx context.Context, newState, newPlanName string) {
 			break // success
 		}
 
-		status.Monitor(c.monitorId, cpName, "%s: error loading new plan: %s (retry in 2s)", change, err)
-		c.event.Sendf(event.CHANGE_PLAN_ERROR, "%s: error loading new plan: %s (retry in 2s)", change, err)
+		errMsg := fmt.Sprintf("%s: error loading new plan %s: %s (retrying)", change, newPlanName, err)
+		status.Monitor(c.monitorId, cpName, errMsg)
+		c.event.Sendf(event.CHANGE_PLAN_ERROR, errMsg)
 		time.Sleep(2 * time.Second)
 	}
+
+	change = fmt.Sprintf("state:%s plan:%s -> state:%s plan:%s", oldState, oldPlanName, newState, newPlan.Name)
 
 	newPlan.MonitorId = c.monitorId
 	newPlan.InterpolateEnvVars()
@@ -420,7 +419,7 @@ func (c *lpc) changePlan(ctx context.Context, newState, newPlanName string) {
 	// More importantly, as documented in several place: this is _the code_ that
 	// all other code relies on to try "forever" because a plan must be prepared
 	// before anything can be collected.
-	status.Monitor(c.monitorId, cpName, "preparing new plan %s (state %s)", newPlanName, newState)
+	status.Monitor(c.monitorId, cpName, "preparing new plan %s (state %s)", newPlan.Name, newState)
 	retry := backoff.NewExponentialBackOff()
 	retry.MaxElapsedTime = 0
 	for {
@@ -430,15 +429,14 @@ func (c *lpc) changePlan(ctx context.Context, newState, newPlanName string) {
 		// issue, so we need to sleep and retry.
 		ctxPrep, cancelPrep := context.WithTimeout(ctx, 10*time.Second)
 		err := c.engine.Prepare(ctxPrep, newPlan, c.Pause, after)
+		cancelPrep()
 		if err == nil {
 			break // success
 		}
 		if ctx.Err() != nil {
 			return // changePlan goroutine has been cancelled
 		}
-		cancelPrep()
-		status.Monitor(c.monitorId, cpName, "%s: error preparing new plan: %s", change, err)
-		c.event.Sendf(event.CHANGE_PLAN_ERROR, "%s: error preparing new plan: %s", change, err)
+		status.Monitor(c.monitorId, cpName, "%s: error preparing new plan %s: %s (retrying): %s", change, newPlan.Name, err)
 		time.Sleep(retry.NextBackOff())
 	}
 
@@ -453,6 +451,7 @@ func (c *lpc) Pause() {
 	c.stateMux.Lock()
 	blip.Debug("%s: pause", c.monitorId)
 	c.paused = true
+	c.event.Send(event.LPC_PAUSED)
 	c.stateMux.Unlock()
 }
 

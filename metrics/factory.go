@@ -8,7 +8,6 @@ import (
 	"sync"
 
 	"github.com/cashapp/blip"
-	"github.com/cashapp/blip/event"
 	"github.com/cashapp/blip/metrics/aws.rds"
 	"github.com/cashapp/blip/metrics/innodb"
 	"github.com/cashapp/blip/metrics/percona"
@@ -35,7 +34,7 @@ func Register(domain string, f blip.CollectorFactory) error {
 		return fmt.Errorf("%s already registered", domain)
 	}
 	r.factory[domain] = f
-	event.Sendf(event.REGISTER_METRICS, domain)
+	blip.Debug("register collector %s", domain)
 	return nil
 }
 
@@ -67,7 +66,7 @@ func Make(domain string, args blip.CollectorFactoryArgs) (blip.Collector, error)
 	defer r.Unlock()
 	f, ok := r.factory[domain]
 	if !ok {
-		return nil, blip.ErrInvalidDomain{Domain: domain}
+		return nil, fmt.Errorf("invalid domain: %s (no factory registered)", domain)
 
 	}
 	return f.Make(domain, args)
@@ -243,7 +242,7 @@ func (f *factory) Make(domain string, args blip.CollectorFactoryArgs) (blip.Coll
 	case "var.global":
 		return varglobal.NewGlobal(args.DB), nil
 	}
-	return nil, blip.ErrInvalidDomain{Domain: domain}
+	return nil, fmt.Errorf("invalid domain: %s", domain)
 }
 
 // List of built-in collectors. To add one, add its domain name here, and add

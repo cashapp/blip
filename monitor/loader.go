@@ -122,7 +122,7 @@ func (ml *Loader) Reload(stopChan, doneChan chan struct{}) error {
 			err := ml.Load(ctx)
 			cancel()
 			if err != nil {
-				event.Errorf(event.MONITOR_RELOAD_ERROR, "error reloading monitors, will retry: %s", err)
+				event.Errorf(event.MONITORS_RELOAD_ERROR, "error reloading monitors, will retry: %s", err)
 				continue
 			}
 			ml.StartMonitors() // all new monitors
@@ -139,6 +139,10 @@ func (ml *Loader) Reload(stopChan, doneChan chan struct{}) error {
 func (ml *Loader) StartMonitors() {
 	ml.Lock()
 	defer ml.Unlock()
+
+	event.Send(event.MONITORS_STARTING)
+	defer event.Send(event.MONITORS_STARTED)
+
 	for i := range ml.dbmon {
 		if ml.dbmon[i].started {
 			continue // skip started monitors
@@ -178,7 +182,8 @@ func (ml *Loader) Load(ctx context.Context) error {
 	ml.Lock()
 	defer ml.Unlock()
 
-	event.Send(event.MONITOR_LOADER_LOADING)
+	event.Send(event.MONITORS_LOADING)
+	defer event.Send(event.MONITORS_LOADED)
 
 	changes, err := ml.Changes(ctx)
 	if err != nil {
@@ -205,7 +210,7 @@ func (ml *Loader) Load(ctx context.Context) error {
 			}
 		}
 		if errMsg != "" {
-			event.Errorf(event.MONITOR_LOADER_STOPLOSS, errMsg)
+			event.Errorf(event.MONITORS_STOPLOSS, errMsg)
 			return nil // this func didn't fail
 		}
 	}
@@ -247,7 +252,6 @@ func (ml *Loader) Changes(ctx context.Context) (Changes, error) {
 	defer func() {
 		last := fmt.Sprintf("added: %d removed: %d changed: %d",
 			len(ch.Added), len(ch.Removed), len(ch.Changed))
-		event.Sendf(event.BOOT_MONITORS_LOADED, last)
 		status.Blip("monitor-loader", "%s on %s", last, time.Now())
 	}()
 

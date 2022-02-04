@@ -10,7 +10,6 @@ package monitor
 import (
 	"database/sql"
 	"fmt"
-	"log"
 	"runtime"
 	"sync"
 	"time"
@@ -142,12 +141,7 @@ func (m *Monitor) Status() proto.MonitorStatus {
 
 func (m *Monitor) setErr(err error, isPanic bool) {
 	if err != nil {
-		if isPanic {
-			log.Println(err) // extra logging on panic
-			m.event.Errorf(event.MONITOR_PANIC, err.Error())
-		} else {
-			m.event.Errorf(event.MONITOR_ERROR, err.Error())
-		}
+		m.event.Errorf(event.MONITOR_ERROR, err.Error())
 		status.Monitor(m.monitorId, "monitor", "error: %s", err)
 	}
 	m.errMux.Lock()
@@ -183,6 +177,7 @@ func (m *Monitor) Run() {
 		// On m.stopRunChan close (via stop func), we restart almost immediately because
 		// Blip never stops trying to send metrics.
 		m.retry.Reset()
+		m.event.Sendf(event.MONITOR_STARTED, m.dsn)
 		status.Monitor(m.monitorId, "monitor", "running since %s", time.Now())
 		select {
 		case <-m.stopMonitorChan:
