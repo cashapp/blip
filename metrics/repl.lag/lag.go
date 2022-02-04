@@ -114,7 +114,7 @@ LEVEL:
 					c.db,
 					table,
 					source,
-					&heartbeat.SlowFastWaiter{NetworkLatency: 50 * time.Millisecond}, // todo OPT_NETWORK_LATENCY
+					&heartbeat.SlowFastWaiter{NetworkLatency: 50 * time.Millisecond}, // @todo OPT_NETWORK_LATENCY
 				)
 				go c.lagReader.Start()
 				blip.Debug("started heartbeat.Reader for %s %s", plan.Name, level.Name)

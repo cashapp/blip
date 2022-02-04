@@ -3,13 +3,13 @@
 package sink
 
 import (
+	"context"
 	"fmt"
 	"strconv"
 	"sync"
 	"time"
 
 	"github.com/cashapp/blip"
-	"github.com/cashapp/blip/event"
 )
 
 func Register(name string, f blip.SinkFactory) error {
@@ -23,7 +23,7 @@ func Register(name string, f blip.SinkFactory) error {
 		blip.Debug("re-register sink %s", name)
 	}
 	r.factory[name] = f
-	event.Sendf(event.REGISTER_SINK, name)
+	blip.Debug("register sink %s", name)
 	return nil
 }
 
@@ -49,10 +49,29 @@ func Make(args blip.SinkFactoryArgs) (blip.Sink, error) {
 
 // --------------------------------------------------------------------------
 
+type noopSink struct{}
+
+func (s noopSink) Send(ctx context.Context, m *blip.Metrics) error {
+	return nil
+}
+
+func (s noopSink) Status() string {
+	return ""
+}
+
+func (s noopSink) Name() string {
+	return "noop"
+}
+
+var noop = noopSink{}
+
+// --------------------------------------------------------------------------
+
 func init() {
 	Register("chronosphere", f)
 	Register("signalfx", f)
 	Register("log", f)
+	Register("noop", f)
 }
 
 type repo struct {
@@ -79,6 +98,9 @@ func (f *factory) Make(args blip.SinkFactoryArgs) (blip.Sink, error) {
 	// Built-in log sink is special (simple), so return early if that
 	if args.SinkName == "log" {
 		return NewLogSink(args.MonitorId)
+	}
+	if args.SinkName == "noop" {
+		return noop, nil
 	}
 
 	// ----------------------------------------------------------------------

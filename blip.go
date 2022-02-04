@@ -95,7 +95,7 @@ type Plugins struct {
 	LoadConfig       func(Config) (Config, error)
 	LoadMonitors     func(Config) ([]ConfigMonitor, error)
 	LoadPlans        func(ConfigPlans) ([]Plan, error)
-	ModifyDB         func(*sql.DB)
+	ModifyDB         func(*sql.DB, string)
 	StartMonitor     func(ConfigMonitor) bool
 	TransformMetrics func(*Metrics) error
 }
@@ -145,10 +145,6 @@ var (
 	Debugging = false
 	debugLog  = log.New(os.Stderr, "", log.LstdFlags|log.Lmicroseconds)
 )
-
-func init() {
-	log.SetFlags(log.LstdFlags | log.Lmicroseconds)
-}
 
 func Debug(msg string, v ...interface{}) {
 	if !Debugging {

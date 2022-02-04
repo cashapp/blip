@@ -17,6 +17,7 @@ type Options struct {
 	Debug         bool   `arg:"env:BLIP_DEBUG"`
 	Help          bool
 	Plans         string `arg:"env:BLIP_PLANS"`
+	Log           bool   `arg:"--log"`
 	PrintConfig   bool   `arg:"--print-config"`
 	PrintDomains  bool   `arg:"--print-domains"`
 	PrintMonitors bool   `arg:"--print-monitors"`
@@ -67,6 +68,7 @@ func printHelp() {
 		"  --config         Config file (default: %s)\n"+
 		"  --debug          Print debug to stderr\n"+
 		"  --help           Print help and exit\n"+
+		"  --log            Log all events to STDOUT\n"+
 		"  --plans          Plans files (default: %s)\n"+
 		"  --print-config   Print config on boot\n"+
 		"  --print-domains  Print metric domains\n"+

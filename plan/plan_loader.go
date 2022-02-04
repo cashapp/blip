@@ -17,6 +17,7 @@ import (
 	"gopkg.in/yaml.v2"
 
 	"github.com/cashapp/blip"
+	"github.com/cashapp/blip/event"
 	"github.com/cashapp/blip/metrics"
 	"github.com/cashapp/blip/proto"
 	"github.com/cashapp/blip/sqlutil"
@@ -85,6 +86,8 @@ func (pl *Loader) PlansLoaded(monitorId string) []proto.PlanLoaded {
 // the monitor's LPC calls Plan() because the monitor might not be online when Blip
 // starts.
 func (pl *Loader) LoadShared(cfg blip.ConfigPlans, dbMaker blip.DbFactory) error {
+	event.Send(event.PLANS_LOAD_SHARED)
+
 	// If LoadPlans plugin is defined, it does all the work: call and return early
 	if pl.plugin != nil {
 		plans, err := pl.plugin(cfg)
@@ -179,6 +182,8 @@ func (pl *Loader) LoadShared(cfg blip.ConfigPlans, dbMaker blip.DbFactory) error
 
 // Monitor plans: config.monitors.*.plans
 func (pl *Loader) LoadMonitor(mon blip.ConfigMonitor, dbMaker blip.DbFactory) error {
+	event.Sendf(event.PLANS_LOAD_MONITOR, mon.MonitorId)
+
 	monitorPlans := []planMeta{}
 
 	if mon.Plans.Table != "" {

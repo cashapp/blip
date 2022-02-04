@@ -128,7 +128,7 @@ func (e *Engine) Status() proto.MonitorEngineStatus {
 // calls. Instead, serialization is handled by the only caller: LevelCollector.ChangePlan().
 func (e *Engine) Prepare(ctx context.Context, plan blip.Plan, before, after func()) error {
 	blip.Debug("%s: prepare %s (%s)", e.monitorId, plan.Name, plan.Source)
-	e.event.Sendf(event.MONITOR_PREPARE_PLAN, plan.Name)
+	e.event.Sendf(event.ENGINE_PREPARE, plan.Name)
 	status.Monitor(e.monitorId, "engine-prepare", "preparing plan %s", plan.Name)
 
 	// Report last error, if any
@@ -138,8 +138,10 @@ func (e *Engine) Prepare(ctx context.Context, plan blip.Plan, before, after func
 		if lerr == nil {
 			status.RemoveComponent(e.monitorId, "engine-prepare")
 			e.status.Error = ""
+			e.event.Sendf(event.ENGINE_PREPARE_SUCCESS, plan.Name)
 		} else {
 			e.status.Error = lerr.Error()
+			e.event.Errorf(event.ENGINE_PREPARE_ERROR, lerr.Error())
 		}
 		e.statusMux.Unlock()
 	}()

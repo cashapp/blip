@@ -10,8 +10,10 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
+	"runtime"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/cashapp/blip"
 	"github.com/cashapp/blip/aws"
@@ -34,12 +36,9 @@ func ControlChans() (stopChan, doneChan chan struct{}) {
 // _not_ call this function and, instead, provide its own environment, plugins,
 // or factories when calling Server.Boot.
 func Defaults() (blip.Env, blip.Plugins, blip.Factories) {
-	// Plugins are optional, but factories are required
-	awsConfig := &aws.ConfigFactory{}
-	dbMaker := dbconn.NewConnFactory(awsConfig, nil) // @todo defer to pass Plugins.ModifyDB
 	factories := blip.Factories{
-		AWSConfig: awsConfig,
-		DbConn:    dbMaker,
+		AWSConfig: &aws.ConfigFactory{},
+		// DbConn made after loading config
 		// HTTPClient made after loading config
 	}
 	env := blip.Env{
@@ -87,7 +86,8 @@ type Server struct {
 //
 // Boot must be called once before Run.
 func (s *Server) Boot(env blip.Env, plugins blip.Plugins, factories blip.Factories) error {
-	event.Sendf(event.BOOT, "blip %s", blip.VERSION) // very first event
+	startTs := time.Now()
+	fmt.Fprintf(os.Stdout, "blip %s\n", blip.VERSION)
 	status.Blip("server", "booting")
 
 	// ----------------------------------------------------------------------
@@ -106,6 +106,9 @@ func (s *Server) Boot(env blip.Env, plugins blip.Plugins, factories blip.Factori
 		printHelp()
 		return nil
 	}
+
+	event.SetReceiver(event.Log{All: s.cmdline.Options.Log})
+	event.Sendf(event.BOOT_START, "blip %s", blip.VERSION) // very first event
 
 	// Set debug and strict from env vars. Do this very first because all code
 	// uses blip.Debug() and blip.Strict (boolean).
@@ -140,6 +143,7 @@ func (s *Server) Boot(env blip.Env, plugins blip.Plugins, factories blip.Factori
 	// ----------------------------------------------------------------------
 	// Load config
 	event.Send(event.BOOT_CONFIG_LOADING)
+	status.Blip("server", "boot: loading config")
 
 	// Always start with a default config, else we'll lack some basic config
 	// like the API addr:port to listen on. If strict, it's a zero config except
@@ -156,7 +160,7 @@ func (s *Server) Boot(env blip.Env, plugins blip.Plugins, factories blip.Factori
 		cfg, err = blip.LoadConfig(s.cmdline.Options.Config, cfg)
 	}
 	if err != nil {
-		event.Sendf(event.BOOT_CONFIG_ERROR, err.Error())
+		event.Sendf(event.BOOT_ERROR, err.Error())
 		return err
 	}
 
@@ -164,7 +168,7 @@ func (s *Server) Boot(env blip.Env, plugins blip.Plugins, factories blip.Factori
 	// except for plans and monitors which might come from dynamic sources,
 	// like tables.
 	if err := cfg.Validate(); err != nil {
-		event.Sendf(event.BOOT_CONFIG_INVALID, err.Error())
+		event.Errorf(event.BOOT_CONFIG_INVALID, err.Error())
 		return err
 	}
 
@@ -184,11 +188,17 @@ func (s *Server) Boot(env blip.Env, plugins blip.Plugins, factories blip.Factori
 	if factories.HTTPClient == nil {
 		factories.HTTPClient = httpClientFactory{cfg: cfg.HTTP}
 	}
+
+	if factories.DbConn == nil {
+		factories.DbConn = dbconn.NewConnFactory(factories.AWSConfig, plugins.ModifyDB)
+	}
+
 	sink.InitFactory(factories)
 	metrics.InitFactory(factories)
 
 	// ----------------------------------------------------------------------
 	// Load level plans
+	status.Blip("server", "boot: loading plans")
 
 	// Get the built-in level plan loader singleton. It's used in two places:
 	// here for initial plan loading, and level.Collector (LPC) to fetch the
@@ -202,10 +212,9 @@ func (s *Server) Boot(env blip.Env, plugins blip.Plugins, factories blip.Factori
 	}
 
 	if err := s.planLoader.LoadShared(s.cfg.Plans, factories.DbConn); err != nil {
-		event.Sendf(event.BOOT_PLANS_ERROR, err.Error())
+		event.Sendf(event.BOOT_ERROR, err.Error())
 		return err
 	}
-	event.Send(event.BOOT_PLANS_LOADED)
 
 	if s.cmdline.Options.PrintPlans {
 		s.planLoader.Print()
@@ -213,8 +222,9 @@ func (s *Server) Boot(env blip.Env, plugins blip.Plugins, factories blip.Factori
 
 	// ----------------------------------------------------------------------
 	// Database monitors
+	status.Blip("server", "boot: load monitors")
 
-	// Create, but don't start, database monitors. They're started later in Run.
+	// Create, but don't start, database monitors. They're startTs later in Run.
 	s.monitorLoader = monitor.NewLoader(monitor.LoaderArgs{
 		Config:     s.cfg,
 		Factories:  factories,
@@ -223,7 +233,7 @@ func (s *Server) Boot(env blip.Env, plugins blip.Plugins, factories blip.Factori
 		RDSLoader:  aws.RDSLoader{ClientFactory: aws.NewRDSClientFactory(factories.AWSConfig)},
 	})
 	if err := s.monitorLoader.Load(context.Background()); err != nil {
-		event.Sendf(event.BOOT_MONITORS_ERROR, err.Error())
+		event.Sendf(event.BOOT_ERROR, err.Error())
 		return err
 	}
 
@@ -233,8 +243,13 @@ func (s *Server) Boot(env blip.Env, plugins blip.Plugins, factories blip.Factori
 
 	// ----------------------------------------------------------------------
 	// API
-	s.api = NewAPI(cfg.API, s.monitorLoader)
+	if !s.cfg.API.Disable {
+		s.api = NewAPI(cfg.API, s.monitorLoader)
+	} else {
+		blip.Debug("API disabled")
+	}
 
+	event.Sendf(event.BOOT_SUCCESS, "booted in %s, loaded %d monitors", time.Now().Sub(startTs), s.monitorLoader.Count())
 	return nil
 }
 
@@ -245,27 +260,56 @@ func (s *Server) Run(stopChan, doneChan chan struct{}) error {
 	if !s.cmdline.Options.Run {
 		return nil
 	}
-
-	status.Blip("server", "running")
 	event.Send(event.SERVER_RUN)
 
 	stopReason := "unknown"
 	defer func() {
-		event.Sendf(event.SERVER_RUN_STOP, stopReason)
+		event.Errorf(event.SERVER_STOPPED, stopReason)
 	}()
 
 	// Start all monitors. Then if config.monitor-load.freq is specified, start
 	// periodical monitor reloading.
+	status.Blip("server", "loading monitors")
 	s.monitorLoader.StartMonitors()
 	if s.cfg.MonitorLoader.Freq != "" {
-		doneChan := make(chan struct{}) // ignored: Reload goroutine dies Server
-		go s.monitorLoader.Reload(stopChan, doneChan)
+
+		for {
+			go func() {
+				defer func() { // catch panic in API
+					if r := recover(); r != nil {
+						b := make([]byte, 4096)
+						n := runtime.Stack(b, false)
+						err := fmt.Errorf("PANIC: monitor loader: %s\n%s", r, string(b[0:n]))
+						event.Errorf(event.MONITOR_LOADER_PANIC, err.Error())
+					}
+				}()
+				doneChan := make(chan struct{}) // ignored: goroutine dies with Server
+				s.monitorLoader.Reload(stopChan, doneChan)
+			}()
+			time.Sleep(1 * time.Second) // between panic
+		}
 	}
 
-	go s.api.Run()
+	// Run API, restart on panic
+	if !s.cfg.API.Disable {
+		for {
+			go func() {
+				defer func() { // catch panic in API
+					if r := recover(); r != nil {
+						b := make([]byte, 4096)
+						n := runtime.Stack(b, false)
+						err := fmt.Errorf("PANIC: server API: %s\n%s", r, string(b[0:n]))
+						event.Errorf(event.SERVER_API_PANIC, err.Error())
+					}
+				}()
+				s.api.Run()
+			}()
+			time.Sleep(1 * time.Second) // between panic
+		}
+	}
 
 	// Run until caller closes stopChan or blip process catches a signal
-	event.Sendf(event.SERVER_RUN_WAIT, s.cfg.API.Bind)
+	status.Blip("server", "running since %s", time.Now())
 	signalChan := make(chan os.Signal)
 	signal.Notify(signalChan, os.Interrupt, syscall.SIGTERM)
 	select {

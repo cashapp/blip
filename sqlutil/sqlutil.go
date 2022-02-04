@@ -75,6 +75,21 @@ func SanitizeTable(table, db string) string {
 	return "`" + v[0] + "`.`" + v[1] + "`"
 }
 
+// MySQLVersion returns the MySQL version as integers: major, minor, patch.
+func MySQLVersion(ctx context.Context, db *sql.DB) (int, int, int) {
+	var val string
+	err := db.QueryRowContext(ctx, "SELECT @@version").Scan(&val)
+	if err != nil {
+		return -1, -1, -1
+	}
+	cuurentVersion, _ := ver.NewVersion(val)
+	v := cuurentVersion.Segments()
+	if len(v) != 3 {
+		return -1, -1, -1
+	}
+	return v[0], v[1], v[2]
+}
+
 // MySQLVersionGTE returns true if the current MySQL version is >= version.
 // It returns false on any error.
 func MySQLVersionGTE(version string, db *sql.DB, ctx context.Context) (bool, error) {
@@ -107,8 +122,8 @@ func ReadOnly(err error) bool {
 // that have a mix of values and variaible columns (based on MySQL version)
 // but the caller only needs specific cols/vals, so it uses this generic map
 // rather than a specific struct.
-func RowToMap(db *sql.DB, query string) (map[string]string, error) {
-	rows, err := db.Query(query)
+func RowToMap(ctx context.Context, db *sql.DB, query string) (map[string]string, error) {
+	rows, err := db.QueryContext(ctx, query)
 	if err != nil {
 		return nil, err
 	}

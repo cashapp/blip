@@ -52,7 +52,11 @@ func (c *Repl) Help() blip.CollectorHelp {
 	}
 }
 
+var statusQuery = "SHOW SLAVE STATUS" // SHOW REPLICA STATUS as of 8.022
+
 func (c *Repl) Prepare(ctx context.Context, plan blip.Plan) (func(), error) {
+	haveVersion := false
+
 LEVEL:
 	for _, level := range plan.Levels {
 		dom, ok := level.Collect[DOMAIN]
@@ -75,6 +79,21 @@ LEVEL:
 		}
 
 		c.atLevel[level.Name] = m
+
+		// SHOW REPLICA STATUS as of 8.022
+		if haveVersion {
+			continue
+		}
+		major, _, patch := sqlutil.MySQLVersion(ctx, c.db)
+		if major == -1 {
+			blip.Debug("failed to get/parse MySQL version, ignoring")
+			continue
+		}
+		haveVersion = true
+		if major == 8 && patch >= 22 {
+			statusQuery = "SHOW REPLICA STATUS"
+		}
+		blip.Debug("mysql %d.x.%d %s", major, patch, statusQuery)
 	}
 	return nil, nil
 }
@@ -85,9 +104,9 @@ func (c *Repl) Collect(ctx context.Context, levelName string) ([]blip.MetricValu
 		return nil, nil
 	}
 
-	replStatus, err := sqlutil.RowToMap(c.db, "SHOW SLAVE STATUS")
+	replStatus, err := sqlutil.RowToMap(ctx, c.db, statusQuery)
 	if err != nil {
-		return nil, err // @todo
+		return nil, fmt.Errorf("%s failed: %s", statusQuery, err)
 	}
 
 	metrics := []blip.MetricValue{}
