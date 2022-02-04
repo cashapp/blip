@@ -36,6 +36,8 @@ func NewAPI(cfg blip.ConfigAPI, ml *monitor.Loader) *API {
 	mux.HandleFunc("/status/monitors", api.statusMonitors)
 	mux.HandleFunc("/status/monitor/internal", api.statusMonitorInternal)
 	mux.HandleFunc("/registered", api.registered)
+	mux.HandleFunc("/monitors/stop", api.monitorsStop)
+	mux.HandleFunc("/monitors/restart", api.monitorsRestart)
 
 	api.httpServer = &http.Server{
 		Addr:    cfg.Bind,
@@ -104,4 +106,51 @@ func (api *API) registered(w http.ResponseWriter, r *http.Request) {
 		Sinks:      sink.List(),
 	}
 	json.NewEncoder(w).Encode(reg)
+}
+
+func (api *API) monitorsStop(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	if len(q) == 0 {
+		http.Error(w, "missing URL query: ?id=monitorId", http.StatusBadRequest)
+		return
+	}
+	vals, ok := q["id"]
+	if !ok {
+		http.Error(w, "missing id param in URL query: ?id=monitorId", http.StatusBadRequest)
+		return
+	}
+	if len(vals) == 0 {
+		http.Error(w, "id param has no value", http.StatusBadRequest)
+		return
+	}
+	monitorId := vals[0]
+	blip.Debug("unload %s", monitorId)
+	api.monitorLoader.Unload(monitorId)
+	w.WriteHeader(http.StatusOK)
+}
+
+func (api *API) monitorsRestart(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	if len(q) == 0 {
+		http.Error(w, "missing URL query: ?id=monitorId", http.StatusBadRequest)
+		return
+	}
+	vals, ok := q["id"]
+	if !ok {
+		http.Error(w, "missing id param in URL query: ?id=monitorId", http.StatusBadRequest)
+		return
+	}
+	if len(vals) == 0 {
+		http.Error(w, "id param has no value", http.StatusBadRequest)
+		return
+	}
+	monitorId := vals[0]
+	blip.Debug("restart %s", monitorId)
+	mon := api.monitorLoader.Monitor(monitorId)
+	if mon == nil {
+		http.Error(w, fmt.Sprintf("monitorId %s not loaded", monitorId), http.StatusNotFound)
+		return
+	}
+	mon.Restart()
+	w.WriteHeader(http.StatusOK)
 }

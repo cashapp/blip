@@ -562,6 +562,20 @@ func (ml *Loader) Count() uint {
 	return uint(len(ml.dbmon))
 }
 
+func (ml *Loader) Unload(monitorId string) error {
+	ml.Lock()
+	defer ml.Unlock()
+
+	m, ok := ml.dbmon[monitorId]
+	if !ok {
+		return nil
+	}
+	m.monitor.Stop()
+	delete(ml.dbmon, monitorId)
+	status.RemoveMonitor(monitorId)
+	return nil
+}
+
 // Print prints all loaded monitors in blip.ConfigMonitor YAML format.
 // It's used for --print-monitors.
 func (ml *Loader) Print() string {
