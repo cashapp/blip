@@ -296,7 +296,7 @@ func (ml *Loader) Changes(ctx context.Context) (Changes, error) {
 		}
 
 		// Third, monitors from the AWS RDS API
-		if ml.cfg.MonitorLoader.AWS.Automatic() || len(ml.cfg.MonitorLoader.AWS.Regions) > 0 {
+		if len(ml.cfg.MonitorLoader.AWS.Regions) > 0 {
 			monitors, err = ml.rdsLoader.Load(ctx, ml.cfg)
 			if err != nil {
 				if !ml.cfg.MonitorLoader.AWS.Automatic() {

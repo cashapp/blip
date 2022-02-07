@@ -51,24 +51,26 @@ type lpc struct {
 	sinks            []blip.Sink
 	transformMetrics func(*blip.Metrics) error
 	// --
-	monitorId            string
-	state                string
-	plan                 blip.Plan
-	changing             bool
+	monitorId string
+
+	stateMux *sync.Mutex
+	state    string
+	plan     blip.Plan
+	levels   []level
+	paused   bool
+
+	changeMux            *sync.Mutex
 	changePlanCancelFunc context.CancelFunc
 	changePlanDoneChan   chan struct{}
-	changeMux            *sync.Mutex
-	stateMux             *sync.Mutex
-	event                event.MonitorReceiver
-	levels               []level
-	paused               bool
 	stopped              bool
-	//
+
 	statsMux           *sync.Mutex
 	lastCollectTs      time.Time
 	lastCollectError   error
 	lastCollectErrorTs time.Time
 	sinkErrors         map[string]error
+
+	event event.MonitorReceiver
 }
 
 type LevelCollectorArgs struct {
@@ -88,13 +90,16 @@ func NewLevelCollector(args LevelCollectorArgs) *lpc {
 		transformMetrics: args.TransformMetrics,
 		// --
 		monitorId: args.Config.MonitorId,
+
+		stateMux: &sync.Mutex{},
+		paused:   true,
+
 		changeMux: &sync.Mutex{},
-		stateMux:  &sync.Mutex{},
-		event:     event.MonitorReceiver{MonitorId: args.Config.MonitorId},
-		paused:    true,
 
 		statsMux:   &sync.Mutex{},
 		sinkErrors: map[string]error{},
+
+		event: event.MonitorReceiver{MonitorId: args.Config.MonitorId},
 	}
 }
 
@@ -106,6 +111,8 @@ func TickerDuration(d time.Duration) {
 
 var tickerDuration = 1 * time.Second // used for testing
 
+// maxCollectors is the maximum number of parallel collect() goroutines.
+// Code comment block just below for variable sem.
 const maxCollectors = 2
 
 func (c *lpc) Run(stopChan, doneChan chan struct{}) error {
@@ -120,8 +127,8 @@ func (c *lpc) Run(stopChan, doneChan chan struct{}) error {
 	// for "big" domains like size.table that might need to iterator over
 	// hundreds or thousands of tables. Consequently, we collect metrics
 	// asynchronously in multiple goroutines. By default, 2 goroutines
-	// should be more than sufficient. If not, there's probably an underlying
-	// problem that needs to be fixed.
+	// (maxCollectors) should be more than sufficient. If not, there's probably
+	// an underlyiny problem that needs to be fixed.
 	sem := make(chan bool, maxCollectors)
 	for i := 0; i < maxCollectors; i++ {
 		sem <- true
@@ -131,9 +138,6 @@ func (c *lpc) Run(stopChan, doneChan chan struct{}) error {
 	// LPC main loop: collect metrics on whole second ticks
 
 	s := -1 // number of whole second ticks
-	level := -1
-	levelName := ""
-
 	ticker := time.NewTicker(tickerDuration)
 	defer ticker.Stop()
 	for range ticker.C {
@@ -146,16 +150,14 @@ func (c *lpc) Run(stopChan, doneChan chan struct{}) error {
 			// pathological case that the LPA calls ChangePlan while the LPC
 			// is terminating
 			c.changeMux.Lock()
-			c.stopped = true // prevent new changePlan goroutines
-			c.changeMux.Unlock()
-
-			c.stateMux.Lock()
-			changing := c.changing
-			c.stateMux.Unlock()
-			if changing {
-				c.changePlanCancelFunc() // stop changePlan goroutine
+			defer c.changeMux.Unlock()
+			c.stopped = true // make ChangePlan do nothing
+			select {
+			case <-c.changePlanDoneChan:
+				c.changePlanCancelFunc() // stop --> changePlan goroutine
+				<-c.changePlanDoneChan   // wait for changePlan goroutine
+			default:
 			}
-
 			return nil
 		default: // no
 		}
@@ -168,6 +170,7 @@ func (c *lpc) Run(stopChan, doneChan chan struct{}) error {
 		}
 
 		// Determine lowest level to collect
+		level := -1
 		for i := range c.levels {
 			if s%c.levels[i].freq == 0 {
 				level = i
@@ -178,14 +181,10 @@ func (c *lpc) Run(stopChan, doneChan chan struct{}) error {
 			continue            // no metrics to collect at this frequency
 		}
 
-		// Collect metrics at this level, unlock, and reset
-		levelName = c.levels[level].name
-		level = -1
-		c.stateMux.Unlock() // -- UNLOCK --
-
+		// Collect metrics at this level
 		select {
 		case <-sem:
-			go func() {
+			go func(levelName string) {
 				defer func() {
 					sem <- true
 					if err := recover(); err != nil { // catch panic in collectors, TransformMetrics, and sinks
@@ -196,13 +195,15 @@ func (c *lpc) Run(stopChan, doneChan chan struct{}) error {
 					}
 				}()
 				c.collect(levelName)
-			}()
+			}(c.levels[level].name)
 		default:
 			// all collectors blocked
 			errMsg := fmt.Errorf("cannot callect %s/%s: %d of %d collectors still running",
-				c.plan.Name, levelName, maxCollectors, maxCollectors)
+				c.plan.Name, c.levels[level].name, maxCollectors, maxCollectors)
 			c.setErr(errMsg, event.LPC_BLOCKED)
 		}
+
+		c.stateMux.Unlock() // -- UNLOCK --
 	}
 	return nil
 }
@@ -301,31 +302,32 @@ func (c *lpc) ChangePlan(newState, newPlanName string) error {
 	// Serialize access to this func
 	c.changeMux.Lock()
 	defer c.changeMux.Unlock()
-	if c.stopped {
+
+	if c.stopped { // Run stopped?
 		return nil
 	}
 
 	// Check if changePlan goroutine from previous call is running
-	c.stateMux.Lock()
-	if c.changing {
-		c.stateMux.Unlock()      // let changePlan goroutine return
-		c.changePlanCancelFunc() // stop --> changePlan goroutine
-		<-c.changePlanDoneChan   // wait for changePlan goroutine
-		c.stateMux.Lock()
+	select {
+	case <-c.changePlanDoneChan:
+	default:
+		if c.changePlanCancelFunc != nil {
+			blip.Debug("cancel previous changePlan")
+			c.changePlanCancelFunc() // stop --> changePlan goroutine
+			<-c.changePlanDoneChan   // wait for changePlan goroutine
+		}
 	}
 
-	c.changing = true // changePlan sets c.changing=false on return, so flip it back
-
+	blip.Debug("start new changePlan: %s %s", newState, newPlanName)
 	ctx, cancel := context.WithCancel(context.Background())
 	c.changePlanCancelFunc = cancel
 	c.changePlanDoneChan = make(chan struct{})
-	c.stateMux.Unlock()
 
 	// Don't block caller. If state changes again, LPA will call this
 	// func again, in which case the code above will cancel the current
 	// changePlan goroutine (if it's still running) and re-change/re-prepare
 	// the plan for the latest state.
-	go c.changePlan(ctx, newState, newPlanName)
+	go c.changePlan(ctx, c.changePlanDoneChan, newState, newPlanName)
 
 	return nil
 }
@@ -339,16 +341,13 @@ const cpName = "lpc-change-plan" // only for changePlan
 //
 // Never all this function directly; it's only called via ChangePlan, which
 // serializes access and guarantees only one changePlan goroutine at a time.
-func (c *lpc) changePlan(ctx context.Context, newState, newPlanName string) {
-	defer func() {
-		c.stateMux.Lock()
-		c.changing = false
-		c.stateMux.Unlock()
-		close(c.changePlanDoneChan) // signal that ChangePlan can lock stateMux
-	}()
+func (c *lpc) changePlan(ctx context.Context, doneChan chan struct{}, newState, newPlanName string) {
+	defer close(doneChan)
 
+	c.stateMux.Lock()
 	oldState := c.state
 	oldPlanName := c.plan.Name
+	c.stateMux.Unlock()
 	change := fmt.Sprintf("state:%s plan:%s -> state:%s plan:%s", oldState, oldPlanName, newState, newPlanName)
 	c.event.Sendf(event.CHANGE_PLAN, change)
 
@@ -394,7 +393,7 @@ func (c *lpc) changePlan(ctx context.Context, newState, newPlanName string) {
 	// does its work and, if successful, calls c.Pause, which is step 0;
 	// then Prepare does step 1, which won't be collected yet because it
 	// just paused LPC.Run which drives metrics collection; then Prepare calls
-	// the after func/callback defined below, which is step 2 and signals to
+	// the after func/calleck defined below, which is step 2 and signals to
 	// this func that we commit the new plan and resume Run (step 3) to begin
 	// collecting that plan.
 
@@ -434,9 +433,10 @@ func (c *lpc) changePlan(ctx context.Context, newState, newPlanName string) {
 			break // success
 		}
 		if ctx.Err() != nil {
+			blip.Debug("changePlan canceled")
 			return // changePlan goroutine has been cancelled
 		}
-		status.Monitor(c.monitorId, cpName, "%s: error preparing new plan %s: %s (retrying): %s", change, newPlan.Name, err)
+		status.Monitor(c.monitorId, cpName, "%s: error preparing new plan %s: %s (retrying)", change, newPlan.Name, err)
 		time.Sleep(retry.NextBackOff())
 	}
 

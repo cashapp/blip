@@ -40,7 +40,7 @@ func (c MetricsCollector) Help() blip.CollectorHelp {
 
 func (c MetricsCollector) Prepare(ctx context.Context, plan blip.Plan) (func(), error) {
 	if c.PrepareFunc != nil {
-		return c.Prepare(ctx, plan)
+		return c.PrepareFunc(ctx, plan)
 	}
 	return nil, nil
 }

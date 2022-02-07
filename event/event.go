@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/cashapp/blip"
@@ -31,6 +32,8 @@ type Receiver interface {
 	Recv(Event)
 }
 
+var once sync.Once
+
 // SetReceiver sets the receiver used by Blip to handle events. The default
 // receiver is Log. To override the default, call this function to set a new
 // receiver before calling Server.Boot.
@@ -38,16 +41,13 @@ func SetReceiver(r Receiver) {
 	// Don't override becuase it's set only once. If user calls before
 	// Server.Start, then we keep their receiver. Else, Server.Start calls
 	// to set a built-in Log receiver.
-	if receiver != nil {
-		return
-	}
-	receiver = r
+	once.Do(func() { receiver = r })
 }
 
 // receiver is the private package Receiver that the public packages below use.
 // It defaults to a Log type receiver (set by Server.Start), but users can call
 // SetReceiver (before Server.Start) to override.
-var receiver Receiver
+var receiver Receiver = Log{}
 
 // Send sends an event with no additional message.
 // This is a convenience function for Sendf.

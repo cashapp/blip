@@ -135,13 +135,15 @@ func (e *Engine) Prepare(ctx context.Context, plan blip.Plan, before, after func
 	var lerr error
 	defer func() {
 		e.statusMux.Lock()
-		if lerr == nil {
+		if lerr != nil {
+			e.status.Error = lerr.Error()
+			e.event.Errorf(event.ENGINE_PREPARE_ERROR, lerr.Error())
+			status.Monitor(e.monitorId, "engine-prepare", "error: %s", lerr)
+		} else {
+			// success
 			status.RemoveComponent(e.monitorId, "engine-prepare")
 			e.status.Error = ""
 			e.event.Sendf(event.ENGINE_PREPARE_SUCCESS, plan.Name)
-		} else {
-			e.status.Error = lerr.Error()
-			e.event.Errorf(event.ENGINE_PREPARE_ERROR, lerr.Error())
 		}
 		e.statusMux.Unlock()
 	}()
@@ -150,16 +152,14 @@ func (e *Engine) Prepare(ctx context.Context, plan blip.Plan, before, after func
 	e.status.Connected = false
 	e.statusMux.Unlock()
 
+	// Connect to MySQL. DO NOT loop and retry; try once and return on error
+	// to let the caller (a LevelCollector.changePlan goroutine) retry with backoff.
 	status.Monitor(e.monitorId, "engine-prepare", "connecting to MySQL")
 	dbctx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	lerr = e.db.PingContext(dbctx)
+	err := e.db.PingContext(dbctx)
 	cancel()
-	if ctx.Err() != nil {
-		lerr = fmt.Errorf("cancelled while connecting to MySQL")
-		return nil // cancellation is not an error
-	}
-	if lerr != nil {
-		status.Monitor(e.monitorId, "engine-prepare", "error connecting to MySQL: %s", lerr)
+	if err != nil {
+		lerr = fmt.Errorf("while connecting to MySQL: %s", lerr)
 		return lerr
 	}
 
@@ -175,9 +175,6 @@ func (e *Engine) Prepare(ctx context.Context, plan blip.Plan, before, after func
 	for levelName, level := range plan.Levels {
 		for domain, _ := range level.Collect {
 
-			status.Monitor(e.monitorId, "engine-prepare", "preparing plan %s level %s collector %s",
-				plan.Name, levelName, domain)
-
 			// Make collector if needed
 			mc, ok := mcNew[domain]
 			if !ok {
@@ -192,13 +189,17 @@ func (e *Engine) Prepare(ctx context.Context, plan blip.Plan, before, after func
 					},
 				)
 				if err != nil {
-					blip.Debug(err.Error())
-					return err
+					lerr = fmt.Errorf("while making %s collector: %s", domain, err)
+					return lerr
 				}
+
+				status.Monitor(e.monitorId, "engine-prepare", "preparing plan %s level %s collector %s",
+					plan.Name, levelName, domain)
 
 				cleanup, err := c.Prepare(ctx, plan)
 				if err != nil {
-					return fmt.Errorf("at %s/%s/%s: %s", plan.Name, levelName, domain, err)
+					lerr = fmt.Errorf("while preparing %s/%s/%s: %s", plan.Name, levelName, domain, err)
+					return lerr
 				}
 
 				mc = &amc{
@@ -213,6 +214,7 @@ func (e *Engine) Prepare(ctx context.Context, plan blip.Plan, before, after func
 		}
 	}
 
+	// Successfully prepared the plan
 	status.Monitor(e.monitorId, "engine-prepare", "finalizing plan %s", plan.Name)
 
 	before() // notify caller (LPC.changePlan) that we're about to swap the plan

@@ -1,0 +1,5 @@
+---
+test:
+  freq: 1s
+  collect:
+    test:
