@@ -57,7 +57,13 @@ func TestRDSClient(t *testing.T) {
 
 	rdsLoader := blipAWS.RDSLoader{ClientFactory: f}
 
-	cfg := blip.Config{}
+	cfg := blip.Config{
+		MonitorLoader: blip.ConfigMonitorLoader{
+			AWS: blip.ConfigMonitorLoaderAWS{
+				Regions: []string{"us-west-2"},
+			},
+		},
+	}
 	got, err := rdsLoader.Load(context.Background(), cfg)
 	if err != nil {
 		t.Error(err)

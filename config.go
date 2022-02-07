@@ -138,7 +138,7 @@ type Config struct {
 	Strict        bool                `yaml:"strict"`
 
 	// Monitor defaults
-	AWS       ConfigAWSRDS           `yaml:"aws-rds,omitempty"`
+	AWS       ConfigAWS              `yaml:"aws,omitempty"`
 	Exporter  ConfigExporter         `yaml:"exporter,omitempty"`
 	HA        ConfigHighAvailability `yaml:"ha,omitempty"`
 	Heartbeat ConfigHeartbeat        `yaml:"heartbeat,omitempty"`
@@ -164,7 +164,7 @@ func DefaultConfig(strict bool) Config {
 		MonitorLoader: DefaultConfigMonitorLoader(),
 		Sinks:         DefaultConfigSinks(),
 
-		AWS:       DefaultConfigAWSRDS(),
+		AWS:       DefaultConfigAWS(),
 		Exporter:  DefaultConfigExporter(),
 		HA:        DefaultConfigHA(),
 		Heartbeat: DefaultConfigHeartbeat(),
@@ -291,12 +291,16 @@ type ConfigMonitorLoader struct {
 }
 
 type ConfigMonitorLoaderAWS struct {
-	Regions     []string `yaml:"regions,omitempty"`
-	DisableAuto bool     `yaml:"disable-auto"`
+	Regions []string `yaml:"regions,omitempty"`
 }
 
 func (c ConfigMonitorLoaderAWS) Automatic() bool {
-	return len(c.Regions) == 0 && c.DisableAuto == false
+	for i := range c.Regions {
+		if c.Regions[i] == "auto" {
+			return true
+		}
+	}
+	return false
 }
 
 type ConfigMonitorLoaderLocal struct {
@@ -346,7 +350,7 @@ type ConfigMonitor struct {
 	// but these monitor.tags take precedent (are not overwritten by config.tags).
 	Tags map[string]string `yaml:"tags,omitempty"`
 
-	AWS       ConfigAWSRDS           `yaml:"aws-rds,omitempty"`
+	AWS       ConfigAWS              `yaml:"aws,omitempty"`
 	Exporter  ConfigExporter         `yaml:"exporter,omitempty"`
 	HA        ConfigHighAvailability `yaml:"ha,omitempty"`
 	Heartbeat ConfigHeartbeat        `yaml:"heartbeat,omitempty"`
@@ -364,7 +368,7 @@ func DefaultConfigMonitor() ConfigMonitor {
 
 		Tags: map[string]string{},
 
-		AWS:       DefaultConfigAWSRDS(),
+		AWS:       DefaultConfigAWS(),
 		Exporter:  DefaultConfigExporter(),
 		HA:        DefaultConfigHA(),
 		Heartbeat: DefaultConfigHeartbeat(),
@@ -496,7 +500,7 @@ func (c *ConfigMonitor) interpolateMon(v string) string {
 
 func (c *ConfigMonitor) fieldValue(f string) string {
 	switch strings.ToLower(f) {
-	case "monitorid", "monitor-id":
+	case "monitorid", "monitor-id", "id":
 		return c.MonitorId
 	case "mycnf":
 		return c.MyCnf
@@ -519,7 +523,7 @@ func (c *ConfigMonitor) fieldValue(f string) string {
 
 // --------------------------------------------------------------------------
 
-type ConfigAWSRDS struct {
+type ConfigAWS struct {
 	AuthToken         *bool  `yaml:"auth-token,omitempty"`
 	PasswordSecret    string `yaml:"password-secret,omitempty"`
 	Region            string `yaml:"region,omitempty"`
@@ -527,15 +531,15 @@ type ConfigAWSRDS struct {
 	DisableAutoTLS    *bool  `yaml:"disable-auto-tls,omitempty"`
 }
 
-func DefaultConfigAWSRDS() ConfigAWSRDS {
-	return ConfigAWSRDS{}
+func DefaultConfigAWS() ConfigAWS {
+	return ConfigAWS{}
 }
 
-func (c ConfigAWSRDS) Validate() error {
+func (c ConfigAWS) Validate() error {
 	return nil
 }
 
-func (c *ConfigAWSRDS) ApplyDefaults(b Config) {
+func (c *ConfigAWS) ApplyDefaults(b Config) {
 	if c.PasswordSecret == "" {
 		c.PasswordSecret = b.AWS.PasswordSecret
 	}
@@ -549,12 +553,12 @@ func (c *ConfigAWSRDS) ApplyDefaults(b Config) {
 
 }
 
-func (c *ConfigAWSRDS) InterpolateEnvVars() {
+func (c *ConfigAWS) InterpolateEnvVars() {
 	c.PasswordSecret = interpolateEnv(c.PasswordSecret)
 	c.Region = interpolateEnv(c.Region)
 }
 
-func (c *ConfigAWSRDS) InterpolateMonitor(m *ConfigMonitor) {
+func (c *ConfigAWS) InterpolateMonitor(m *ConfigMonitor) {
 	c.PasswordSecret = m.interpolateMon(c.PasswordSecret)
 	c.Region = m.interpolateMon(c.Region)
 }

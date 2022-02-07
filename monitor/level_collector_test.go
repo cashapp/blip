@@ -4,6 +4,7 @@ package monitor_test
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -149,4 +150,120 @@ func TestLevelCollector(t *testing.T) {
 	}
 	assert.ElementsMatch(t, gotLevels[:12], expectLevels)
 	mux.Unlock()
+}
+
+func TestLevelCollectorChangePlan(t *testing.T) {
+	// ChangePlan is called async by LPA (if enabled), and ChangePlan runs a
+	// goroutine (called changePlan) to handle it. When called again, it should
+	// cancel the current changePlan goroutine, if any, then start a new one
+	// for the new plan.
+	//
+	// To simulate, we need to make changePlan block, and it only does two things:
+	// PlanLoader.Plan() to load the new plan, then Engine.Prepare() to prepare
+	// the new plan. But neither have any direct callbacks or interfaces that we
+	// can mock to make them slow (because these components are meant to be the
+	// fastest and most efficient). However, Prepare() calls the same method on all
+	// collectors, which we can mock. So we'll inject slowness in the callstack like:
+	//
+	//   4.   Collector.Prepare
+	//   3.   Engine.Prepare
+	//   2.   LPC.changePlan (goroutine)
+	//   1. LPC.ChangePlan
+	//   0. test
+
+	//blip.Debugging = true
+
+	// Create and register a mock blip.Collector that saves the level name
+	// every time it's called. This is quite deep within the call stack,
+	// which is what we want: LPC->engine->collector. By using a fake collector
+	// but real LPC and enginer, we testing the real, unmodified logic--
+	// the LPC and engine don't know or care that this collector is a mock.
+	callChan := make(chan bool, 1)
+	returnChan := make(chan error, 1)
+	mc := mock.MetricsCollector{
+		PrepareFunc: func(ctx context.Context, plan blip.Plan) (func(), error) {
+			blip.Debug("collector called")
+			callChan <- true // signal test
+			blip.Debug("collector waiting")
+			err := <-returnChan // wait for test
+			blip.Debug("collector return")
+			return nil, err
+		},
+	}
+	mf := mock.MetricFactory{
+		MakeFunc: func(domain string, args blip.CollectorFactoryArgs) (blip.Collector, error) {
+			return mc, nil
+		},
+	}
+	metrics.Register(mc.Domain(), mf) // MUST CALL FIRST, before the rest...
+
+	// Make a mini, fake config that uses the test plan and load it realistically
+	planName := "../test/plans/test.yaml"
+	moncfg := blip.ConfigMonitor{MonitorId: monitorId1}
+	cfg := blip.Config{
+		Plans:    blip.ConfigPlans{Files: []string{planName}},
+		Monitors: []blip.ConfigMonitor{moncfg},
+	}
+	moncfg.ApplyDefaults(cfg)
+
+	dbMaker := dbconn.NewConnFactory(nil, nil)
+	pl := plan.NewLoader(nil)
+
+	if err := pl.LoadShared(cfg.Plans, dbMaker); err != nil {
+		t.Fatal(err)
+	}
+	if err := pl.LoadMonitor(moncfg, dbMaker); err != nil {
+		t.Fatal(err)
+	}
+
+	// Create LPC and and run it, but it starts paused until ChangePlan is called
+	// starts working once a plan is set.
+	lpc := monitor.NewLevelCollector(monitor.LevelCollectorArgs{
+		Config:     moncfg,
+		Engine:     monitor.NewEngine(blip.ConfigMonitor{MonitorId: monitorId1}, db),
+		PlanLoader: pl,
+		Sinks:      []blip.Sink{mock.Sink{}},
+	})
+	stopChan := make(chan struct{})
+	doneChan := make(chan struct{})
+	go lpc.Run(stopChan, doneChan)
+	defer close(stopChan)
+
+	// Call stack:
+	//   4.   Collector.Prepare
+	//   3.   Engine.Prepare
+	//   2.   LPC.changePlan (goroutine)
+	//   1. LPC.ChangePlan
+	//   0. test
+
+	// CP1: first change plan: returns immediately but the mock collector (ms) blocks on callChan
+	lpc.ChangePlan(blip.STATE_ACTIVE, planName)
+	select {
+	case <-callChan:
+	case <-time.After(1 * time.Second):
+		t.Fatal("timeout waiting for CP1")
+	}
+	// CP1 is blocked in call stack 4
+
+	// CP2: second change plan: cancels CP1, waits for CP1 to close its doneChan, then proceeds
+	go lpc.ChangePlan(blip.STATE_READ_ONLY, planName)
+
+	// CP2 is blocked in call stack 2
+
+	time.Sleep(100 * time.Millisecond)
+	returnChan <- fmt.Errorf("fake context canceled error") // CP1 returns; CP2 advances to call stack 4
+
+	select {
+	case <-callChan:
+	case <-time.After(1 * time.Second):
+		t.Fatal("timeout waiting for CP2")
+	}
+
+	returnChan <- nil // CP2 returns, which sets the state to READ_ONLY
+	time.Sleep(150 * time.Millisecond)
+
+	status := lpc.Status()
+	if status.State != blip.STATE_READ_ONLY {
+		t.Errorf("got state %s, expected %s", status.State, blip.STATE_READ_ONLY)
+	}
 }

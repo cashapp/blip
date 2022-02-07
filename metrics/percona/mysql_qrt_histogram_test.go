@@ -63,7 +63,7 @@ func TestPercentile(t *testing.T) {
 
 	for _, test := range tests {
 		percentile, expected = test[0], test[1]
-		result := h.Percentile(percentile)
+		result, _ := h.Percentile(percentile)
 		if math.Abs(result-expected) > tolerance {
 			t.Errorf("For Percentile: %v\tExpected: %v\tGot: %v\n", percentile, expected, result)
 		}
