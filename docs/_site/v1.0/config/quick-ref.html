@@ -22,30 +22,32 @@
 <span class="na">strict</span><span class="pi">:</span> <span class="no">true</span>
 
 <span class="c1"># ---------------------------------------------------------------------------</span>
-<span class="c1"># Defaults for monitors</span>
+<span class="c1"># Monitor defaults</span>
 <span class="c1"># ---------------------------------------------------------------------------</span>
 
-<span class="na">aws-rds</span><span class="pi">:</span>
-  <span class="na">iam-auth-token</span><span class="pi">:</span> <span class="no">true</span>
-  <span class="na">password-secret</span><span class="pi">:</span> <span class="s2">"</span><span class="s">arn::::"</span>
-  <span class="na">region</span><span class="pi">:</span> <span class="s2">"</span><span class="s">us-east-1"</span>
+<span class="na">aws</span><span class="pi">:</span>
   <span class="na">disable-auto-region</span><span class="pi">:</span> <span class="no">false</span>
   <span class="na">disable-auto-tls</span><span class="pi">:</span> <span class="no">false</span>
+  <span class="na">iam-auth-token</span><span class="pi">:</span> <span class="no">true</span>
+  <span class="na">password-secret</span><span class="pi">:</span> <span class="s2">"</span><span class="s">arn::::"</span>
+  <span class="na">region</span><span class="pi">:</span> <span class="s2">"</span><span class="s">us-east-1"</span> <span class="c1"># or "auto"</span>
 
 <span class="na">exporter</span><span class="pi">:</span>
   <span class="na">mode</span><span class="pi">:</span> <span class="s">dual|legacy</span>
   <span class="na">flags</span><span class="pi">:</span>
-    <span class="s">web.listen-address</span><span class="pi">:</span> <span class="s">:9001</span>
+    <span class="s">web.listen-address</span><span class="pi">:</span> <span class="s2">"</span><span class="s">:9001"</span>
+    <span class="s">web.telemetry-path</span><span class="pi">:</span> <span class="s2">"</span><span class="s">/metrics"</span>
 
 <span class="na">heartbeat</span><span class="pi">:</span>
   <span class="na">freq</span><span class="pi">:</span> <span class="s">1s</span>
   <span class="na">table</span><span class="pi">:</span> <span class="s">blip.heartbeat</span>
 
 <span class="na">mysql</span><span class="pi">:</span>
-  <span class="na">mycnf</span><span class="pi">:</span> <span class="s">my.cnf</span>
+  <span class="na">mycnf</span><span class="pi">:</span> <span class="s2">"</span><span class="s">/app/my.cnf"</span>
   <span class="na">username</span><span class="pi">:</span> <span class="s">blip</span>
   <span class="na">password</span><span class="pi">:</span> <span class="s">blip</span>
   <span class="na">password-file</span><span class="pi">:</span> <span class="s2">"</span><span class="s">"</span>
+  <span class="na">socket</span><span class="pi">:</span> <span class="s2">"</span><span class="s">/var/lib/mysql.sock"</span>
   <span class="na">timeout-connect</span><span class="pi">:</span> <span class="s">5s</span>
 
 <span class="na">plans</span><span class="pi">:</span>
@@ -70,81 +72,62 @@
       <span class="na">plan</span><span class="pi">:</span> <span class="s">active-plan.yaml</span>
 
 <span class="na">sinks</span><span class="pi">:</span>
+  <span class="na">chronosphere</span><span class="pi">:</span>
+    <span class="na">url</span><span class="pi">:</span> <span class="s2">"</span><span class="s">http://127.0.0.1:3030/openmetrics/write"</span>
+  <span class="na">log</span><span class="pi">:</span>
+    <span class="c1"># No options</span>
+  <span class="na">noop</span><span class="pi">:</span>
+    <span class="c1"># No options</span>
   <span class="na">retry</span><span class="pi">:</span>
     <span class="na">buffer-size</span><span class="pi">:</span> <span class="m">60</span>
     <span class="na">send-timeout</span><span class="pi">:</span> <span class="s">5s</span>
     <span class="na">send-retry-wait</span><span class="pi">:</span> <span class="s">200ms</span>
-  <span class="na">chronosphere</span><span class="pi">:</span>
-    <span class="na">url</span><span class="pi">:</span> <span class="s2">"</span><span class="s">http://127.0.0.1:3030/openmetrics/write"</span>
   <span class="na">signalfx</span><span class="pi">:</span>
     <span class="na">auth-token</span><span class="pi">:</span> <span class="s2">"</span><span class="s">"</span>
     <span class="na">auth-token-file</span><span class="pi">:</span> <span class="s2">"</span><span class="s">"</span>
-  <span class="na">log</span><span class="pi">:</span>
-    <span class="c1"># No options</span>
 
 <span class="na">tags</span><span class="pi">:</span>
   <span class="na">env</span><span class="pi">:</span> <span class="s">${ENVIRONMENT:-dev}</span>
   <span class="na">dc</span><span class="pi">:</span> <span class="s">${DATACENTER:-local}</span>
-  <span class="na">hostname</span><span class="pi">:</span> <span class="err">%</span><span class="pi">{</span><span class="nv">monitor.hostname</span><span class="pi">}</span>
+  <span class="na">hostname</span><span class="pi">:</span> <span class="s2">"</span><span class="s">%{monitor.hostname}"</span>
 
 <span class="na">tls</span><span class="pi">:</span>
   <span class="na">ca</span><span class="pi">:</span> <span class="s">local.ca</span>
-  <span class="na">cert</span><span class="pi">:</span> <span class="s">/secrets/$%{monitor.hostname}.crt</span>
-  <span class="na">key</span><span class="pi">:</span> <span class="s">/secrets/%{monitor.hostname}.key</span>
+  <span class="na">cert</span><span class="pi">:</span> <span class="s2">"</span><span class="s">/secrets/%{monitor.hostname}.crt"</span>
+  <span class="na">key</span><span class="pi">:</span> <span class="s2">"</span><span class="s">/secrets/%{monitor.hostname}.key"</span>
 
 <span class="c1"># ---------------------------------------------------------------------------</span>
-<span class="c1"># MySQL instances to monitor</span>
+<span class="c1"># Monitors (MySQL instances)</span>
 <span class="c1"># ---------------------------------------------------------------------------</span>
 
 <span class="na">monitors</span><span class="pi">:</span>
-  <span class="pi">-</span> <span class="na">id</span><span class="pi">:</span> <span class="s">host1</span>
-    <span class="c1"># mysql:</span>
+  <span class="pi">-</span> <span class="na">id</span><span class="pi">:</span> <span class="s">host1</span> <span class="c1"># Optional; Blip auto-sets based on mysql variables</span>
+
+    <span class="c1"># -----------------------------------------------</span>
+    <span class="c1"># mysql section variables are specified directly:</span>
     <span class="na">hostname</span><span class="pi">:</span> <span class="s">host1.local</span>
-    <span class="na">socket</span><span class="pi">:</span> <span class="s">/tmp/mysql.sock</span>
     <span class="na">mycnf</span><span class="pi">:</span> <span class="s">my.cnf</span>
     <span class="na">username</span><span class="pi">:</span> <span class="s">metrics</span>
     <span class="na">password</span><span class="pi">:</span> <span class="s">foo</span>
     <span class="na">password-file</span><span class="pi">:</span> <span class="s">/dev/shm/mypasswd</span>
+    <span class="na">socket</span><span class="pi">:</span> <span class="s">/tmp/mysql.sock</span>
     <span class="na">timeout-connect</span><span class="pi">:</span> <span class="s">5s</span>
-    <span class="na">aws-rds</span><span class="pi">:</span>
-      <span class="na">password-secret</span><span class="pi">:</span> <span class="s2">"</span><span class="s">arn::::"</span>
-      <span class="na">iam-auth-token</span><span class="pi">:</span> <span class="no">true</span>
-    <span class="na">exporter</span><span class="pi">:</span>
-      <span class="na">mode</span><span class="pi">:</span> <span class="s">dual|legacy</span>
-      <span class="na">flags</span><span class="pi">:</span>
-        <span class="s2">"</span><span class="s">web.listen-address"</span><span class="pi">:</span> <span class="s">127.0.0.1:9104</span>
-        <span class="s2">"</span><span class="s">web.telemetry-path"</span><span class="pi">:</span> <span class="s">/metrics</span>
-    <span class="na">heartbeat</span><span class="pi">:</span>
-      <span class="na">freq</span><span class="pi">:</span> <span class="s">1s</span>
-      <span class="na">table</span><span class="pi">:</span> <span class="s">blip.heartbeat</span>
-    <span class="na">ha</span><span class="pi">:</span>
-      <span class="c1"># Reserved</span>
-    <span class="na">plans</span><span class="pi">:</span>
-      <span class="na">table</span><span class="pi">:</span> <span class="s2">"</span><span class="s">blip.plans"</span>
-      <span class="c1">#monitor: &lt;monitor&gt;</span>
-      <span class="na">adjust</span><span class="pi">:</span>
-        <span class="na">readonly</span><span class="pi">:</span>
-          <span class="na">after</span><span class="pi">:</span> <span class="s">2s</span>
-          <span class="na">plan</span><span class="pi">:</span> <span class="s">ro.yaml</span>
-        <span class="na">active</span><span class="pi">:</span>
-          <span class="na">after</span><span class="pi">:</span> <span class="s">1s</span>
-          <span class="na">plan</span><span class="pi">:</span> <span class="s">rw.yaml</span>
-    <span class="na">sinks</span><span class="pi">:</span>
-      <span class="na">signalfx</span><span class="pi">:</span>
-        <span class="na">auth-token</span><span class="pi">:</span> <span class="s2">"</span><span class="s">"</span>
-        <span class="na">auth-token-file</span><span class="pi">:</span> <span class="s2">"</span><span class="s">"</span>
-      <span class="na">log</span><span class="pi">:</span>
-        <span class="c1"># No options</span>
-      <span class="na">chronosphere</span><span class="pi">:</span>
-        <span class="na">url</span><span class="pi">:</span> <span class="s">http://127.0.0.1:3030/openmetrics/write</span>
-    <span class="na">tags</span><span class="pi">:</span>
-      <span class="na">env</span><span class="pi">:</span> <span class="s">staging</span>
-      <span class="na">monitor-id</span><span class="pi">:</span> <span class="err">%</span><span class="pi">{</span><span class="nv">monitor.id</span><span class="pi">}</span>
+
+    <span class="c1"># ---------------------------------------------------------------------</span>
+    <span class="c1"># Override monitor defaults by specifying any of the top-level sections</span>
+    <span class="c1"># Exapmle:</span>
     <span class="na">tls</span><span class="pi">:</span>
-      <span class="na">ca</span><span class="pi">:</span> <span class="s">my-ca</span>
-      <span class="na">cert</span><span class="pi">:</span> <span class="s">${SECRETS}/%{monitor.hostname}.cert</span>
-      <span class="na">key</span><span class="pi">:</span>  <span class="s">${SECRETS}/%{monitor.hostname}.key</span>
+      <span class="na">ca</span><span class="pi">:</span> <span class="s">new.ca</span> <span class="c1"># overrides monitor default 'tls.ca: local.ca'</span>
+
+    <span class="c1"># ----------------------------------------------</span>
+    <span class="c1"># Tags override monitor defaults or set new tags</span>
+    <span class="na">tags</span><span class="pi">:</span>
+      <span class="na">hostname</span><span class="pi">:</span> <span class="s2">"</span><span class="s">host1"</span>  <span class="c1"># overrides monitor default</span>
+      <span class="na">foo</span><span class="pi">:</span>      <span class="s2">"</span><span class="s">bar"</span>    <span class="c1"># new tag</span>
+
+    <span class="c1"># ---------------------------------------------------</span>
+    <span class="c1"># Meta values unique to monitor (no monitor defaults)</span>
     <span class="na">meta</span><span class="pi">:</span>
-      <span class="na">source</span><span class="pi">:</span> <span class="s">host2.local</span>
-      <span class="na">canary</span><span class="pi">:</span> <span class="s">no</span>
+      <span class="na">repl-source</span><span class="pi">:</span> <span class="s">source-db.local</span>
+      <span class="na">canary</span><span class="pi">:</span> <span class="s">yes</span>
 </code></pre></div></div> </div> </div> <div class="search-overlay"></div> </div> </body> </html>

@@ -42,30 +42,32 @@ monitor-loader:
 strict: true
 
 # ---------------------------------------------------------------------------
-# Defaults for monitors
+# Monitor defaults
 # ---------------------------------------------------------------------------
 
-aws-rds:
-  iam-auth-token: true
-  password-secret: "arn::::"
-  region: "us-east-1"
+aws:
   disable-auto-region: false
   disable-auto-tls: false
+  iam-auth-token: true
+  password-secret: "arn::::"
+  region: "us-east-1" # or "auto"
 
 exporter:
   mode: dual|legacy
   flags:
-    web.listen-address: :9001
+    web.listen-address: ":9001"
+    web.telemetry-path: "/metrics"
 
 heartbeat:
   freq: 1s
   table: blip.heartbeat
 
 mysql:
-  mycnf: my.cnf
+  mycnf: "/app/my.cnf"
   username: blip
   password: blip
   password-file: ""
+  socket: "/var/lib/mysql.sock"
   timeout-connect: 5s
 
 plans:
@@ -90,81 +92,62 @@ plans:
       plan: active-plan.yaml
 
 sinks:
+  chronosphere:
+    url: "http://127.0.0.1:3030/openmetrics/write"
+  log:
+    # No options
+  noop:
+    # No options
   retry:
     buffer-size: 60
     send-timeout: 5s
     send-retry-wait: 200ms
-  chronosphere:
-    url: "http://127.0.0.1:3030/openmetrics/write"
   signalfx:
     auth-token: ""
     auth-token-file: ""
-  log:
-    # No options
 
 tags:
   env: ${ENVIRONMENT:-dev}
   dc: ${DATACENTER:-local}
-  hostname: %{monitor.hostname}
+  hostname: "%{monitor.hostname}"
 
 tls:
   ca: local.ca
-  cert: /secrets/$%{monitor.hostname}.crt
-  key: /secrets/%{monitor.hostname}.key
+  cert: "/secrets/%{monitor.hostname}.crt"
+  key: "/secrets/%{monitor.hostname}.key"
 
 # ---------------------------------------------------------------------------
-# MySQL instances to monitor
+# Monitors (MySQL instances)
 # ---------------------------------------------------------------------------
 
 monitors:
-  - id: host1
-    # mysql:
+  - id: host1 # Optional; Blip auto-sets based on mysql variables
+
+    # -----------------------------------------------
+    # mysql section variables are specified directly:
     hostname: host1.local
-    socket: /tmp/mysql.sock
     mycnf: my.cnf
     username: metrics
     password: foo
     password-file: /dev/shm/mypasswd
+    socket: /tmp/mysql.sock
     timeout-connect: 5s
-    aws-rds:
-      password-secret: "arn::::"
-      iam-auth-token: true
-    exporter:
-      mode: dual|legacy
-      flags:
-        "web.listen-address": 127.0.0.1:9104
-        "web.telemetry-path": /metrics
-    heartbeat:
-      freq: 1s
-      table: blip.heartbeat
-    ha:
-      # Reserved
-    plans:
-      table: "blip.plans"
-      #monitor: <monitor>
-      adjust:
-        readonly:
-          after: 2s
-          plan: ro.yaml
-        active:
-          after: 1s
-          plan: rw.yaml
-    sinks:
-      signalfx:
-        auth-token: ""
-        auth-token-file: ""
-      log:
-        # No options
-      chronosphere:
-        url: http://127.0.0.1:3030/openmetrics/write
-    tags:
-      env: staging
-      monitor-id: %{monitor.id}
+
+    # ---------------------------------------------------------------------
+    # Override monitor defaults by specifying any of the top-level sections
+    # Exapmle:
     tls:
-      ca: my-ca
-      cert: ${SECRETS}/%{monitor.hostname}.cert
-      key:  ${SECRETS}/%{monitor.hostname}.key
+      ca: new.ca # overrides monitor default 'tls.ca: local.ca'
+
+    # ----------------------------------------------
+    # Tags override monitor defaults or set new tags
+    tags:
+      hostname: "host1"  # overrides monitor default
+      foo:      "bar"    # new tag
+
+    # ---------------------------------------------------
+    # Meta values unique to monitor (no monitor defaults)
     meta:
-      source: host2.local
-      canary: no
+      repl-source: source-db.local
+      canary: yes
 ```

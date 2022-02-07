@@ -45,7 +45,7 @@ monitors:
 Since no server config is specified, `blip` uses  built-in defaults (see [Zero Config](blip#zero-config)), which is probably fine for the server.
 
 {: .src }
-{ [config.go](https://github.com/cashapp/blip/blob/main/config.go) }
+// [config.go](https://github.com/cashapp/blip/blob/main/config.go)
 
 # Conventions
 
@@ -71,7 +71,7 @@ Instead, some features of either off or auto by default.
 If off by default, the feature is enabled by specifying a variable noted in the docs.
 For example, `heartbeat` is off by default and enabled when `heartbeat.freq` is specififed.
 If auto by default, the feature is disabled by specifying `disable-auto-FEATURE: true`, where `FEATURE` is the feature name.
-For example, `aws-rds.disable-auto-region: true` to disable auto-detecting the AWS region.
+For example, `aws.disable-auto-region: true` to disable auto-detecting the AWS region.
 
 <br><br><br>
 
@@ -185,15 +185,31 @@ The `monitor-loader` section configures how Blip finds and loads MySQL instances
 
 ```yaml
 monitor-loader:
-  freq: ""
-  files: []
-  stop-loss: ""
   aws:
     regions: []
+  freq: ""
+  files: []
   local:
     disable-auto: false
     disable-auto-root: false
+  stop-loss: ""
 ```
+
+### aws
+
+The `aws` subsection of the `monitor-loader` section configure built-in support for loading Amazon RDS instances.
+By default, this feature is disabled.
+To enable, specify `regions`.
+
+### `regions`
+
+{: .var-table }
+|**Type**|list of strings|
+|**Valid values**|AWS region names or "auto" to auto-detect|
+|**Default value**||
+
+The `regions` variable sets which AWS regions to query for RDS instances.
+If `auto` is specified, Blip queries [EC2 IMDS](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ec2-instance-metadata.html), which only works if Blip is running on an EC2 instance with an [EC2 instance profile](https://docs.aws.amazon.com/IAM/latest/UserGuide/id_roles_use_switch-role-ec2_instance-profiles.html) that allows [rds:DescribeDBInstances](https://docs.aws.amazon.com/AmazonRDS/latest/APIReference/API_DescribeDBInstances.html).
 
 ### `freq`
 
@@ -212,27 +228,14 @@ It's off by default, which means moniitors are loaded only once at startup.
 |**Valid values**|file names|
 |**Default value**||
 
-The `files` variable specifies YAML files to load monitors from. Each file must have a `monitors` section.
+The `files` variable specifies YAML files to load monitors from. Each file must have a `monitors` section, like:
 
-### `stop-loss`
+```yaml
+---
+monitors:
+  - hostname: db.local
+```
 
-{: .var-table }
-|**Type**|string|
-|**Valid values**|&bull;&nbsp;"N%" (percentage) where N is an integer btween 0 and 100 (exclusive)<br>&bull;&nbsp;"N" where N is an integer greater than 0|
-|**Default value**||
-
-The `stop-loss` variable enables the [stop-lost feature](../server/monitor-loader#stop-loss).
-
-### aws
-
-### `regions`
-
-{: .var-table }
-|**Type**|list of strings|
-|**Valid values**|AWS region names|
-|**Default value**||
-
-The `regions` variable sets which AWS regions to query for RDS intances.
 
 ### local
 
@@ -240,6 +243,15 @@ The `local` subsection has only two variables:
 
 `disable-auto: true`
 `disable-auto-root: true`
+
+### `stop-loss`
+
+{: .var-table }
+|**Type**|string|
+|**Valid values**|&bull;&nbsp;"N%" (percentage) where N is an integer between 0 and 100 (exclusive)<br>&bull;&nbsp;"N" where N is an integer greater than 0|
+|**Default value**||
+
+The `stop-loss` variable enables the [stop-lost feature](../server/monitor-loader#stop-loss).
 
 ## `strict`
 
@@ -249,7 +261,7 @@ The `local` subsection has only two variables:
 |**Default value**|`false`|
 
 The `strict` variable enables strict mode, which is disabled by default.
-In strict mode, Blip returns certains errors rather than ignoring them.
+In strict mode, Blip returns certain errors rather than ignoring them.
 
 # Monitor Defaults
 
@@ -275,21 +287,41 @@ If a monitor explicitly sets one of the variables, then its explicit value is us
 {: .note }
 Monitor defaults are convenient, but explicit monitor configuraiton is more clear, so use monitor defatuls sparingly.
 The intended use case is for variables that _must_ be consistent for all monitors.
-For example, if Blip monitors Amazon RDS instances in region `us-east-1`, then setting monitor default `aws-rds.region: "us-east-1"` makes sense.
+For example, if Blip monitors Amazon RDS instances in region `us-east-1`, then setting monitor default `aws.region: "us-east-1"` makes sense.
 
 {: .config-section-title}
-## aws-rds
+## aws
 
-The `aws-rds` section configures Amazon RDS for MySQL.
+The `aws` section configures Amazon RDS for MySQL.
 
 ```yaml
-aws-rds:
+aws:
+  disable-auto-region: false
+  disable-auto-tls: false
   iam-auth-token: false
   password-secret: ""
   region: ""
-  disable-auto-region: false
-  disable-auto-tls: false
 ```
+
+### `disable-auto-region`
+
+{: .var-table }
+|**Type**|string|
+|**Valid values**|`true` or `false`|
+|**Default value**|`false`|
+
+The `disable-auto-region` variable enables/disables automatic detection of the AWS region.
+
+### `disable-auto-tls`
+
+{: .var-table }
+|**Type**|string|
+|**Valid values**|`true` or `false`|
+|**Default value**|`false`|
+
+The `disable-auto-tls` variables enables/disables automatic use of the Amazon RDS certifcate authority (CA).
+By default, Blip uses the 2019 AWS RDS CA, which is built-in (you don't need to configure anything).
+See [AWS](../cloud/aws) for details.
 
 ### `iam-auth-token`
 
@@ -320,26 +352,6 @@ The `password-secret` variables sets the AWS Secrets Manager ARN that contains t
 
 The `region` variable sets the AWS region.
 
-### `disable-auto-region`
-
-{: .var-table }
-|**Type**|string|
-|**Valid values**|`true` or `false`|
-|**Default value**|`false`|
-
-The `disable-auto-region` variable enables/disables automatic detection of the AWS region.
-
-### `disable-auto-tls`
-
-{: .var-table }
-|**Type**|string|
-|**Valid values**|`true` or `false`|
-|**Default value**|`false`|
-
-The `disable-auto-tls` variables enables/disables automatic use of the Amazon RDS certifcate authority (CA).
-By default, Blip uses the 2019 AWS RDS CA, which is built-in (you don't need to configure anything).
-See [AWS](../cloud/aws) for details.
-
 {: .config-section-title}
 ## exporter
 
@@ -347,23 +359,11 @@ The `exporter` section configure Blip to emulate Prometheus `mysqld_exporter`.
 
 ```yaml
 exporter:
-  mode: ""
   flags:
     web.listen-address: "127.0.0.1:9104"
     web.telemetry-path: "/metrics"
+  mode: ""
 ```
-
-### `mode`
-
-{: .var-table }
-|**Type**|string|
-|**Valid values**|`dual` or `legacy`|
-|**Default value**||
-
-The `mode` variables enables the [Prometheus emualation feature](../prometheus/).
-When set to `dual`, Blip runs normally _and_ emulates Prometheus.
-When set to `legacy`, Blip runs _only_ emulates Prometheus.
-The feature is disabled by default.
 
 ### `flags`
 
@@ -376,6 +376,18 @@ The `flag` variable is a key-value map of strings for certain Prometheus mysqld_
 
 * `web.listen-address` (default: `127.0.0.1:9104`)
 * `web.telemetry-path` (default: `/metrics`)
+
+### `mode`
+
+{: .var-table }
+|**Type**|string|
+|**Valid values**|`dual` or `legacy`|
+|**Default value**||
+
+The `mode` variables enables the [Prometheus emualation feature](../prometheus/).
+When set to `dual`, Blip runs normally _and_ emulates Prometheus.
+When set to `legacy`, Blip runs _only_ emulates Prometheus.
+The feature is disabled by default.
 
 {: .config-section-title}
 ## heartbeat
@@ -517,37 +529,6 @@ plans:
     # See below
 ```
 
-### `files`
-
-{: .var-table }
-|**Type**|list of strings|
-|**Valid values**|file names|
-|**Default value**|`plans.yaml`|
-
-The `files` variable is a list of file names from which to load plans.
-Blip attempts to load the default, `plans.yaml`, but it is not required and does not cause an error if the file does not exist.
-Instead, in this case, Blip uses a default built-in plan.
-If plan files are explicitly configured, Blip only reads those plan files.
-
-### `monitor`
-
-{: .var-table }
-|**Type**|dictonary|
-|**Valid values**|[Monitor](#monitors)|
-|**Default value**||
-
-The `monitor` variable configures the MySQL instance from which the [`table`](#table-1) is loaded.
-
-### `table`
-
-{: .var-table }
-|**Type**|string|
-|**Valid values**|valid MySQL table name|
-|**Default value**||
-
-The `table` variable configures the MySQL table name from which plans are loaded.
-See
-
 ### adjust
 
 The `adjust` subection of the `plan` section configures the [Level Plan Adjuster (LPA) feature](../monitor/level-adjuster.hmtml).
@@ -589,6 +570,36 @@ The `after` variable sets how long before the state takes effect.
 
 The `plan` variable sets the plan to load when the state takes effect.
 
+### `files`
+
+{: .var-table }
+|**Type**|list of strings|
+|**Valid values**|file names|
+|**Default value**|`plans.yaml`|
+
+The `files` variable is a list of file names from which to load plans.
+Blip attempts to load the default, `plans.yaml`, but it is not required and does not cause an error if the file does not exist.
+Instead, in this case, Blip uses a default built-in plan.
+If plan files are explicitly configured, Blip only reads those plan files.
+
+### `monitor`
+
+{: .var-table }
+|**Type**|dictonary|
+|**Valid values**|[Monitor](#monitors)|
+|**Default value**||
+
+The `monitor` variable configures the MySQL instance from which the [`table`](#table-1) is loaded.
+
+### `table`
+
+{: .var-table }
+|**Type**|string|
+|**Valid values**|valid MySQL table name|
+|**Default value**||
+
+The `table` variable configures the MySQL table name from which plans are loaded.
+
 {: .config-section-title}
 ## sinks
 
@@ -615,6 +626,11 @@ The options for each are listed below.
 ### log
 
 The Blip built-in `log` sink has no options.
+
+### noop
+
+The Blip built-in `noop` sink has no options.
+It discards all metrics, which is useful for testing end-to-end metrics collection without having to send the metrics somewhere.
 
 ### signalfix
 
@@ -658,7 +674,7 @@ tls:
 You can specify only `tls.ca`, or `tls.cert` and `tls.key`, or all three; any other combination is invalid.
 
 {: .note}
-By default, Blip does not use TLS for MySQL connections _except_ when using AWS; see section [`aws-rds`](#aws-rds) or [AWS](../cloud/aws).
+By default, Blip does not use TLS for MySQL connections _except_ when using AWS; see section [`aws`](#aws) or [AWS](../cloud/aws).
 
 ### `ca`
 

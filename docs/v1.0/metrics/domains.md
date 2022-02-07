@@ -283,6 +283,23 @@ The `query.id` domain includes metrics for unique queries identified by digest S
 ## repl
 _MySQL Replication_
 
+{: .var-table}
+|Blip version|v1.0.0|
+|Sources|`SHOW SLAVE|REPLICA STATUS`|
+|MySQL config|no|
+|Group keys||
+|Meta||
+|Metrics|&bull; `ok` (gauge): 1 if IO and SQL threads running and no error<br>&bull; `error` (gauge): 1 if any replication error|
+
+#### Collector Metrics
+{: .no_toc }
+
+* `ok`<br>
+Type: gauge<br>
+1 only if `Slave_IO_Running=Yes` and `Slave_SQL_Running=Yes` and `Last_Errno=0`; else 0 for all other states (not running, null values, not configured as replica, and so on). Lag does not affect this metric.
+* `error`<br>
+0 if MySQL is a replica and `Last_Errno=0`.
+
 ### repl.lag
 _MySQL Replication Lag_
 
@@ -431,4 +448,4 @@ _MySQL System Variables_
 |Group keys||
 |Meta||
 
-Classic MySQL `SHOW GLOBAL VARIBLES`.
+Classic MySQL `SHOW GLOBAL VARIABLES`.
