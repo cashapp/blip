@@ -28,9 +28,10 @@ var ReadErrorWait = 1 * time.Second
 
 // BlipReader reads heartbeats from BlipWriter.
 type BlipReader struct {
-	db     *sql.DB
-	table  string
-	source string
+	db         *sql.DB
+	table      string
+	sourceId   string
+	sourceRole string
 	// --
 	waiter LagWaiter
 	*sync.Mutex
@@ -40,11 +41,12 @@ type BlipReader struct {
 	doneChan chan struct{}
 }
 
-func NewBlipReader(db *sql.DB, table, source string, waiter LagWaiter) *BlipReader {
+func NewBlipReader(db *sql.DB, table, sourceId, sourceRole string, waiter LagWaiter) *BlipReader {
 	return &BlipReader{
-		db:     db,
-		table:  table,
-		source: source,
+		db:         db,
+		table:      table,
+		sourceId:   sourceId,
+		sourceRole: sourceRole,
 		// --
 		waiter:   waiter,
 		Mutex:    &sync.Mutex{},
@@ -61,7 +63,13 @@ func (r *BlipReader) Start() error {
 func (r *BlipReader) run() {
 	defer close(r.doneChan)
 
-	q := fmt.Sprintf("SELECT NOW(3), ts, freq FROM %s WHERE monitor_id='%s'", r.table, r.source)
+	var q string
+	if r.sourceRole != "" {
+		q = fmt.Sprintf("SELECT NOW(3), ts, freq, src_id FROM %s WHERE src_role='%s' ORDER BY ts DESC LIMIT 1",
+			r.table, r.sourceRole)
+	} else {
+		q = fmt.Sprintf("SELECT NOW(3), ts, freq, '' FROM %s WHERE src_id='%s'", r.table, r.sourceId)
+	}
 	blip.Debug("heartbeat reader: %s", q)
 
 	var (
@@ -69,6 +77,7 @@ func (r *BlipReader) run() {
 		last   sql.NullTime  // last heartbeat
 		freq   int           // freq of heartbeats (milliseconds)
 		lag    int64         // lag since last
+		srcId  string        // source_id, might change if using src_role
 		wait   time.Duration // wait time until next check
 		err    error
 		ctx    context.Context
@@ -82,21 +91,21 @@ func (r *BlipReader) run() {
 		}
 
 		ctx, cancel = context.WithTimeout(context.Background(), ReadTimeout)
-		err = r.db.QueryRowContext(ctx, q).Scan(&now, &last, &freq)
+		err = r.db.QueryRowContext(ctx, q).Scan(&now, &last, &freq, &srcId)
 		cancel()
 		if err != nil {
 			switch {
 			case err == sql.ErrNoRows:
-				status.Monitor(r.source, "reader-error", "no heartbeat for %s", r.source)
+				status.Monitor(r.sourceId, "reader-error", "no heartbeat for %s", r.sourceId)
 			default:
 				blip.Debug(err.Error())
-				status.Monitor(r.source, "reader-error", err.Error())
+				status.Monitor(r.sourceId, "reader-error", err.Error())
 			}
 			time.Sleep(ReadErrorWait)
 			continue
 		}
 
-		lag, wait = r.waiter.Wait(now, last.Time, freq)
+		lag, wait = r.waiter.Wait(now, last.Time, freq, srcId)
 
 		r.Lock()
 		if lag > r.lag {
@@ -105,7 +114,7 @@ func (r *BlipReader) run() {
 		r.last = last.Time
 		r.Unlock()
 
-		status.Monitor(r.source, "reader", "running (lag %d ms, sleep %s)", lag, wait)
+		status.Monitor(r.sourceId, "reader", "%d ms lag from %s (%s), next in %s)", lag, srcId, r.sourceRole, wait)
 		time.Sleep(wait)
 	}
 }
@@ -132,7 +141,7 @@ func (r *BlipReader) Lag(_ context.Context) (int64, time.Time, error) {
 // --------------------------------------------------------------------------
 
 type LagWaiter interface {
-	Wait(now, past time.Time, freq int) (int64, time.Duration)
+	Wait(now, past time.Time, freq int, srcId string) (int64, time.Duration)
 }
 
 type SlowFastWaiter struct {
@@ -141,9 +150,9 @@ type SlowFastWaiter struct {
 
 var _ LagWaiter = &SlowFastWaiter{}
 
-func (w *SlowFastWaiter) Wait(now, last time.Time, freq int) (int64, time.Duration) {
+func (w *SlowFastWaiter) Wait(now, last time.Time, freq int, srcId string) (int64, time.Duration) {
 	next := last.Add(time.Duration(freq) * time.Millisecond)
-	blip.Debug("last=%s  now=%s  next=%s", last, now, next)
+	blip.Debug("last=%s  now=%s  next=%s  src=%s", last, now, next, srcId)
 
 	if now.Before(next) {
 		lag := now.Sub(last) - w.NetworkLatency

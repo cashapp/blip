@@ -402,12 +402,16 @@ func (c *ConfigMonitor) ApplyDefaults(b Config) {
 	if c.TimeoutConnect == "" && b.MySQL.TimeoutConnect != "" {
 		c.TimeoutConnect = b.MySQL.TimeoutConnect
 	}
-
-	for bk, bv := range b.Tags {
-		if _, ok := c.Tags[bk]; ok {
-			continue
+	if len(b.Tags) > 0 {
+		if c.Tags == nil {
+			c.Tags = map[string]string{}
 		}
-		c.Tags[bk] = bv
+		for bk, bv := range b.Tags {
+			if _, ok := c.Tags[bk]; ok {
+				continue
+			}
+			c.Tags[bk] = bv
+		}
 	}
 
 	if c.Sinks == nil {
@@ -620,8 +624,10 @@ func (c *ConfigExporter) InterpolateMonitor(m *ConfigMonitor) {
 // --------------------------------------------------------------------------
 
 type ConfigHeartbeat struct {
-	Freq  string `yaml:"freq,omitempty"`
-	Table string `yaml:"table,omitempty"`
+	Freq         string `yaml:"freq,omitempty"`
+	ReportedId   string `yaml:"reported-id,omitempty"`
+	ReportedRole string `yaml:"reported-role,omitempty"`
+	Table        string `yaml:"table,omitempty"`
 }
 
 const (
@@ -645,6 +651,12 @@ func (c *ConfigHeartbeat) ApplyDefaults(b Config) {
 	}
 	if c.Table == "" {
 		c.Table = b.Heartbeat.Table
+	}
+	if c.ReportedId == "" {
+		c.ReportedId = b.Heartbeat.ReportedId
+	}
+	if c.ReportedRole == "" {
+		c.ReportedRole = b.Heartbeat.ReportedRole
 	}
 	if c.Freq != "" && c.Table == "" {
 		c.Table = DEFAULT_HEARTBEAT_TABLE

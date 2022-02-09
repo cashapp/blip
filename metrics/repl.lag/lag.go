@@ -14,13 +14,11 @@ import (
 const (
 	DOMAIN = "repl.lag"
 
-	OPT_AUTO   = "auto"
-	OPT_WRITER = "writer"
-	OPT_TABLE  = "table"
-	OPT_SOURCE = "source"
-
-	DEFAULT_WRITER = "blip"
-	DEFAULT_TABLE  = "blip.heartbeat"
+	OPT_AUTO        = "auto"
+	OPT_SOURCE_ID   = "source-id"
+	OPT_SOURCE_ROLE = "source-role"
+	OPT_TABLE       = "table"
+	OPT_WRITER      = "writer"
 )
 
 type Lag struct {
@@ -59,7 +57,7 @@ func (c *Lag) Help() blip.CollectorHelp {
 			OPT_WRITER: {
 				Name:    OPT_WRITER,
 				Desc:    "Type of heartbeat writer",
-				Default: DEFAULT_WRITER,
+				Default: "blip",
 				Values: map[string]string{
 					"blip": "Native Blip replication lag",
 					//"pt-heartbeat": "Percona pt-heartbeat",
@@ -70,11 +68,15 @@ func (c *Lag) Help() blip.CollectorHelp {
 			OPT_TABLE: {
 				Name:    OPT_TABLE,
 				Desc:    "Heartbeat table",
-				Default: DEFAULT_TABLE,
+				Default: blip.DEFAULT_HEARTBEAT_TABLE,
 			},
-			OPT_SOURCE: {
-				Name: OPT_SOURCE,
-				Desc: "Source MySQL instance (suggested: %%{monitor.meta.repl-source})",
+			OPT_SOURCE_ID: {
+				Name: OPT_SOURCE_ID,
+				Desc: "Source ID as reported by heartbeat writer; mutually exclusive with " + OPT_SOURCE_ROLE + " (suggested: %%{monitor.meta.repl-source-id})",
+			},
+			OPT_SOURCE_ROLE: {
+				Name: OPT_SOURCE_ROLE,
+				Desc: "Source role as reported by heartbeat writer; mutually exclusive with " + OPT_SOURCE_ID + " (suggested: %%{monitor.meta.repl-source-role})",
 			},
 		},
 		Metrics: []blip.CollectorMetric{
@@ -94,26 +96,29 @@ LEVEL:
 		if !ok {
 			continue LEVEL // not collected in this level
 		}
+		blip.Debug(">>>> %v", dom.Options)
 
-		source := dom.Options[OPT_SOURCE]
-		if source == "" {
-			blip.Debug("%s: no source, ignoring", plan.MonitorId)
+		sourceId := dom.Options[OPT_SOURCE_ID]
+		sourceRole := dom.Options[OPT_SOURCE_ROLE]
+		if sourceId == "" && sourceRole == "" {
+			blip.Debug("%s: no source id or role, ignoring", plan.MonitorId)
 			continue
 		}
 
 		table := dom.Options[OPT_TABLE]
 		if table == "" {
-			table = DEFAULT_TABLE
+			table = blip.DEFAULT_HEARTBEAT_TABLE
 		}
 
 		switch dom.Options[OPT_WRITER] {
-		case DEFAULT_WRITER, "":
+		case "", "blip": // "" == default == blip
 			if c.lagReader == nil {
 				// Only 1 reader per plan
 				c.lagReader = heartbeat.NewBlipReader(
 					c.db,
 					table,
-					source,
+					sourceId,
+					sourceRole,
 					&heartbeat.SlowFastWaiter{NetworkLatency: 50 * time.Millisecond}, // @todo OPT_NETWORK_LATENCY
 				)
 				go c.lagReader.Start()
