@@ -46,7 +46,7 @@ func (r *repo) ReloadPassword(ctx context.Context, currentDSN string) string {
 		blip.Debug("error parsing DSN %s: %s", currentDSN, err)
 		return ""
 	}
-	blip.Debug("old dsn: %+v", cfg)
+	blip.Debug("old dsn: %+v", RedactedDSN(currentDSN))
 
 	v, ok := r.m.Load(cfg.Addr)
 	if !ok {
