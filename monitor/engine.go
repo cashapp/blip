@@ -159,7 +159,7 @@ func (e *Engine) Prepare(ctx context.Context, plan blip.Plan, before, after func
 	err := e.db.PingContext(dbctx)
 	cancel()
 	if err != nil {
-		lerr = fmt.Errorf("while connecting to MySQL: %s", lerr)
+		lerr = fmt.Errorf("while connecting to MySQL: %s", err)
 		return lerr
 	}
 
