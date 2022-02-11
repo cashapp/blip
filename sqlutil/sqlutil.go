@@ -16,7 +16,8 @@ import (
 	ver "github.com/hashicorp/go-version"
 )
 
-// Float64 converts string to float64, if possible.
+// Float64 converts string to float64. If successful, it returns the float64
+// value and true, else it returns 0, false.
 func Float64(s string) (float64, bool) {
 	f, err := strconv.ParseFloat(s, 64)
 	if err == nil {
@@ -108,6 +109,8 @@ func MySQLVersionGTE(version string, db *sql.DB, ctx context.Context) (bool, err
 	return cuurentVersion.GreaterThanOrEqual(targetVersion), nil
 }
 
+// ReadOnly returns true if the err is a MySQL read-only error caused by writing
+// to a read-only instance.
 func ReadOnly(err error) bool {
 	mysqlError, myerr := my.Error(err)
 	if !mysqlError {
@@ -142,11 +145,20 @@ func RowToMap(ctx context.Context, db *sql.DB, query string) (map[string]string,
 		scanArgs[i] = &values[i]
 	}
 
+	// Count rows while scanning, not because there should be only 1, but because
+	// MySQL sends the columns ^ even if 0 rows, which makes "for i, col := range columns"
+	// below always run, creating a map with cols but empty values. To prevent that,
+	// we return a truly empty map if MySQL returns zero rows.
+	n := 0
 	for rows.Next() {
 		err = rows.Scan(scanArgs...)
 		if err != nil {
 			return nil, err
 		}
+		n++
+	}
+	if n == 0 {
+		return nil, nil
 	}
 
 	// Map column => value

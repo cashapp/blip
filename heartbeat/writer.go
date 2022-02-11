@@ -56,9 +56,9 @@ func NewWriter(monitorId string, db *sql.DB, cfg blip.ConfigHeartbeat) *Writer {
 
 	freq, _ := time.ParseDuration(cfg.Freq)
 
-	srcId := monitorId
-	if cfg.ReportedId != "" {
-		srcId = cfg.ReportedId
+	srcId := cfg.ReportedId
+	if srcId == "" {
+		srcId = monitorId
 	}
 
 	return &Writer{

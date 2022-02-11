@@ -13,10 +13,12 @@ import (
 
 const (
 	DOMAIN = "repl"
+
+	NOT_A_REPLICA = -1
 )
 
 type replMetrics struct {
-	hasError bool
+	chedkRunning bool
 }
 
 type Repl struct {
@@ -44,9 +46,9 @@ func (c *Repl) Help() blip.CollectorHelp {
 		Options:     map[string]blip.CollectorHelpOption{},
 		Metrics: []blip.CollectorMetric{
 			{
-				Name: "error",
+				Name: "running",
 				Type: blip.GAUGE,
-				Desc: "1 if instance is a replica and Last_Errno is not zero, else 0",
+				Desc: "1=running (no error), 0=not running, -1=not a replica",
 			},
 		},
 	}
@@ -71,8 +73,8 @@ LEVEL:
 		m := replMetrics{}
 		for i := range dom.Metrics {
 			switch dom.Metrics[i] {
-			case "error":
-				m.hasError = true
+			case "running":
+				m.chedkRunning = true
 			default:
 				return nil, fmt.Errorf("invalid collector metric: %s (run 'blip --print-domains' to list collector metrics)", dom.Metrics[i])
 			}
@@ -104,6 +106,8 @@ func (c *Repl) Collect(ctx context.Context, levelName string) ([]blip.MetricValu
 		return nil, nil
 	}
 
+	// Return SHOW SLAVE|REPLICA STATUS as map[string]string, which can be nil
+	// if MySQL is not a replica
 	replStatus, err := sqlutil.RowToMap(ctx, c.db, statusQuery)
 	if err != nil {
 		return nil, fmt.Errorf("%s failed: %s", statusQuery, err)
@@ -111,18 +115,28 @@ func (c *Repl) Collect(ctx context.Context, levelName string) ([]blip.MetricValu
 
 	metrics := []blip.MetricValue{}
 
-	if rm.hasError {
-		var hasError float64
-		if len(replStatus) > 0 && replStatus["Last_Errno"] != "0" {
-			hasError = 1
+	// Report repl.running: 1=running, 0=not running, -1=not a replica
+	//
+	// NOTE: values are literal, not passed through sqlutil.Float64, so
+	//       we look for "Yes" not 1, which works in this specific case.
+	if rm.chedkRunning {
+		var running float64 // 0 = not running by default
+		if len(replStatus) == 0 {
+			// no SHOW SLAVE|REPLICA STATUS output = not a replica
+			running = float64(NOT_A_REPLICA)
+		} else if replStatus["Slave_IO_Running"] == "Yes" && replStatus["Slave_SQL_Running"] == "Yes" && replStatus["Last_Errno"] == "0" {
+			// running if a replica and those ^ 3 conditions are true
+			running = 1
 		}
 		m := blip.MetricValue{
-			Name:  "error",
+			Name:  "running",
 			Type:  blip.GAUGE,
-			Value: hasError,
+			Value: running,
 		}
 		metrics = append(metrics, m)
 	}
+
+	// @todo collect other repl status metrics
 
 	return metrics, nil
 }

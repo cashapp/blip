@@ -9,6 +9,7 @@ import (
 
 	"github.com/cashapp/blip"
 	"github.com/cashapp/blip/heartbeat"
+	"github.com/cashapp/blip/sqlutil"
 )
 
 const (
@@ -19,6 +20,7 @@ const (
 	OPT_SOURCE_ROLE = "source-role"
 	OPT_TABLE       = "table"
 	OPT_WRITER      = "writer"
+	OPT_REPL_CHECK  = "repl-check"
 )
 
 type Lag struct {
@@ -78,6 +80,10 @@ func (c *Lag) Help() blip.CollectorHelp {
 				Name: OPT_SOURCE_ROLE,
 				Desc: "Source role as reported by heartbeat writer; mutually exclusive with " + OPT_SOURCE_ID + " (suggested: %%{monitor.meta.repl-source-role})",
 			},
+			OPT_REPL_CHECK: {
+				Name: OPT_REPL_CHECK,
+				Desc: "MySQL global variable to check if instance is a replica",
+			},
 		},
 		Metrics: []blip.CollectorMetric{
 			{
@@ -96,7 +102,6 @@ LEVEL:
 		if !ok {
 			continue LEVEL // not collected in this level
 		}
-		blip.Debug(">>>> %v", dom.Options)
 
 		sourceId := dom.Options[OPT_SOURCE_ID]
 		sourceRole := dom.Options[OPT_SOURCE_ROLE]
@@ -114,13 +119,15 @@ LEVEL:
 		case "", "blip": // "" == default == blip
 			if c.lagReader == nil {
 				// Only 1 reader per plan
-				c.lagReader = heartbeat.NewBlipReader(
-					c.db,
-					table,
-					sourceId,
-					sourceRole,
-					&heartbeat.SlowFastWaiter{NetworkLatency: 50 * time.Millisecond}, // @todo OPT_NETWORK_LATENCY
-				)
+				c.lagReader = heartbeat.NewBlipReader(heartbeat.BlipReaderArgs{
+					MonitorId:  plan.MonitorId,
+					DB:         c.db,
+					Table:      table,
+					SourceId:   sourceId,
+					SourceRole: sourceRole,
+					ReplCheck:  sqlutil.CleanObjectName(dom.Options[OPT_REPL_CHECK]),             // @todo sanitize better
+					Waiter:     &heartbeat.SlowFastWaiter{NetworkLatency: 50 * time.Millisecond}, // @todo OPT_NETWORK_LATENCY
+				})
 				go c.lagReader.Start()
 				blip.Debug("started heartbeat.Reader for %s %s", plan.Name, level.Name)
 			}
@@ -146,6 +153,9 @@ func (c *Lag) Collect(ctx context.Context, levelName string) ([]blip.MetricValue
 	lag, _, err := c.lagReader.Lag(ctx)
 	if err != nil {
 		return nil, err
+	}
+	if lag == heartbeat.NOT_A_REPLICA {
+		return nil, nil
 	}
 	m := blip.MetricValue{
 		Name:  "lag",
