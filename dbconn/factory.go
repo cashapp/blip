@@ -11,6 +11,7 @@ import (
 	"io/ioutil"
 	"os"
 	"os/exec"
+	"regexp"
 	"strings"
 	"time"
 
@@ -19,6 +20,8 @@ import (
 	"github.com/cashapp/blip"
 	"github.com/cashapp/blip/aws"
 )
+
+var portRe = regexp.MustCompile(`rds.amazonaws.com(:\d+)?$`)
 
 // factory is the internal implementation of blip.DbFactory.
 type factory struct {
@@ -129,7 +132,7 @@ func (f factory) Make(cfg blip.ConfigMonitor) (*sql.DB, string, error) {
 		params = append(params, "tls=rds")
 	}
 
-	if strings.HasSuffix(addr, ".rds.amazonaws.com") && !blip.True(cfg.AWS.DisableAutoTLS) && tlsConfig == nil {
+	if portRe.MatchString(addr) && !blip.True(cfg.AWS.DisableAutoTLS) && tlsConfig == nil {
 		blip.Debug("auto AWS TLS: hostname has suffix .rds.amazonaws.com")
 		aws.RegisterRDSCA() // safe to call multiple times
 		params = append(params, "tls=rds")
