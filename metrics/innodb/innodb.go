@@ -149,7 +149,7 @@ func (c *InnoDB) Collect(ctx context.Context, levelName string) ([]blip.MetricVa
 		metrics = append(metrics, m)
 	}
 
-	return metrics, err
+	return metrics, nil
 }
 
 var gauge = map[string]bool{

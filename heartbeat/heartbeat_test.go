@@ -212,7 +212,12 @@ func TestReader(t *testing.T) {
 			return lag, wait
 		},
 	}
-	hr := heartbeat.NewBlipReader(db, blip_writer_table, "m1", "", mockWaiter)
+	hr := heartbeat.NewBlipReader(heartbeat.BlipReaderArgs{
+		MonitorId: "m1",
+		DB:        db,
+		Table:     blip_writer_table,
+		Waiter:    mockWaiter,
+	})
 	hr.Start()
 
 	timeout := time.After(5 * time.Second) // this whole test should take <1s

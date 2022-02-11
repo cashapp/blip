@@ -313,8 +313,8 @@ func (e *Engine) Collect(ctx context.Context, levelName string) (*blip.Metrics, 
 			// **************************************************************
 
 			mux.Lock()
-			errs[mc.Domain()] = err // save err, even if nil
-			if err == nil {         // save metrics only if no error
+			errs[mc.Domain()] = err // clear or set error
+			if len(vals) > 0 {      // save metrics, if any
 				metrics.Values[mc.Domain()] = vals
 			}
 			mux.Unlock()
