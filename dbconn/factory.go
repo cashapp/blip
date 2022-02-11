@@ -123,6 +123,14 @@ func (f factory) Make(cfg blip.ConfigMonitor) (*sql.DB, string, error) {
 	if (blip.True(cfg.AWS.AuthToken) || cfg.AWS.PasswordSecret != "") &&
 		!blip.True(cfg.AWS.DisableAutoTLS) &&
 		tlsConfig == nil {
+
+		blip.Debug("auto AWS TLS: using IAM auth or Secrets Manager")
+		aws.RegisterRDSCA() // safe to call multiple times
+		params = append(params, "tls=rds")
+	}
+
+	if strings.HasSuffix(addr, ".rds.amazonaws.com") && !blip.True(cfg.AWS.DisableAutoTLS) && tlsConfig == nil {
+		blip.Debug("auto AWS TLS: hostname has suffix .rds.amazonaws.com")
 		aws.RegisterRDSCA() // safe to call multiple times
 		params = append(params, "tls=rds")
 	}
