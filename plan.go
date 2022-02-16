@@ -186,8 +186,8 @@ func InternalLevelPlan() Plan {
 							"buffer_flush_background_total_pages", //  legacy flushing
 
 							// Transaction log utilization (%)
-							"log_lsn_checkpoint_age_total", // checkpoint age
-							"log_max_modified_age_async",   // async flush point
+							"log_lsn_checkpoint_age",     // checkpoint age
+							"log_max_modified_age_async", // async flush point
 
 							// Transaction log -> storage waits
 							"innodb_os_log_pending_writes",
@@ -200,10 +200,16 @@ func InternalLevelPlan() Plan {
 							"lock_deadlocks",
 						},
 					},
+					"repl": {
+						Name: "repl",
+						Metrics: []string{
+							"running", // -1=not a replica, 0=not running, 1=running ok
+						},
+					},
 					"repl.lag": {
 						Name: "repl.lag",
 						Options: map[string]string{
-							"source": "%{monitor.meta.repl-source}",
+							"source": "%{monitor.meta.repl-source-id}",
 						},
 					},
 				},
