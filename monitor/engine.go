@@ -6,7 +6,6 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"log"
 	"runtime"
 	"sync"
 	"sync/atomic"
@@ -290,12 +289,11 @@ func (e *Engine) Collect(ctx context.Context, levelName string) (*blip.Metrics, 
 				e.sem <- true
 				wg.Done()
 
-				// Print panic everywhere: log, event, and collector status
+				// Handle collector panic
 				if r := recover(); r != nil {
 					b := make([]byte, 4096)
 					n := runtime.Stack(b, false)
 					perr := fmt.Errorf("PANIC: monitor ID %s: %v\n%s", e.monitorId, r, string(b[0:n]))
-					log.Println(perr)
 					e.event.Errorf(event.COLLECTOR_PANIC, perr.Error())
 					mux.Lock()
 					errs[mc.Domain()] = perr
