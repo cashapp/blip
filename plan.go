@@ -154,7 +154,7 @@ func InternalLevelPlan() Plan {
 							// Buffer pool efficiency
 							"innodb_buffer_pool_read_requests", // logical reads
 							"innodb_buffer_pool_reads",         // disk reads (data not in buffer pool)
-							"Innodb_buffer_pool_wait_free",     // free page waits
+							"innodb_buffer_pool_wait_free",     // free page waits
 
 							// Buffer pool usage
 							"innodb_buffer_pool_pages_dirty",

@@ -292,20 +292,22 @@ func (s *Server) Run(stopChan, doneChan chan struct{}) error {
 
 	// Run API, restart on panic
 	if !s.cfg.API.Disable {
-		for {
-			go func() {
-				defer func() { // catch panic in API
-					if r := recover(); r != nil {
-						b := make([]byte, 4096)
-						n := runtime.Stack(b, false)
-						err := fmt.Errorf("PANIC: server API: %s\n%s", r, string(b[0:n]))
-						event.Errorf(event.SERVER_API_PANIC, err.Error())
-					}
-				}()
-				s.api.Run()
-			}()
-			time.Sleep(1 * time.Second) // between panic
-		}
+		go func() {
+			for {
+				go func() {
+					defer func() { // catch panic in API
+						if r := recover(); r != nil {
+							b := make([]byte, 4096)
+							n := runtime.Stack(b, false)
+							err := fmt.Errorf("PANIC: server API: %s\n%s", r, string(b[0:n]))
+							event.Errorf(event.SERVER_API_PANIC, err.Error())
+						}
+					}()
+					s.api.Run()
+				}() // API goroutine
+				time.Sleep(1 * time.Second) // between panic
+			}
+		}()
 	}
 
 	// Run until caller closes stopChan or blip process catches a signal
