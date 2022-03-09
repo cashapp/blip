@@ -6,7 +6,6 @@ import (
 	"context"
 	"fmt"
 	"runtime"
-	"sort"
 	"sync"
 	"time"
 
@@ -56,7 +55,7 @@ type lpc struct {
 	stateMux *sync.Mutex
 	state    string
 	plan     blip.Plan
-	levels   []level
+	levels   []plan.SortedLevel
 	paused   bool
 
 	changeMux            *sync.Mutex
@@ -172,7 +171,7 @@ func (c *lpc) Run(stopChan, doneChan chan struct{}) error {
 		// Determine lowest level to collect
 		level := -1
 		for i := range c.levels {
-			if s%c.levels[i].freq == 0 {
+			if s%c.levels[i].Freq == 0 {
 				level = i
 			}
 		}
@@ -195,11 +194,11 @@ func (c *lpc) Run(stopChan, doneChan chan struct{}) error {
 					}
 				}()
 				c.collect(levelName)
-			}(c.levels[level].name)
+			}(c.levels[level].Name)
 		default:
 			// all collectors blocked
 			errMsg := fmt.Errorf("cannot callect %s/%s: %d of %d collectors still running",
-				c.plan.Name, c.levels[level].name, maxCollectors, maxCollectors)
+				c.plan.Name, c.levels[level].Name, maxCollectors, maxCollectors)
 			c.setErr(errMsg, event.LPC_BLOCKED)
 		}
 
@@ -379,7 +378,7 @@ func (c *lpc) changePlan(ctx context.Context, doneChan chan struct{}, newState, 
 
 	// Convert plan levels to sorted levels for efficient level calculation in Run;
 	// see code comments on sortedLevels.
-	levels := sortedLevels(newPlan)
+	levels := plan.Sort(&newPlan)
 
 	// ----------------------------------------------------------------------
 	// Prepare the (new) plan
@@ -485,77 +484,4 @@ func (c *lpc) Status() proto.MonitorCollectorStatus {
 		s.SinkErrors = sinkErrors
 	}
 	return s
-}
-
-// ---------------------------------------------------------------------------
-// Plan vs. sorted level
-// ---------------------------------------------------------------------------
-
-// level represents a sorted level created by sortedLevels below.
-type level struct {
-	freq int
-	name string
-}
-
-// Sort levels ascending by frequency.
-type byFreq []level
-
-func (a byFreq) Len() int           { return len(a) }
-func (a byFreq) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
-func (a byFreq) Less(i, j int) bool { return a[i].freq < a[j].freq }
-
-// sortedLevels returns a list of levels sorted (asc) by frequency. Sorted levels
-// are used in the main Run loop: for i := range c.levels. Sorted levels are
-// required because plan levels are unorded because the plan is a map. We could
-// check every level in the plan, but that's wasteful. With sorted levels, we
-// can precisely check which levels to collect at every 1s tick.
-//
-// Also, plan levels are abbreviated whereas sorted levels are complete.
-// For example, a plan says "collect X every 5s, and collect Y every 10s".
-// But the complete version of that is "collect X every 5s, and collect X + Y
-// every 10s." See "metric inheritance" in the docs.
-//
-// Also, we convert duration strings from the plan level to integers for sorted
-// levels in order to do modulo (%) in the main Run loop.
-func sortedLevels(plan blip.Plan) []level {
-	// Make a sorted level for each plan level
-	levels := make([]level, len(plan.Levels))
-	i := 0
-	for _, l := range plan.Levels {
-		d, _ := time.ParseDuration(l.Freq) // "5s" -> 5 (for freq below)
-		levels[i] = level{
-			name: l.Name,
-			freq: int(d.Seconds()),
-		}
-		i++
-	}
-
-	// Sort levels by ascending frequency
-	sort.Sort(byFreq(levels))
-	blip.Debug("%s levels: %v", plan.Name, levels)
-
-	// Metric inheritence: level N applies to N+(N+1)
-	for i := 0; i < len(levels); i++ {
-		// At level N
-		rootLevel := levels[i].name
-		root := plan.Levels[rootLevel]
-
-		// Add metrics from N to all N+1
-		for j := i + 1; j < len(levels); j++ {
-			leafLevel := levels[j].name
-			leaf := plan.Levels[leafLevel]
-
-			for domain := range root.Collect {
-				dom, ok := leaf.Collect[domain]
-				if !ok {
-					leaf.Collect[domain] = root.Collect[domain]
-				} else {
-					dom.Metrics = append(dom.Metrics, root.Collect[domain].Metrics...)
-					leaf.Collect[domain] = dom
-				}
-			}
-		}
-	}
-
-	return levels
 }

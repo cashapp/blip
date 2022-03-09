@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/signalfx/golib/v3/datapoint"
@@ -120,6 +121,23 @@ func (s *SignalFx) Send(ctx context.Context, m *blip.Metrics) error {
 			default:
 				// SFX doesn't support this Blip metric type, so skip it
 				continue METRICS // @todo error?
+			}
+
+			// Always set data point timestamp, else SFX will set it to the time
+			// when SFX receives the data points, which could way off if metrics
+			// are delayed.
+			// https://dev.splunk.com/observability/docs/datamodel/ingest/#Datapoint-timestamps
+			// Also, as 'else' block handles: some collectors (e.g. aws.rds) get
+			// metrics from the past, so they have there own per-metric timestamp.
+			if tsStr, ok := metrics[i].Meta["ts"]; !ok {
+				dp[n].Timestamp = m.Begin
+			} else {
+				tsMs, err := strconv.ParseInt(tsStr, 10, 64) // ts in milliseconds, string -> int64
+				if err != nil {
+					blip.Debug("invalid timestamp for %s %s: %s: %s", domain, metrics[i].Name, tsStr, err)
+					continue METRICS
+				}
+				dp[n].Timestamp = time.UnixMilli(tsMs)
 			}
 
 			n++

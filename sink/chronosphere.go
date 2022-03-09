@@ -94,6 +94,7 @@ func (s *Chronosphere) Send(ctx context.Context, m *blip.Metrics) (lerr error) {
 	}()
 
 	ts := timestamppb.New(m.Begin) // Go timestamp to protobuf timestamp
+	// @todo check blip.Metrics.Meta[ts] and use if set
 
 	// Counter number of Blip metric values so we can pre-alloc OpenMetrics
 	// structs--just an easy micro-optimization to avoid unnecessary memory

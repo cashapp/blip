@@ -90,8 +90,15 @@ func (pl *Loader) LoadShared(cfg blip.ConfigPlans, dbMaker blip.DbFactory) error
 
 	// If LoadPlans plugin is defined, it does all the work: call and return early
 	if pl.plugin != nil {
+		blip.Debug("loading plans from plugin")
 		plans, err := pl.plugin(cfg)
 		if err != nil {
+			return err
+		}
+		if len(plans) == 0 && blip.Strict {
+			return fmt.Errorf("LoadPlans plugin returned zero plans, expected at least one in strict mode")
+		}
+		if err := ValidatePlans(plans); err != nil {
 			return err
 		}
 
@@ -166,6 +173,7 @@ func (pl *Loader) LoadShared(cfg blip.ConfigPlans, dbMaker blip.DbFactory) error
 	if len(sharedPlans) == 0 && !blip.Strict {
 		// Use built-in internal plan becuase neither config.plans.table
 		// nor config.plans.file was specififed
+		blip.Debug("shared default blip plan enabled")
 		sharedPlans = append(sharedPlans, planMeta{
 			name:   blip.INTERNAL_PLAN_NAME,
 			plan:   blip.InternalLevelPlan(),
@@ -184,10 +192,15 @@ func (pl *Loader) LoadShared(cfg blip.ConfigPlans, dbMaker blip.DbFactory) error
 func (pl *Loader) LoadMonitor(mon blip.ConfigMonitor, dbMaker blip.DbFactory) error {
 	event.Sendf(event.PLANS_LOAD_MONITOR, mon.MonitorId)
 
+	if mon.Plans.Table == "" && len(mon.Plans.Files) == 0 {
+		blip.Debug("monitor %s uses only shared plans", mon.MonitorId)
+		return nil
+	}
+
 	monitorPlans := []planMeta{}
 
+	// Monitor plans from table, but defer until monitor's LPC calls Plan()
 	if mon.Plans.Table != "" {
-		// Monitor plans from table, but defer until monitor's LPC calls Plan()
 		table := mon.Plans.Table
 		blip.Debug("%s: loading plans from table %s", mon.MonitorId, table)
 
@@ -206,9 +219,6 @@ func (pl *Loader) LoadMonitor(mon blip.ConfigMonitor, dbMaker blip.DbFactory) er
 			return err
 		}
 
-		pl.RUnlock() // -- R unlock
-		pl.Lock()    // -- X lock
-
 		for _, plan := range plans {
 			monitorPlans = append(monitorPlans, planMeta{
 				name:   plan.Name,
@@ -216,13 +226,10 @@ func (pl *Loader) LoadMonitor(mon blip.ConfigMonitor, dbMaker blip.DbFactory) er
 				source: table,
 			})
 		}
-
-		pl.Lock()  // -- X unlock
-		pl.RLock() // -- R relock
 	}
 
+	// Monitor plans from files, load all
 	if len(mon.Plans.Files) > 0 {
-		// Monitor plans from files, load all
 		blip.Debug("loading monitor %s plans from %s", mon.MonitorId, mon.Plans.Files)
 		plans, err := pl.readPlans(mon.Plans.Files)
 		if err != nil {
@@ -233,15 +240,17 @@ func (pl *Loader) LoadMonitor(mon blip.ConfigMonitor, dbMaker blip.DbFactory) er
 		}
 	}
 
-	if len(monitorPlans) == 0 && !blip.Strict {
+	/*
 		// Use built-in internal plan becuase neither config.plans.table
 		// nor config.plans.file was specififed
-		monitorPlans = append(monitorPlans, planMeta{
-			name:   blip.INTERNAL_PLAN_NAME,
-			shared: true, // copy from sharedPlans
-			source: "blip",
-		})
-	}
+		if len(monitorPlans) == 0 && !blip.Strict {
+			monitorPlans = append(monitorPlans, planMeta{
+				name:   blip.INTERNAL_PLAN_NAME,
+				shared: true, // copy from sharedPlans
+				source: "blip",
+			})
+		}
+	*/
 
 	pl.Lock()
 	pl.monitorPlans[mon.MonitorId] = monitorPlans
@@ -256,7 +265,16 @@ func (pl *Loader) Plan(monitorId string, planName string, db *sql.DB) (blip.Plan
 	pl.RLock()
 	defer pl.RUnlock()
 
-	plans := pl.monitorPlans[monitorId]
+	var plans []planMeta
+
+	if len(pl.monitorPlans[monitorId]) > 0 {
+		blip.Debug("%s: using monitor plans", monitorId)
+		plans = pl.monitorPlans[monitorId]
+	} else {
+		blip.Debug("%s: using shared plans", monitorId)
+		plans = pl.sharedPlans
+	}
+
 	if len(plans) == 0 {
 		return blip.Plan{}, fmt.Errorf("no plans loaded for monitor %s", monitorId)
 	}
@@ -267,6 +285,7 @@ func (pl *Loader) Plan(monitorId string, planName string, db *sql.DB) (blip.Plan
 		planName = pm.name
 		blip.Debug("%s: loading first plan: %s", monitorId, planName)
 	} else {
+		blip.Debug("%s: loading plan %s", monitorId, planName)
 		for i := range plans {
 			if plans[i].name == planName {
 				pm = &plans[i]
@@ -312,8 +331,6 @@ func (pl *Loader) Print() {
 		}
 	*/
 }
-
-type planFile map[string]*blip.Level
 
 func (pl *Loader) readPlans(filePaths []string) ([]planMeta, error) {
 	meta := []planMeta{}   // return value
@@ -387,6 +404,8 @@ func (pl *Loader) fileLoaded(file string) bool {
 
 // --------------------------------------------------------------------------
 
+type planFile map[string]*blip.Level
+
 func ReadFile(file string) (blip.Plan, error) {
 	bytes, err := ioutil.ReadFile(file)
 	if err != nil {
@@ -411,6 +430,29 @@ func ReadFile(file string) (blip.Plan, error) {
 		Name:   file,
 		Levels: levels,
 		Source: file,
+	}
+	return plan, nil
+}
+
+func ReadVariable(strVal, planName string) (blip.Plan, error) {
+	var pf planFile
+	if err := yaml.Unmarshal([]byte(strVal), &pf); err != nil {
+		return blip.Plan{}, fmt.Errorf("cannot decode YAML: %s", err)
+	}
+
+	levels := make(map[string]blip.Level, len(pf))
+	for k := range pf {
+		levels[k] = blip.Level{
+			Name:    k, // must have, levels are collected by name
+			Freq:    pf[k].Freq,
+			Collect: pf[k].Collect,
+		}
+	}
+
+	plan := blip.Plan{
+		Name:   planName,
+		Levels: levels,
+		Source: "variable",
 	}
 	return plan, nil
 }
