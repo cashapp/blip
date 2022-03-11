@@ -9,8 +9,6 @@ nav_order: 4
 {: .no_toc }
 
 This page is the full domain list and reference.
-Blip collects only the domains and metrics specified in [plans](../plans/).
-
 Each domain that Blip currently implements begins with a table with these fields:
 
 Blip version
@@ -285,20 +283,37 @@ _MySQL Replication_
 
 {: .var-table}
 |Blip version|v1.0.0|
-|Sources|`SHOW SLAVE|REPLICA STATUS`|
+|Sources|&#8805;&nbsp;MySQL 8.0.22: `SHOW REPLICA STATUS`<br>&#8804;&nbsp;MySQL 8.0.21: `SHOW SLAVE STATUS`|
 |MySQL config|no|
 |Group keys||
 |Meta||
-|Metrics|&bull; `ok` (gauge): 1 if IO and SQL threads running and no error<br>&bull; `error` (gauge): 1 if any replication error|
+|Collector metrics|&bull; `running` (gauge)|
+
+The `repl` domain reports a few gauges metrics from the output of `SHOW SLAVE STATUS` (or `SHOW REPLICA STATUS` as of MySQL 8.0.22):
+
+|Replica Status Variable|Collected|
+|-----------------------|---------|
+|Slave_IO_Running       |&#10003;|
+|Slave_SQL_Running      |&#10003;|
+|Relay_Log_Space        |&#10003;|
+|Seconds_Behind_Master  |&#10003;|
+|Auto_Position          |&#10003;|
+
+Although the output has many more fields, most fields are not metric counters or guages, which is why Blip does not collect them.
 
 #### Collector Metrics
 {: .no_toc }
 
-* `ok`<br>
+* `running`<br>
 Type: gauge<br>
-1 only if `Slave_IO_Running=Yes` and `Slave_SQL_Running=Yes` and `Last_Errno=0`; else 0 for all other states (not running, null values, not configured as replica, and so on). Lag does not affect this metric.
-* `error`<br>
-0 if MySQL is a replica and `Last_Errno=0`.
+
+  |Value|Meaning|
+  |-----|-------|
+  |1|&nbsp;&nbsp;&#9745;	 MySQL is a replica<br>&nbsp;&nbsp;&#9745;	 `Slave_IO_Running=Yes`<br>&nbsp;&nbsp;&#9745;	 `Slave_SQL_Running=Yes`<br>&nbsp;&nbsp;&#9745;	 `Last_Errno=0`<br>|
+  |0|MySQL is a replica, but IO and SQL threads are not running or a replication error occurred|
+  |-1|MySQL is **not a replica**: `SHOW SLAVE|REPLICA STATUS` returns no output|
+
+  Replication lag does not affect the `running` metric: replication can be running but lagging.
 
 ### repl.lag
 _MySQL Replication Lag_
@@ -393,8 +408,7 @@ _Global Status Variables_
 |Group keys||
 |Meta||
 
-Classic `SHOW GLOBAL STATUS`.
-Might used `performance_schema.global_status` table.
+The `status.global` domain reports the primary source of MySQL server metrics: `SHOW GLOBAL STATUS`.
 
 ### status.host
 _Status by Host (Client)_
@@ -443,9 +457,11 @@ _MySQL System Variables_
 
 {: .var-table}
 |Blip version|v1.0.0|
-|Sources|SHOW, SELECT @@GLOBAL, p_s|
+|Sources|`SHOW GLOBAL VARIABLES`, `SELECT @@GLOBAL.<var>`, Performance Schema|
 |MySQL config|no|
 |Group keys||
 |Meta||
 
-Classic MySQL `SHOW GLOBAL VARIABLES`.
+The `var.global` domain reports global MySQL system variables (a.k.a. "syvars").
+These are not technically metrics, but some are required to calculate utilization percentages.
+For example, it's common to report `max_connections` to gauge the percentage of max connections used: `Max_used_connections / max_connections * 100`, which would be `status.global.max_used_connections / var.global.max_connections * 100` in Blip metric naming convention.

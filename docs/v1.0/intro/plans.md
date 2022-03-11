@@ -19,7 +19,7 @@ Some engineers collect nearly all metrics and use what they need in graphs.
 Some engineers collect as few metrics as possible due to costs.
 Some engineers don't know what to collect, relying on monitor defaults to be useful.
 
-Plans help solve the first problem by not hard-coding which metcis to collect.
+Plans help solve the first problem by not hard-coding which metrics to collect.
 Write a plan to collect only the metrics you need.
 
 <div class="note">
@@ -40,7 +40,7 @@ A replication lag metric is scoped within the `repl` domain (short for "replicat
 When you write a plan that collects replication lag, the plan works everywhere because domains specify _which_ metrics to collect, not necessarily _how_ to collect them.
 
 The third problem arises from cost and storage limits: if everything was fast and free, you would collect all metrics every 1 second.
-But this is (almost) never done because it requires signfiicant storage and processing, which lead to significant costs.
+But this is (almost) never done because it requires significant storage and processing, which lead to significant costs.
 Instead, the norm is collecting all metrics every 10, 20, or 30 seconds.
 But even 10 seconds is too long for a busy database because, for example, at only 5,000 QPS, that resolution averages out the metrics for 50,000 queries.
 
@@ -50,7 +50,7 @@ For example, imagine three levels as shown below.
 
 ![Three Levels](/blip/assets/img/three-levels.png)
 
-Level 1, the base level, is collected frqeuently (shortest wait time): every 5 seconds.
+Level 1, the base level, is collected frequently (shortest wait time): every 5 seconds.
 Level 2 is collected less frequently: every 20 seconds.
 Level 3, the highest level, is collected the most infrequently (longest wait time): every 30 seconds.
 
@@ -59,8 +59,8 @@ Blip automatically combines levels when they overlap and collects all metrics at
 ![Three Levels](/blip/assets/img/level-times.png)
 
 At 20 seconds (since Blip started collecting metrics for this plan), Blip collects metrics for both levels 1 and 2 because `20 mod 5 = 0` and `20 mod 20 = 0`, respectively.
-At 30 seconds, Blip collects metrics for both levels 1 anbd 3 because `30 mod 5 = 0` and `30 mod 20 = 0`, respectively.
-And at 60 seconds, Blip collecgts metrics for all three levels because `60 mod freq = 0`.
+At 30 seconds, Blip collects metrics for both levels 1 and 3 because `30 mod 5 = 0` and `30 mod 20 = 0`, respectively.
+And at 60 seconds, Blip collects metrics for all three levels because `60 mod freq = 0`.
 
 Blip plans can do more, but for this introduction it's sufficient to know that they allow you to fine-tune metrics collection, which increases the quality of monitoring while reducing costs.
 

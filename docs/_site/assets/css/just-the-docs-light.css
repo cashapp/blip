@@ -2274,6 +2274,8 @@ p.note, div.note { border-left: 3px solid blue; padding-left: 10px; margin-left:
 ul.floating-toc { float: left; margin-top: 3em; margin-right: 2em; font-size: 14px; z-index: 500; }
 ul.floating-toc li { margin-left: 5px; }
 
+.table-wrapper { width: fit-content; }
+
 .var-table { min-width: 0; }
 
 .src { font-size: 10px; }

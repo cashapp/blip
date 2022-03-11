@@ -1,25 +1,42 @@
 ---
 layout: default
 parent: Metrics
-title: Conventions
+title: Collecting
 nav_order: 2
 ---
 
-# Conventions
+# Collecting
 {: .no_toc }
+
+* TOC
+{:toc}
+
+Blip collects only the domains and metrics specified in [plans](../plans/).
+For example, Blip does _not_ collect all `SHOW GLOBAL STATUS` metrics by default because the majority of MySQL metrics are not generally useful, and some are not even metrics.
+Moreover, different users collect different metrics&mdash;no single set of metrics works for everyone.
+As a result, you typically specify the metrics to collect for each domain, like:
+
+```yaml
+level:
+  freq: 5s
+  collect:
+    status.global:
+      metrics:
+        - threads_running
+        - queries
+```
+
+That plan snippet collects two metrics from the [`status.global`](#statusglobal) domain: `Threads_running` and `Queries`.
+
+## Conventions
 
 Blip conventions provide consistency and structure to make writing plans and reporting metrics easier.
 Although the [built-in sinks](../sinks/) report fully-qualified metric names (`status.global.threads_running`), your [custom sink](../sinks/custom) can rename and report metrics however you want.
 For example, your sink could ignore Blip domains completely and report only metric names (`threads_running`), or report a simpler custom prefix (`mysql.threads_running`).
 
-* TOC
-{:toc}
+### Metrics
 
----
-
-## Metrics
-
-### Naming
+#### Naming
 
 Blip strives to report MySQL metric names as-is&mdash;no modifications&mdash;so that what you see in MySQL is what you get in Blip.
 
@@ -40,7 +57,7 @@ For consistency, Blip metric names have three requirements:
 A fully-qualified metric name includes a domain: `status.global.threads_running`.
 The metric name is always the last field (split on `.`).
 
-### Types
+#### Types
 
 Blip metric types are standard:
 
@@ -58,11 +75,11 @@ Currently, Blip does not report bool or event metrics, but these are reserved fo
 
 The unknown type is used only for error detection.
 
-### Values
+#### Values
 
 All values, regardless of type, are `float64`.
 
-### Units
+#### Units
 
 MySQL metrics use a variety of units&mdash;from picoseconds to seconds.
 When the MySQL metric unit is documented and consistent, Blip reports the value as-is.
