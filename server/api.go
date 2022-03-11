@@ -5,6 +5,7 @@ package server
 import (
 	"encoding/json"
 	"fmt"
+	"html"
 	"net/http"
 	"time"
 
@@ -94,7 +95,8 @@ func (api *API) statusMonitorInternal(w http.ResponseWriter, r *http.Request) {
 	blip.Debug("%v", vals)
 	mon := api.monitorLoader.Monitor(vals[0])
 	if mon == nil {
-		http.Error(w, fmt.Sprintf("monitorId %s not loaded", vals[0]), http.StatusNotFound)
+		errMsg := html.EscapeString(fmt.Sprintf("monitorId %s not loaded", vals[0]))
+		http.Error(w, errMsg, http.StatusNotFound)
 		return
 	}
 	json.NewEncoder(w).Encode(mon.Status())
@@ -148,7 +150,8 @@ func (api *API) monitorsRestart(w http.ResponseWriter, r *http.Request) {
 	blip.Debug("restart %s", monitorId)
 	mon := api.monitorLoader.Monitor(monitorId)
 	if mon == nil {
-		http.Error(w, fmt.Sprintf("monitorId %s not loaded", monitorId), http.StatusNotFound)
+		errMsg := html.EscapeString(fmt.Sprintf("monitorId %s not loaded", monitorId))
+		http.Error(w, errMsg, http.StatusNotFound)
 		return
 	}
 	mon.Restart()
