@@ -21,7 +21,7 @@ import (
 	"github.com/cashapp/blip/aws"
 )
 
-var portRe = regexp.MustCompile(`rds.amazonaws.com(:\d+)?$`)
+var portRe = regexp.MustCompile(`rds\.amazonaws\.com(:\d+)?$`)
 
 // factory is the internal implementation of blip.DbFactory.
 type factory struct {
