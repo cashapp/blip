@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"html"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/cashapp/blip"
@@ -78,24 +79,13 @@ func (api *API) statusMonitors(w http.ResponseWriter, r *http.Request) {
 }
 
 func (api *API) statusMonitorInternal(w http.ResponseWriter, r *http.Request) {
-	q := r.URL.Query()
-	if len(q) == 0 {
-		http.Error(w, "missing URL query: ?id=monitorId", http.StatusBadRequest)
-		return
-	}
-	vals, ok := q["id"]
+	monitorId, ok := monitorId(w, r)
 	if !ok {
-		http.Error(w, "missing id param in URL query: ?id=monitorId", http.StatusBadRequest)
-		return
+		return // monitorId() wrote error response
 	}
-	if len(vals) == 0 {
-		http.Error(w, "id param has no value", http.StatusBadRequest)
-		return
-	}
-	blip.Debug("%v", vals)
-	mon := api.monitorLoader.Monitor(vals[0])
+	mon := api.monitorLoader.Monitor(monitorId)
 	if mon == nil {
-		errMsg := html.EscapeString(fmt.Sprintf("monitorId %s not loaded", vals[0]))
+		errMsg := html.EscapeString(fmt.Sprintf("monitorId %s not loaded", monitorId))
 		http.Error(w, errMsg, http.StatusNotFound)
 		return
 	}
@@ -111,42 +101,20 @@ func (api *API) registered(w http.ResponseWriter, r *http.Request) {
 }
 
 func (api *API) monitorsStop(w http.ResponseWriter, r *http.Request) {
-	q := r.URL.Query()
-	if len(q) == 0 {
-		http.Error(w, "missing URL query: ?id=monitorId", http.StatusBadRequest)
-		return
-	}
-	vals, ok := q["id"]
+	monitorId, ok := monitorId(w, r)
 	if !ok {
-		http.Error(w, "missing id param in URL query: ?id=monitorId", http.StatusBadRequest)
-		return
+		return // monitorId() wrote error response
 	}
-	if len(vals) == 0 {
-		http.Error(w, "id param has no value", http.StatusBadRequest)
-		return
-	}
-	monitorId := vals[0]
 	blip.Debug("unload %s", monitorId)
 	api.monitorLoader.Unload(monitorId)
 	w.WriteHeader(http.StatusOK)
 }
 
 func (api *API) monitorsRestart(w http.ResponseWriter, r *http.Request) {
-	q := r.URL.Query()
-	if len(q) == 0 {
-		http.Error(w, "missing URL query: ?id=monitorId", http.StatusBadRequest)
-		return
-	}
-	vals, ok := q["id"]
+	monitorId, ok := monitorId(w, r)
 	if !ok {
-		http.Error(w, "missing id param in URL query: ?id=monitorId", http.StatusBadRequest)
-		return
+		return // monitorId() wrote error response
 	}
-	if len(vals) == 0 {
-		http.Error(w, "id param has no value", http.StatusBadRequest)
-		return
-	}
-	monitorId := vals[0]
 	blip.Debug("restart %s", monitorId)
 	mon := api.monitorLoader.Monitor(monitorId)
 	if mon == nil {
@@ -156,4 +124,33 @@ func (api *API) monitorsRestart(w http.ResponseWriter, r *http.Request) {
 	}
 	mon.Restart()
 	w.WriteHeader(http.StatusOK)
+}
+
+// --------------------------------------------------------------------------
+
+// monitorId returns the monitor ID from URL query param '?id=monitorId' if set.
+// Else it returns an empty string and false. The caller must return without
+// doing anything else on false because this func writes the HTTP error response
+// on false.
+func monitorId(w http.ResponseWriter, r *http.Request) (string, bool) {
+	q := r.URL.Query()
+	if len(q) == 0 {
+		http.Error(w, "missing URL query: ?id=monitorId", http.StatusBadRequest)
+		return "", false
+	}
+	vals, ok := q["id"]
+	if !ok {
+		http.Error(w, "missing id param in URL query: ?id=monitorId", http.StatusBadRequest)
+		return "", false
+	}
+	if len(vals) == 0 {
+		http.Error(w, "id param has no value, expected monitor ID", http.StatusBadRequest)
+		return "", false
+	}
+
+	// Avoid code scanning alert "Log entries created from user input"
+	monitorId := strings.Replace(vals[0], "\n", "", -1)
+	monitorId = strings.Replace(monitorId, "\r", "", -1)
+
+	return monitorId, true
 }
