@@ -4,8 +4,10 @@
 package plan
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
+	"encoding/gob"
 	"fmt"
 	"io/ioutil"
 	"os"
@@ -310,7 +312,7 @@ func (pl *Loader) Plan(monitorId string, planName string, db *sql.DB) (blip.Plan
 	}
 
 	blip.Debug("%s: loading plan %s from %s", monitorId, planName, pm.source)
-	return pm.plan, nil
+	return deepcopyPlan(&pm.plan)
 }
 
 func (pl *Loader) Print() {
@@ -550,4 +552,24 @@ func ValidatePlans(plans []blip.Plan) error {
 	}
 
 	return nil
+}
+
+func deepcopyPlan(p *blip.Plan) (blip.Plan, error) {
+	// Since the operation needed here is not performance critical we can piggy back off of gob
+	// encode/decode to make the deep copy and not rely on staying up-to-date with the blip.Plan's
+	// internal structure.
+	var (
+		b   bytes.Buffer
+		ret blip.Plan
+	)
+
+	if err := gob.NewEncoder(&b).Encode(p); err != nil {
+		return ret, err
+	}
+
+	if err := gob.NewDecoder(&b).Decode(&ret); err != nil {
+		return ret, err
+	}
+
+	return ret, nil
 }
