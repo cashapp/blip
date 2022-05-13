@@ -312,6 +312,8 @@ func (pl *Loader) Plan(monitorId string, planName string, db *sql.DB) (blip.Plan
 	}
 
 	blip.Debug("%s: loading plan %s from %s", monitorId, planName, pm.source)
+	// Since blip.Plan has field types that pass by reference (maps and slices), we want to the returned plan to
+	// be a deep copy to ensure the caller cannot modify the original shared plan.
 	return deepcopyPlan(&pm.plan)
 }
 
