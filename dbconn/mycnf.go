@@ -17,14 +17,9 @@ func ParseMyCnf(file string) (blip.ConfigMySQL, error) {
 		return blip.ConfigMySQL{}, err
 	}
 
-	// DO NOT copy password from my.cnf into Blip config.M.password.
-	// In Password() (factory.go), if config.M.my-cnf is set, it reads
-	// the password from there. config.M.password is the last options
-	// because we want to keep passwords out of Blip files--they should
-	// be stored and managed by something more secure.
 	cfg := blip.ConfigMySQL{
 		Username: mycnf.Section("client").Key("user").String(),
-		// Password: mycnf.Section("client").Key("password").String(),
+		Password: mycnf.Section("client").Key("password").String(),
 		Hostname: mycnf.Section("client").Key("host").String(),
 		Socket:   mycnf.Section("client").Key("socket").String(),
 	}
