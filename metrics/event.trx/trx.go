@@ -7,15 +7,12 @@ import (
 	"database/sql"
 	"fmt"
 
-	"strconv"
-
 	"github.com/cashapp/blip"
-	"github.com/cashapp/blip/sqlutil"
 )
 
 const (
 	DOMAIN           = "event.trx"
-	OLDEST_TRX_QUERY = `SELECT UNIX_TIMESTAMP(NOW()) - UNIX_TIMESTAMP(MIN(trx_started)) AS time FROM information_schema.innodb_trx;`
+	OLDEST_TRX_QUERY = `SELECT COALESCE(UNIX_TIMESTAMP(NOW()) - UNIX_TIMESTAMP(MIN(trx_started)), 0) t FROM information_schema.innodb_trx;`
 )
 
 type trxMetrics struct {
@@ -49,7 +46,7 @@ func (c *Trx) Domain() string {
 func (c *Trx) Help() blip.CollectorHelp {
 	return blip.CollectorHelp{
 		Domain:      DOMAIN,
-		Description: "Event transaction metrics from information_schema.innodb_trx",
+		Description: "Transaction metrics",
 		Options:     map[string]blip.CollectorHelpOption{},
 		Metrics: []blip.CollectorMetric{
 			{
@@ -97,19 +94,14 @@ func (c *Trx) Collect(ctx context.Context, levelName string) ([]blip.MetricValue
 		return nil, nil
 	}
 
-	res, err := sqlutil.RowToMap(ctx, c.db, OLDEST_TRX_QUERY)
+	var t float64
+	err := c.db.QueryRowContext(ctx, OLDEST_TRX_QUERY).Scan(&t)
 	if err != nil {
 		return nil, fmt.Errorf("%s failed: %s", OLDEST_TRX_QUERY, err)
 	}
 
 	metrics := []blip.MetricValue{}
 	if rm.queryOldest {
-		t := float64(0)
-		if time, ok := res["time"]; ok {
-			t, _ = strconv.ParseFloat(time, 64)
-			// the only error expecting is when "NULL" is encountered
-		}
-
 		m := blip.MetricValue{
 			Name:  "oldest",
 			Type:  blip.GAUGE,
