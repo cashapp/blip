@@ -9,6 +9,7 @@ import (
 
 	"github.com/cashapp/blip"
 	"github.com/cashapp/blip/metrics/aws.rds"
+	"github.com/cashapp/blip/metrics/event.trx"
 	"github.com/cashapp/blip/metrics/innodb"
 	"github.com/cashapp/blip/metrics/percona"
 	"github.com/cashapp/blip/metrics/repl"
@@ -225,6 +226,8 @@ func (f *factory) Make(domain string, args blip.CollectorFactoryArgs) (blip.Coll
 			return nil, err
 		}
 		return awsrds.NewRDS(awsrds.NewCloudWatchClient(awsConfig)), nil
+	case "event.trx":
+		return eventtrx.NewTrx(args.DB), nil
 	case "innodb":
 		return innodb.NewInnoDB(args.DB), nil
 	case "percona.response-time":
@@ -249,6 +252,7 @@ func (f *factory) Make(domain string, args blip.CollectorFactoryArgs) (blip.Coll
 // the same domain in the switch statement above (in factory.Make).
 var builtinCollectors = []string{
 	"aws.rds",
+	"event.trx",
 	"innodb",
 	"percona.response-time",
 	"repl",
