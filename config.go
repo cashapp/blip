@@ -44,7 +44,7 @@ func interpolateEnv(v string) string {
 	if v2 == "" && m[2] != "" {
 		return m[3]
 	}
-	return envvar.ReplaceAllString(v, v2)
+	return envvar.ReplaceAllLiteralString(v, v2)
 }
 
 // setBool sets c to the value of b if c is nil (not set). Pointers are required
