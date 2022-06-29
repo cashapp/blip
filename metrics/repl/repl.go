@@ -7,7 +7,10 @@ import (
 	"database/sql"
 	"fmt"
 
+	myerr "github.com/go-mysql/errors"
+
 	"github.com/cashapp/blip"
+	"github.com/cashapp/blip/errors"
 	"github.com/cashapp/blip/sqlutil"
 )
 
@@ -15,6 +18,8 @@ const (
 	DOMAIN = "repl"
 
 	NOT_A_REPLICA = -1
+
+	ERR_NO_ACCESS = "access-denied"
 )
 
 type replMetrics struct {
@@ -22,16 +27,22 @@ type replMetrics struct {
 }
 
 type Repl struct {
-	db      *sql.DB
-	atLevel map[string]replMetrics
+	db        *sql.DB
+	atLevel   map[string]replMetrics
+	errPolicy map[string]*errors.Policy
+	stop      bool
 }
 
 var _ blip.Collector = &Repl{}
 
 func NewRepl(db *sql.DB) *Repl {
 	return &Repl{
-		db:      db,
+		db: db,
+		// --
 		atLevel: map[string]replMetrics{},
+		errPolicy: map[string]*errors.Policy{
+			ERR_NO_ACCESS: errors.NewPolicy(""),
+		},
 	}
 }
 
@@ -49,6 +60,13 @@ func (c *Repl) Help() blip.CollectorHelp {
 				Name: "running",
 				Type: blip.GAUGE,
 				Desc: "1=running (no error), 0=not running, -1=not a replica",
+			},
+		},
+		Errors: map[string]blip.CollectorHelpError{
+			ERR_NO_ACCESS: {
+				Name:    ERR_NO_ACCESS,
+				Handles: "MySQL error 1227: access denied on 'SHOW BINARY LOGS'",
+				Default: c.errPolicy[ERR_NO_ACCESS].String(),
 			},
 		},
 	}
@@ -82,6 +100,14 @@ LEVEL:
 
 		c.atLevel[level.Name] = m
 
+		// Apply custom error policies, if any
+		if len(dom.Errors) > 0 {
+			if s, ok := dom.Errors[ERR_NO_ACCESS]; ok {
+				c.errPolicy[ERR_NO_ACCESS] = errors.NewPolicy(s)
+			}
+			blip.Debug("error poliy: %s=%s", ERR_NO_ACCESS, c.errPolicy[ERR_NO_ACCESS])
+		}
+
 		// SHOW REPLICA STATUS as of 8.022
 		if haveVersion {
 			continue
@@ -101,6 +127,11 @@ LEVEL:
 }
 
 func (c *Repl) Collect(ctx context.Context, levelName string) ([]blip.MetricValue, error) {
+	if c.stop {
+		blip.Debug("stopped by previous error")
+		return nil, nil
+	}
+
 	rm, ok := c.atLevel[levelName]
 	if !ok {
 		return nil, nil
@@ -110,7 +141,7 @@ func (c *Repl) Collect(ctx context.Context, levelName string) ([]blip.MetricValu
 	// if MySQL is not a replica
 	replStatus, err := sqlutil.RowToMap(ctx, c.db, statusQuery)
 	if err != nil {
-		return nil, fmt.Errorf("%s failed: %s", statusQuery, err)
+		return c.collectError(err)
 	}
 
 	metrics := []blip.MetricValue{}
@@ -136,7 +167,43 @@ func (c *Repl) Collect(ctx context.Context, levelName string) ([]blip.MetricValu
 		metrics = append(metrics, m)
 	}
 
-	// @todo collect other repl status metrics
+	// @todo collect other repl status metrics; handle error policy=zero
 
 	return metrics, nil
+}
+
+func (c *Repl) collectError(err error) ([]blip.MetricValue, error) {
+	var ep *errors.Policy
+	switch myerr.MySQLErrorCode(err) {
+	case 1227:
+		ep = c.errPolicy[ERR_NO_ACCESS]
+	default:
+		return nil, err
+	}
+
+	// Stop trying to collect if error policy retry="stop". This affects
+	// future calls to Collect; don't retrun yet because we need to check
+	// the metric policy: drop or zero. If zero, we must report one zero val.
+	if ep.Retry == errors.POLICY_RETRY_NO {
+		c.stop = true
+	}
+
+	// Report
+	var reportedErr error
+	if ep.ReportError() {
+		reportedErr = err
+	} else {
+		blip.Debug("error policy=ignore: %s", err)
+	}
+
+	var metrics []blip.MetricValue
+	if ep.Metric == errors.POLICY_METRIC_ZERO {
+		metrics = []blip.MetricValue{{
+			Name:  "running",
+			Type:  blip.GAUGE,
+			Value: 0,
+		}}
+	}
+
+	return metrics, reportedErr
 }

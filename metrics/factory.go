@@ -90,11 +90,11 @@ func PrintDomains() string {
 			help.Domain, help.Description,
 		)
 
+		// Options block
 		opts := make([]string, 0, len(help.Options))
 		for o := range help.Options {
 			opts = append(opts, o)
 		}
-
 		if len(opts) > 0 {
 			out += "\tOptions:\n"
 			sort.Strings(opts)
@@ -127,6 +127,21 @@ func PrintDomains() string {
 			}
 		} else {
 			out += "\t(No options)\n\n"
+		}
+
+		// Errors block
+		errs := make([]string, 0, len(help.Errors))
+		for e := range help.Errors {
+			errs = append(errs, e)
+		}
+		if len(errs) > 0 {
+			out += "\tErrors:\n"
+			sort.Strings(errs)
+			for _, errName := range errs {
+				optHelp := help.Errors[errName]
+				out += "\t\t" + errName + ": " + optHelp.Handles + "\n"
+			}
+			out += "\n"
 		}
 
 		if len(help.Groups) > 0 {

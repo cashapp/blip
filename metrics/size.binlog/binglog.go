@@ -5,30 +5,32 @@ package sizebinlog
 import (
 	"context"
 	"database/sql"
-	"fmt"
 
 	myerr "github.com/go-mysql/errors"
 
 	"github.com/cashapp/blip"
+	"github.com/cashapp/blip/errors"
 	"github.com/cashapp/blip/sqlutil"
 )
 
 const (
 	DOMAIN = "size.binlog"
 
-	OPT_NO_BINLOGS = "no-binlogs"
-	OPT_NO_ACCESS  = "no-access"
+	// No options
+
+	ERR_NO_ACCESS  = "access-denied"
+	ERR_NO_BINLOGS = "binlog-not-enabled"
+
+	ERR_
 )
 
 // Binlog collects metrics for the size.binlog domain. The source is SHOW BINARY LOGS.
 type Binlog struct {
 	db *sql.DB
 	// --
-	cols3             bool
-	noBinlogs         string
-	noBinlogsReported bool
-	noAccess          string
-	noAccessReported  bool
+	cols3     bool
+	errPolicy map[string]*errors.Policy
+	stop      bool
 }
 
 var _ blip.Collector = &Binlog{}
@@ -37,8 +39,7 @@ func NewBinlog(db *sql.DB) *Binlog {
 	return &Binlog{
 		db: db,
 		// --
-		noBinlogs: "drop", // default value
-		noAccess:  "drop", // default value
+		errPolicy: map[string]*errors.Policy{},
 	}
 }
 
@@ -50,26 +51,16 @@ func (c *Binlog) Help() blip.CollectorHelp {
 	return blip.CollectorHelp{
 		Domain:      DOMAIN,
 		Description: "Total size of all binary logs in bytes",
-		Options: map[string]blip.CollectorHelpOption{
-			OPT_NO_BINLOGS: {
-				Name:    OPT_NO_BINLOGS,
-				Desc:    "How to handle MySQL error 1381: binary logging not enabled",
-				Default: "drop",
-				Values: map[string]string{
-					"zero":  "Ignore error, report 0 bytes",
-					"drop":  "Report error once, don't report metric",
-					"error": "Report error every time, don't report metric",
-				},
+		Errors: map[string]blip.CollectorHelpError{
+			ERR_NO_ACCESS: {
+				Name:    ERR_NO_ACCESS,
+				Handles: "MySQL error 1227: access denied on 'SHOW BINARY LOGS'",
+				Default: errors.NewPolicy("").String(), // defautl EAP
 			},
-			OPT_NO_ACCESS: {
-				Name:    OPT_NO_ACCESS,
-				Desc:    "How to handle MySQL error 1227: cccess denied on 'SHOW BINARY LOGS'",
-				Default: "drop",
-				Values: map[string]string{
-					"zero":  "Ignore error, report 0 bytes",
-					"drop":  "Report error once, don't report metric",
-					"error": "Report error every time, don't report metric",
-				},
+			ERR_NO_BINLOGS: {
+				Name:    ERR_NO_BINLOGS,
+				Handles: "MySQL error 1381: binary logging not enabled",
+				Default: errors.NewPolicy("").String(), // defautl EAP
 			},
 		},
 		Metrics: []blip.CollectorMetric{
@@ -83,96 +74,71 @@ func (c *Binlog) Help() blip.CollectorHelp {
 }
 
 func (c *Binlog) Prepare(ctx context.Context, plan blip.Plan) (func(), error) {
-LEVEL:
+	// Only need to prepare once because nothing changes: the only command is
+	// SHOW BINARY LOGS. Look for size.binlog at any level and prepare if set.
+	atLevel := ""
 	for _, level := range plan.Levels {
-		dom, ok := level.Collect[DOMAIN]
-		if !ok {
-			continue LEVEL // not collected at this level
+		if _, ok := level.Collect[DOMAIN]; ok {
+			atLevel = level.Name
+			break
 		}
-
-		// As of MySQL 8.0.14, SHOW BINARY LOGS has 3 cols instead of 2
-		if ok, _ := sqlutil.MySQLVersionGTE("8.0.14", c.db, ctx); ok {
-			c.cols3 = true
-		}
-
-		if val, ok := dom.Options[OPT_NO_BINLOGS]; ok {
-			c.noBinlogs = val
-		}
-		if val, ok := dom.Options[OPT_NO_ACCESS]; ok {
-			c.noAccess = val
-		}
-
-		// Only need to prepare once because nothing changes: it's all just
-		// SHOW BINARY LOGS
-		break LEVEL
 	}
+	if atLevel == "" {
+		return nil, nil // plan does not collect size.binlog at any level
+	}
+
+	// ----------------------------------------------------------------------
+	// At least one level collect size.binlog, so prepare this collector
+
+	dom := plan.Levels[atLevel].Collect[DOMAIN] // domain at which size.binlog is collected
+
+	// As of MySQL 8.0.14, SHOW BINARY LOGS has 3 cols instead of 2
+	if ok, _ := sqlutil.MySQLVersionGTE("8.0.14", c.db, ctx); ok {
+		c.cols3 = true
+	}
+
+	// Apply custom error policies, if any
+	c.errPolicy[ERR_NO_ACCESS] = errors.NewPolicy(dom.Errors[ERR_NO_ACCESS])
+	c.errPolicy[ERR_NO_BINLOGS] = errors.NewPolicy(dom.Errors[ERR_NO_BINLOGS])
+	blip.Debug("error poliy: %s=%s %s=%s", ERR_NO_ACCESS, c.errPolicy[ERR_NO_ACCESS], ERR_NO_BINLOGS, c.errPolicy[ERR_NO_BINLOGS])
+
 	return nil, nil
 }
 
 func (c *Binlog) Collect(ctx context.Context, levelName string) ([]blip.MetricValue, error) {
-	// Total binlog size might be left a zero on error if option no-binlogs|no-access=zero
-	var total float64
+	if c.stop {
+		blip.Debug("stopped by previous error")
+		return nil, nil
+	}
 
 	rows, err := c.db.QueryContext(ctx, "SHOW BINARY LOGS")
 	if err != nil {
-		switch myerr.MySQLErrorCode(err) {
-		case 0: // not a MySQL error
-			return nil, err
-		case 1381: // binary logging not enabled
-			switch c.noBinlogs {
-			case "zero":
-				// continue, report zero value
-			case "drop":
-				if !c.noBinlogsReported {
-					c.noBinlogsReported = true
-					return nil, fmt.Errorf("%s (Blip will retry but not report error again)", err)
-				}
-				return nil, nil
-			case "error":
-				return nil, err
-			}
-		case 1227: // acccess denied
-			switch c.noAccess {
-			case "zero":
-				// continue, report zero value
-			case "drop":
-				if !c.noAccessReported {
-					c.noAccessReported = true
-					return nil, fmt.Errorf("%s (Blip will retry but not report error again)", err)
-				}
-				return nil, nil
-			case "error":
-				return nil, err
-			}
-		default: // not a MySQL error
-			return nil, err
-		}
-	} else {
-		// Access rows only if err==nil, else rows is nil and this code will panic
-		defer rows.Close()
+		return c.collectError(err)
+	}
+	defer rows.Close()
 
-		var (
-			name string
-			val  string
-			enc  string
-			ok   bool
-			n    float64
-		)
-		for rows.Next() {
-			if c.cols3 {
-				err = rows.Scan(&name, &val, &enc) // 8.0.14+
-			} else {
-				err = rows.Scan(&name, &val)
-			}
-			if err != nil {
-				return nil, err
-			}
-			n, ok = sqlutil.Float64(val)
-			if !ok {
-				continue
-			}
-			total += n
+	var (
+		name  string
+		val   string
+		enc   string
+		ok    bool
+		n     float64
+		total float64
+	)
+	for rows.Next() {
+		if c.cols3 {
+			err = rows.Scan(&name, &val, &enc) // 8.0.14+
+		} else {
+			err = rows.Scan(&name, &val)
 		}
+		if err != nil {
+			return nil, err
+		}
+		n, ok = sqlutil.Float64(val)
+		if !ok {
+			continue
+		}
+		total += n
 	}
 
 	metrics := []blip.MetricValue{{
@@ -182,4 +148,42 @@ func (c *Binlog) Collect(ctx context.Context, levelName string) ([]blip.MetricVa
 	}}
 
 	return metrics, nil
+}
+
+func (c *Binlog) collectError(err error) ([]blip.MetricValue, error) {
+	var ep *errors.Policy
+	switch myerr.MySQLErrorCode(err) {
+	case 1381:
+		ep = c.errPolicy[ERR_NO_BINLOGS]
+	case 1227:
+		ep = c.errPolicy[ERR_NO_ACCESS]
+	default:
+		return nil, err
+	}
+
+	// Stop trying to collect if error policy retry="stop". This affects
+	// future calls to Collect; don't retrun yet because we need to check
+	// the metric policy: drop or zero. If zero, we must report one zero val.
+	if ep.Retry == errors.POLICY_RETRY_NO {
+		c.stop = true
+	}
+
+	// Report
+	var reportedErr error
+	if ep.ReportError() {
+		reportedErr = err
+	} else {
+		blip.Debug("error policy=ignore: %s", err)
+	}
+
+	var metrics []blip.MetricValue
+	if ep.Metric == errors.POLICY_METRIC_ZERO {
+		metrics = []blip.MetricValue{{
+			Name:  "bytes",
+			Value: 0,
+			Type:  blip.GAUGE,
+		}}
+	}
+
+	return metrics, reportedErr
 }
