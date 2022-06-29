@@ -35,6 +35,7 @@ type CollectorHelp struct {
 	Domain      string
 	Description string
 	Options     map[string]CollectorHelpOption
+	Errors      map[string]CollectorHelpError
 	Groups      []CollectorKeyValue
 	Meta        []CollectorKeyValue
 	Metrics     []CollectorMetric
@@ -45,6 +46,12 @@ type CollectorHelpOption struct {
 	Desc    string            // describes Name
 	Default string            // key in Values
 	Values  map[string]string // value => description
+}
+
+type CollectorHelpError struct {
+	Name    string
+	Handles string
+	Default string
 }
 
 type CollectorMetric struct {

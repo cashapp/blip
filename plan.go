@@ -48,8 +48,9 @@ type Level struct {
 // Domain is one metric domain for collecting related metrics.
 type Domain struct {
 	Name    string            `yaml:"-"`
-	Options map[string]string `yaml:"options,omitempty"`
 	Metrics []string          `yaml:"metrics,omitempty"`
+	Options map[string]string `yaml:"options,omitempty"`
+	Errors  map[string]string `yaml:"errors,omitempty"`
 }
 
 const metricPattern = `^[a-zA-Z0-9_-]*$`
@@ -205,6 +206,9 @@ func InternalLevelPlan() Plan {
 						Metrics: []string{
 							"running", // -1=not a replica, 0=not running, 1=running ok
 						},
+						Errors: map[string]string{
+							"access-denied": "ignore,drop,retry", // requires SUPER or REPLICATION CLIENT privileges
+						},
 					},
 					"repl.lag": {
 						Name: "repl.lag",
@@ -279,7 +283,11 @@ func InternalLevelPlan() Plan {
 					},
 					"size.binlog": {
 						Name: "size.binlog",
+						// No metrics, there's only one: size.binlog.bytes
 						// No options, only collects total binlog size
+						Errors: map[string]string{
+							"access-denied": "ignore,drop,retry", // requires SUPER or REPLICATION CLIENT privileges
+						},
 					},
 				},
 			}, // level: data-size (5m)

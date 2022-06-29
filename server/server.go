@@ -86,59 +86,45 @@ type Server struct {
 //
 // Boot must be called once before Run.
 func (s *Server) Boot(env blip.Env, plugins blip.Plugins, factories blip.Factories) error {
-	startTs := time.Now()
-	fmt.Fprintf(os.Stdout, "blip %s\n", blip.VERSION)
-	status.Blip("server", "booting")
-
 	// ----------------------------------------------------------------------
 	// Parse commad line options
+	// ----------------------------------------------------------------------
 
 	var err error
 	s.cmdline, err = ParseCommandLine(env.Args)
 	if err != nil {
 		return err
 	}
-	if s.cmdline.Options.Version {
-		fmt.Println("blip", blip.VERSION)
-		return nil
-	}
+
+	// Set global strict and debug vars first because all code uses them.
+	// STRICT.md documents the effects of strict mode.
+	blip.Strict = s.cmdline.Options.Strict
+	blip.Debugging = s.cmdline.Options.Debug
+	blip.Debug("blip %s %+v", blip.VERSION, s.cmdline)
+
+	// Return early (don't boot/run) --help, --verison, and --print-domains
 	if s.cmdline.Options.Help {
 		printHelp()
-		return nil
+		os.Exit(0)
 	}
-
-	event.SetReceiver(event.Log{All: s.cmdline.Options.Log})
-	event.Sendf(event.BOOT_START, "blip %s", blip.VERSION) // very first event
-
-	// Set debug and strict from env vars. Do this very first because all code
-	// uses blip.Debug() and blip.Strict (boolean).
-	//
-	// STRICT.md documents the effects of strict mode.
-	if s.cmdline.Options.Debug {
-		blip.Debugging = true
+	if s.cmdline.Options.Version {
+		fmt.Println("blip", blip.VERSION)
+		os.Exit(0)
 	}
-	blip.Debug("cmdline: %+v", s.cmdline)
-	if v := os.Getenv(blip.ENV_DEBUG); v != "" {
-		switch strings.ToLower(v) {
-		case "yes", "on", "enable", "1":
-			blip.Debugging = true
-		}
-	}
-	if s.cmdline.Options.Strict {
-		blip.Strict = true
-	}
-	if v := os.Getenv(blip.ENV_STRICT); v != "" {
-		switch strings.ToLower(v) {
-		case "yes", "on", "enable", "1", "finch":
-			blip.Strict = true
-		}
-	}
-
-	// --print-domains and exit
 	if s.cmdline.Options.PrintDomains {
 		fmt.Fprintf(os.Stdout, metrics.PrintDomains())
 		os.Exit(0)
 	}
+
+	// ----------------------------------------------------------------------
+	// Boot seqeuence
+	// ----------------------------------------------------------------------
+
+	startTs := time.Now()
+	status.Blip("server", "booting")
+
+	event.SetReceiver(event.Log{All: s.cmdline.Options.Log})
+	event.Sendf(event.BOOT_START, "blip %s", blip.VERSION) // very first event
 
 	// ----------------------------------------------------------------------
 	// Load config
@@ -250,7 +236,7 @@ func (s *Server) Boot(env blip.Env, plugins blip.Plugins, factories blip.Factori
 	}
 
 	event.Sendf(event.BOOT_SUCCESS, "booted in %s, loaded %d monitors", time.Now().Sub(startTs), s.monitorLoader.Count())
-	return nil
+	return nil // ok to call Run
 }
 
 func (s *Server) Run(stopChan, doneChan chan struct{}) error {

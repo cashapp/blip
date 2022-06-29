@@ -137,7 +137,6 @@ func (s Log) Recv(e Event) {
 
 	// Log all events? If true, then log to stdout.
 	if s.All {
-		//stdout.Printf("[%s] [%s] %s", e.MonitorId, e.Event, e.Message)
 		stdout.Printf("[%-25s] [%s] %s", e.Event, e.MonitorId, e.Message)
 		return
 	}

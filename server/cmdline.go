@@ -68,7 +68,7 @@ func printHelp() {
 		"  --config         Config file (default: %s)\n"+
 		"  --debug          Print debug to stderr\n"+
 		"  --help           Print help and exit\n"+
-		"  --log            Log all events to STDOUT\n"+
+		"  --log            Log info events to STDOUT\n"+
 		"  --plans          Plans files (default: %s)\n"+
 		"  --print-config   Print config on boot\n"+
 		"  --print-domains  Print metric domains\n"+
