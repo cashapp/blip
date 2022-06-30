@@ -50,4 +50,5 @@ const (
 	STATE_CHANGE_ABORT       = "state-change-abort"
 	STATE_CHANGE_BEGIN       = "state-change-begin"
 	STATE_CHANGE_END         = "state-change-end"
+	REPL_SOURCE_CHANGE       = "repl-soruce-change"
 )

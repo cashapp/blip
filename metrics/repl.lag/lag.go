@@ -87,9 +87,9 @@ func (c *Lag) Help() blip.CollectorHelp {
 		},
 		Metrics: []blip.CollectorMetric{
 			{
-				Name: "max",
+				Name: "lag",
 				Type: blip.GAUGE,
-				Desc: "Maximum replication lag (milliseconds) during collect interval",
+				Desc: "Current replication lag (milliseconds)",
 			},
 		},
 	}
@@ -150,17 +150,18 @@ func (c *Lag) Collect(ctx context.Context, levelName string) ([]blip.MetricValue
 	if !c.atLevel[levelName] {
 		return nil, nil
 	}
-	lag, _, err := c.lagReader.Lag(ctx)
+	lag, err := c.lagReader.Lag(ctx)
 	if err != nil {
 		return nil, err
 	}
-	if lag == heartbeat.NOT_A_REPLICA {
+	if !lag.Replica {
 		return nil, nil
 	}
 	m := blip.MetricValue{
 		Name:  "lag",
 		Type:  blip.GAUGE,
-		Value: float64(lag),
+		Value: float64(lag.Milliseconds),
+		Meta:  map[string]string{"source": lag.SourceId},
 	}
 	return []blip.MetricValue{m}, nil
 }

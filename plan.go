@@ -212,9 +212,7 @@ func InternalLevelPlan() Plan {
 					},
 					"repl.lag": {
 						Name: "repl.lag",
-						Options: map[string]string{
-							"source": "%{monitor.meta.repl-source-id}",
-						},
+						// Automatic; see metrics/repl.lag/lag.go
 					},
 				},
 			}, // level: performance (5s)
