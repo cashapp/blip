@@ -35,7 +35,8 @@ type Lag struct {
 
 var ReadTimeout = 2 * time.Second
 var ReadErrorWait = 1 * time.Second
-var ReplCheckWait = 2 * time.Second
+var NoHeartbeatWait = 3 * time.Second
+var ReplCheckWait = 3 * time.Second
 
 // BlipReader reads heartbeats from BlipWriter.
 type BlipReader struct {
@@ -80,6 +81,7 @@ func NewBlipReader(args BlipReaderArgs) *BlipReader {
 		Mutex:    &sync.Mutex{},
 		stopChan: make(chan struct{}),
 		doneChan: make(chan struct{}),
+		lag:      -1, // no heartbeat
 		isRepl:   true,
 		event:    event.MonitorReceiver{MonitorId: args.MonitorId},
 	}
@@ -87,15 +89,15 @@ func NewBlipReader(args BlipReaderArgs) *BlipReader {
 	// Create heartbeat read query
 	cols := []string{"NOW(3)", "ts", "freq", "src_id", "1"}
 	var where string
-	if r.srcId == "" && r.srcRole == "" {
-		blip.Debug("%s: heartbeat from any source (max ts)", r.monitorId)
-		where = "ORDER BY ts DESC LIMIT 1"
+	if r.srcId != "" {
+		blip.Debug("%s: heartbeat from source %s", r.monitorId, r.srcId)
+		where = "WHERE src_id='" + r.srcId + "'" // default
 	} else if r.srcRole != "" {
 		blip.Debug("%s: heartbeat from role %s", r.monitorId, r.srcRole)
 		where = "WHERE src_role='" + r.srcRole + "' ORDER BY ts DESC LIMIT 1"
 	} else {
-		blip.Debug("%s: heartbeat from source %s", r.monitorId, r.srcId)
-		where = "WHERE src_id='" + r.srcId + "'" // default
+		blip.Debug("%s: heartbeat from any source (max ts)", r.monitorId)
+		where = "WHERE src_id != '" + args.MonitorId + "' ORDER BY ts DESC LIMIT 1"
 	}
 	if r.replCheck != "" {
 		cols[4] = "@@" + r.replCheck
@@ -112,7 +114,7 @@ func (r *BlipReader) Start() error {
 
 func (r *BlipReader) run() {
 	defer close(r.doneChan)
-	blip.Debug("heartbeat reader: %s", r.query)
+	blip.Debug("%s: heartbeat reader: %s", r.monitorId, r.query)
 
 	var (
 		now    time.Time     // now according to MySQL
@@ -137,14 +139,18 @@ func (r *BlipReader) run() {
 		err = r.db.QueryRowContext(ctx, r.query).Scan(&now, &last, &freq, &srcId, &isRepl)
 		cancel()
 		if err != nil {
+			blip.Debug("%s: %v", r.monitorId, err)
 			switch {
 			case err == sql.ErrNoRows:
-				status.Monitor(r.monitorId, "reader-error", "no heartbeat for %s", r.srcId)
+				r.Lock()
+				r.lag = -1 // no heartbeat
+				r.Unlock()
+				status.Monitor(r.monitorId, "reader-error", "no heartbeat for %s (retry in %s)", r.srcId, NoHeartbeatWait)
+				time.Sleep(NoHeartbeatWait)
 			default:
-				blip.Debug("%s: %v", r.monitorId, err.Error())
-				status.Monitor(r.monitorId, "reader-error", err.Error())
+				status.Monitor(r.monitorId, "reader-error", "error: %s (retry in %s)", err.Error(), ReadErrorWait)
+				time.Sleep(ReadErrorWait)
 			}
-			time.Sleep(ReadErrorWait)
 			continue
 		}
 
@@ -152,16 +158,17 @@ func (r *BlipReader) run() {
 			r.Lock()
 			r.isRepl = false
 			r.Unlock()
-			status.Monitor(r.monitorId, "reader", "%s (%s) is not a replica (%s=%d), retry in %s",
-				srcId, r.srcRole, r.replCheck, isRepl, ReplCheckWait)
+			msg := fmt.Sprintf("not a replica: %s=%d (retry in %s)", r.replCheck, isRepl, ReplCheckWait)
+			blip.Debug("%s: %s", r.monitorId, msg)
+			status.Monitor(r.monitorId, "reader", msg)
 			time.Sleep(ReplCheckWait)
 			continue
 		}
 
 		// Repl source channge?
 		if r.srcId != srcId {
-			r.srcId = srcId
 			r.event.Sendf(event.REPL_SOURCE_CHANGE, "%s to %s", r.srcId, srcId)
+			r.srcId = srcId
 		}
 
 		lag, wait = r.waiter.Wait(now, last.Time, freq, srcId)
@@ -194,8 +201,6 @@ func (r *BlipReader) Lag(_ context.Context) (Lag, error) {
 	if !r.isRepl {
 		return Lag{Replica: false}, nil
 	}
-	//lag := r.lag
-	//r.lag = 0
 	return Lag{Milliseconds: r.lag, LastTs: r.last, SourceId: r.srcId, SourceRole: r.srcRole, Replica: true}, nil
 }
 
@@ -206,14 +211,15 @@ type LagWaiter interface {
 }
 
 type SlowFastWaiter struct {
+	MonitorId      string
 	NetworkLatency time.Duration
 }
 
-var _ LagWaiter = &SlowFastWaiter{}
+var _ LagWaiter = SlowFastWaiter{}
 
-func (w *SlowFastWaiter) Wait(now, last time.Time, freq int, srcId string) (int64, time.Duration) {
+func (w SlowFastWaiter) Wait(now, last time.Time, freq int, srcId string) (int64, time.Duration) {
 	next := last.Add(time.Duration(freq) * time.Millisecond)
-	blip.Debug("last=%s  now=%s  next=%s  src=%s", last, now, next, srcId)
+	blip.Debug("%s: last=%s  now=%s  next=%s  src=%s", w.MonitorId, last, now, next, srcId)
 
 	if now.Before(next) {
 		lag := now.Sub(last) - w.NetworkLatency
@@ -223,7 +229,7 @@ func (w *SlowFastWaiter) Wait(now, last time.Time, freq int, srcId string) (int6
 
 		// Wait until next hb
 		d := next.Sub(now) + w.NetworkLatency
-		blip.Debug("lagged: %d ms; next hb in %d ms", lag.Milliseconds(), next.Sub(now).Milliseconds())
+		blip.Debug("%s: lagged: %d ms; next hb in %d ms", w.MonitorId, lag.Milliseconds(), next.Sub(now).Milliseconds())
 		return lag.Milliseconds(), d
 	}
 
@@ -244,6 +250,6 @@ func (w *SlowFastWaiter) Wait(now, last time.Time, freq int, srcId string) (int6
 		wait = time.Second
 	}
 
-	blip.Debug("lagging: %s; wait %s", now.Sub(next), wait)
+	blip.Debug("%s: lagging: %s; wait %s", w.MonitorId, now.Sub(next), wait)
 	return lag, wait
 }

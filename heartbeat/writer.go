@@ -95,7 +95,7 @@ func (w *Writer) Write(stopChan, doneChan chan struct{}) error {
 		ping = fmt.Sprintf("INSERT INTO %s (src_id, src_role, ts, freq) VALUES ('%s', NULL, NOW(3), %d) ON DUPLICATE KEY UPDATE ts=NOW(3), freq=%d, src_role=NULL",
 			w.table, w.monitorId, w.freq.Milliseconds(), w.freq.Milliseconds())
 	}
-	blip.Debug("hb writing: %s", ping)
+	blip.Debug("%s: first heartbeat: %s", w.monitorId, ping)
 	for {
 		status.Monitor(w.monitorId, blip_hb_writer, "first insert")
 		ctx, cancel = context.WithTimeout(context.Background(), WriteTimeout)
@@ -107,7 +107,7 @@ func (w *Writer) Write(stopChan, doneChan chan struct{}) error {
 		}
 
 		// Error --
-		blip.Debug("%s: first insert, failed: %s", w.monitorId, err)
+		blip.Debug("%s: first heartbeat failed: %s", w.monitorId, err)
 		if sqlutil.ReadOnly(err) {
 			status.Monitor(w.monitorId, blip_hb_writer, "init: MySQL is read-only, sleeping %s", ReadOnlyWait)
 			time.Sleep(ReadOnlyWait)
@@ -132,7 +132,7 @@ func (w *Writer) Write(stopChan, doneChan chan struct{}) error {
 	// This risk of SQL injection is miniscule because both table and monitorId
 	// are sanitized, and Blip should only have write privs on its heartbeat table.
 	ping = fmt.Sprintf("UPDATE %s SET ts=NOW(3) WHERE src_id='%s'", w.table, w.srcId)
-	blip.Debug(ping)
+	blip.Debug("%s: heartbeat: %s", w.monitorId, ping)
 	for {
 		time.Sleep(w.freq)
 
@@ -141,6 +141,7 @@ func (w *Writer) Write(stopChan, doneChan chan struct{}) error {
 		_, err = w.db.ExecContext(ctx, ping)
 		cancel()
 		if err != nil {
+			blip.Debug("%s: %s", w.monitorId, err.Error())
 			if sqlutil.ReadOnly(err) {
 				status.Monitor(w.monitorId, blip_hb_writer, "MySQL is read-only, sleeping %s", ReadOnlyWait)
 				time.Sleep(ReadOnlyWait)
