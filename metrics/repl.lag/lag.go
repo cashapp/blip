@@ -16,7 +16,6 @@ import (
 const (
 	DOMAIN = "repl.lag"
 
-	OPT_AUTO                = "auto"
 	OPT_SOURCE_ID           = "source-id"
 	OPT_SOURCE_ROLE         = "source-role"
 	OPT_TABLE               = "table"
@@ -52,22 +51,12 @@ func (c *Lag) Help() blip.CollectorHelp {
 		Domain:      DOMAIN,
 		Description: "Replication lag",
 		Options: map[string]blip.CollectorHelpOption{
-			OPT_AUTO: {
-				Name:    OPT_AUTO,
-				Desc:    "Try to work if configure",
-				Default: "yes",
-				Values: map[string]string{
-					"yes": "Enable if configured, else disable (no error)",
-					"no":  "Error unless configured",
-				},
-			},
 			OPT_WRITER: {
 				Name:    OPT_WRITER,
 				Desc:    "Type of heartbeat writer",
 				Default: "blip",
 				Values: map[string]string{
 					"blip": "Native Blip replication lag",
-					//"pt-heartbeat": "Percona pt-heartbeat",
 					//"pfs":    "MySQL Performance Schema",
 					///"legacy": "Second_Behind_Slave|Replica from SHOW SHOW|REPLICA STATUS",
 				},
