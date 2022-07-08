@@ -42,8 +42,6 @@ type Writer struct {
 	srcRole   string
 	freq      time.Duration
 	table     string
-	timeout   time.Duration
-	retryWait time.Duration
 }
 
 func NewWriter(monitorId string, db *sql.DB, cfg blip.ConfigHeartbeat) *Writer {
@@ -56,7 +54,7 @@ func NewWriter(monitorId string, db *sql.DB, cfg blip.ConfigHeartbeat) *Writer {
 
 	freq, _ := time.ParseDuration(cfg.Freq)
 
-	srcId := cfg.ReportedId
+	srcId := cfg.SourceId
 	if srcId == "" {
 		srcId = monitorId
 	}
@@ -65,17 +63,17 @@ func NewWriter(monitorId string, db *sql.DB, cfg blip.ConfigHeartbeat) *Writer {
 		monitorId: monitorId,
 		db:        db,
 		srcId:     srcId,
-		srcRole:   cfg.ReportedRole,
+		srcRole:   cfg.Role,
 		freq:      freq,
 		table:     sqlutil.SanitizeTable(cfg.Table, blip.DEFAULT_DATABASE),
 	}
 }
 
-const blip_hb_writer = "heartbeat-writer"
+const hb_writer = "heartbeat-writer"
 
 func (w *Writer) Write(stopChan, doneChan chan struct{}) error {
 	defer close(doneChan)
-	defer status.Monitor(w.monitorId, blip_hb_writer, "stopped")
+	defer status.Monitor(w.monitorId, hb_writer, "stopped")
 
 	var (
 		err    error
@@ -97,22 +95,22 @@ func (w *Writer) Write(stopChan, doneChan chan struct{}) error {
 	}
 	blip.Debug("%s: first heartbeat: %s", w.monitorId, ping)
 	for {
-		status.Monitor(w.monitorId, blip_hb_writer, "first insert")
+		status.Monitor(w.monitorId, hb_writer, "first insert")
 		ctx, cancel = context.WithTimeout(context.Background(), WriteTimeout)
 		_, err = w.db.ExecContext(ctx, ping)
 		cancel()
 		if err == nil { // success
-			status.Monitor(w.monitorId, blip_hb_writer, "sleep")
+			status.Monitor(w.monitorId, hb_writer, "sleep")
 			break
 		}
 
 		// Error --
 		blip.Debug("%s: first heartbeat failed: %s", w.monitorId, err)
 		if sqlutil.ReadOnly(err) {
-			status.Monitor(w.monitorId, blip_hb_writer, "init: MySQL is read-only, sleeping %s", ReadOnlyWait)
+			status.Monitor(w.monitorId, hb_writer, "init: MySQL is read-only, sleeping %s", ReadOnlyWait)
 			time.Sleep(ReadOnlyWait)
 		} else {
-			status.Monitor(w.monitorId, blip_hb_writer, "init: error: %s (sleeping %s)", err, InitErrorWait)
+			status.Monitor(w.monitorId, hb_writer, "init: error: %s (sleeping %s)", err, InitErrorWait)
 			time.Sleep(InitErrorWait)
 		}
 
@@ -136,23 +134,23 @@ func (w *Writer) Write(stopChan, doneChan chan struct{}) error {
 	for {
 		time.Sleep(w.freq)
 
-		status.Monitor(w.monitorId, blip_hb_writer, "write")
+		status.Monitor(w.monitorId, hb_writer, "write")
 		ctx, cancel = context.WithTimeout(context.Background(), WriteTimeout)
 		_, err = w.db.ExecContext(ctx, ping)
 		cancel()
 		if err != nil {
 			blip.Debug("%s: %s", w.monitorId, err.Error())
 			if sqlutil.ReadOnly(err) {
-				status.Monitor(w.monitorId, blip_hb_writer, "MySQL is read-only, sleeping %s", ReadOnlyWait)
+				status.Monitor(w.monitorId, hb_writer, "MySQL is read-only, sleeping %s", ReadOnlyWait)
 				time.Sleep(ReadOnlyWait)
 			} else {
-				status.Monitor(w.monitorId, blip_hb_writer, "write error: %s", err)
+				status.Monitor(w.monitorId, hb_writer, "write error: %s", err)
 				// No special sleep on random errors; keep trying to write at freq
 			}
 		} else {
 			// Set status on successful Exec here, not before Sleep, so it
 			// doesn't overwrite status set on Exec error; "sleep" = "write OK"
-			status.Monitor(w.monitorId, blip_hb_writer, "sleep")
+			status.Monitor(w.monitorId, hb_writer, "sleep")
 		}
 
 		// Was Stop called?

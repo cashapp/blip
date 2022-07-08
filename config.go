@@ -87,14 +87,14 @@ func validFreq(freq, config string) error {
 		return nil
 	}
 	if freq == "0" {
-		return fmt.Errorf("invalid %s: 0: must be greater than zero", config)
+		return fmt.Errorf("invalid config.%s: 0: must be greater than zero", config)
 	}
 	d, err := time.ParseDuration(freq)
 	if err != nil {
-		return fmt.Errorf("invalid %s: %s: %s", config, freq, err)
+		return fmt.Errorf("invalid config.%s: %s: %s", config, freq, err)
 	}
 	if d <= 0 {
-		return fmt.Errorf("invalid %s: %s (%d): value <= 0; must be greater than zero", config, freq, d)
+		return fmt.Errorf("invalid config.%s: %s (%d): value <= 0; must be greater than zero", config, freq, d)
 	}
 	return nil
 }
@@ -121,7 +121,7 @@ func LoadConfig(filePath string, cfg Config) (Config, error) {
 		return Config{}, fmt.Errorf("cannot read config file: %s", err)
 	}
 
-	if err := yaml.Unmarshal(bytes, &cfg); err != nil {
+	if err := yaml.UnmarshalStrict(bytes, &cfg); err != nil {
 		return cfg, fmt.Errorf("cannot decode YAML in %s: %s", file, err)
 	}
 
@@ -172,14 +172,15 @@ func DefaultConfig(strict bool) Config {
 		Plans:     DefaultConfigPlans(),
 		TLS:       DefaultConfigTLS(),
 
-		// Default config does not have any monitors. If a real config file
-		// does not specify any, Server.LoadMonitors() will attemp to
-		// auto-detect a local MySQL instance, starting with DefaultConfigMontor().
+		// Default config does not have any monitors (MySQL instances).
+		// If the user does not specify any, Blip attempts to auto-detect
+		// local MySQL instances.
 		Monitors: []ConfigMonitor{},
 	}
 }
 
 func (c Config) Validate() error {
+	// Blip server
 	if err := c.API.Validate(); err != nil {
 		return err
 	}
@@ -192,6 +193,7 @@ func (c Config) Validate() error {
 	if err := c.MonitorLoader.Validate(); err != nil {
 		return err
 	}
+	// Monitor defaults
 	if err := c.AWS.Validate(); err != nil {
 		return err
 	}
@@ -217,15 +219,12 @@ func (c Config) Validate() error {
 }
 
 func (c *Config) InterpolateEnvVars() {
-	for k, v := range c.Tags {
-		c.Tags[k] = interpolateEnv(v)
-	}
-
+	// Blip server
 	c.API.InterpolateEnvVars()
 	c.HTTP.InterpolateEnvVars()
 	c.Sinks.InterpolateEnvVars()
 	c.MonitorLoader.InterpolateEnvVars()
-
+	// Monitor defaults
 	c.AWS.InterpolateEnvVars()
 	c.Exporter.InterpolateEnvVars()
 	c.HA.InterpolateEnvVars()
@@ -233,6 +232,9 @@ func (c *Config) InterpolateEnvVars() {
 	c.MySQL.InterpolateEnvVars()
 	c.Plans.InterpolateEnvVars()
 	c.TLS.InterpolateEnvVars()
+	for k, v := range c.Tags {
+		c.Tags[k] = interpolateEnv(v)
+	}
 }
 
 // ///////////////////////////////////////////////////////////////////////////
@@ -389,7 +391,6 @@ func (c *ConfigMonitor) ApplyDefaults(b Config) {
 	if c.Hostname == "" {
 		c.Hostname = b.MySQL.Hostname
 	}
-
 	if c.MyCnf == "" && b.MySQL.MyCnf != "" {
 		c.MyCnf = b.MySQL.MyCnf
 	}
@@ -413,11 +414,9 @@ func (c *ConfigMonitor) ApplyDefaults(b Config) {
 			c.Tags[bk] = bv
 		}
 	}
-
 	if c.Sinks == nil {
 		c.Sinks = ConfigSinks{}
 	}
-
 	c.AWS.ApplyDefaults(b)
 	c.Exporter.ApplyDefaults(b)
 	c.HA.ApplyDefaults(b)
@@ -588,7 +587,7 @@ func DefaultConfigExporter() ConfigExporter {
 
 func (c ConfigExporter) Validate() error {
 	if c.Mode != "" && (c.Mode != EXPORTER_MODE_DUAL && c.Mode != EXPORTER_MODE_LEGACY) {
-		return fmt.Errorf("invalid mode: %s; valid values: dual, legacy", c.Mode)
+		return fmt.Errorf("invalid config.exporter.mode: %s; valid values: dual, legacy", c.Mode)
 	}
 	return nil
 }
@@ -624,10 +623,10 @@ func (c *ConfigExporter) InterpolateMonitor(m *ConfigMonitor) {
 // --------------------------------------------------------------------------
 
 type ConfigHeartbeat struct {
-	Freq         string `yaml:"freq,omitempty"`
-	ReportedId   string `yaml:"reported-id,omitempty"`
-	ReportedRole string `yaml:"reported-role,omitempty"`
-	Table        string `yaml:"table,omitempty"`
+	Freq     string `yaml:"freq,omitempty"`
+	SourceId string `yaml:"source-id,omitempty"`
+	Role     string `yaml:"role,omitempty"`
+	Table    string `yaml:"table,omitempty"`
 }
 
 const (
@@ -642,6 +641,9 @@ func (c ConfigHeartbeat) Validate() error {
 	if err := validFreq(c.Freq, "heartbeat.freq"); err != nil {
 		return err
 	}
+	if c.Freq == "" && (c.SourceId != "" || c.Role != "" || c.Table != "") {
+		return fmt.Errorf("invalid config.heartbeat: freq is not set but other values are set; set freq to enable heartbeat")
+	}
 	return nil
 }
 
@@ -652,11 +654,11 @@ func (c *ConfigHeartbeat) ApplyDefaults(b Config) {
 	if c.Table == "" {
 		c.Table = b.Heartbeat.Table
 	}
-	if c.ReportedId == "" {
-		c.ReportedId = b.Heartbeat.ReportedId
+	if c.SourceId == "" {
+		c.SourceId = b.Heartbeat.SourceId
 	}
-	if c.ReportedRole == "" {
-		c.ReportedRole = b.Heartbeat.ReportedRole
+	if c.Role == "" {
+		c.Role = b.Heartbeat.Role
 	}
 	if c.Freq != "" && c.Table == "" {
 		c.Table = DEFAULT_HEARTBEAT_TABLE
@@ -665,11 +667,15 @@ func (c *ConfigHeartbeat) ApplyDefaults(b Config) {
 
 func (c *ConfigHeartbeat) InterpolateEnvVars() {
 	c.Freq = interpolateEnv(c.Freq)
+	c.SourceId = interpolateEnv(c.SourceId)
+	c.Role = interpolateEnv(c.Role)
 	c.Table = interpolateEnv(c.Table)
 }
 
 func (c *ConfigHeartbeat) InterpolateMonitor(m *ConfigMonitor) {
 	c.Freq = m.interpolateMon(c.Freq)
+	c.SourceId = m.interpolateMon(c.SourceId)
+	c.Role = m.interpolateMon(c.Role)
 	c.Table = m.interpolateMon(c.Table)
 }
 
