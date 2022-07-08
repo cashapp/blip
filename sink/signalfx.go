@@ -112,12 +112,26 @@ func (s *SignalFx) Send(ctx context.Context, m *blip.Metrics) error {
 				name = s.prefix + name
 			}
 
+			// Copy metric meta into tags (dimensions), if any
+			var dim map[string]string
+			if len(metrics[i].Meta) == 0 {
+				dim = s.dim
+			} else {
+				dim = make(map[string]string, len(s.dim)+len(metrics[i].Meta))
+				for k, v := range s.dim { // tags (from config)
+					dim[k] = v
+				}
+				for k, v := range metrics[i].Meta { // metric meta
+					dim[k] = v
+				}
+			}
+
 			// Convert Blip metric type to SFX metric type
 			switch metrics[i].Type {
 			case blip.COUNTER:
-				dp[n] = sfxclient.CumulativeF(name, s.dim, metrics[i].Value)
+				dp[n] = sfxclient.CumulativeF(name, dim, metrics[i].Value)
 			case blip.GAUGE:
-				dp[n] = sfxclient.GaugeF(name, s.dim, metrics[i].Value)
+				dp[n] = sfxclient.GaugeF(name, dim, metrics[i].Value)
 			default:
 				// SFX doesn't support this Blip metric type, so skip it
 				continue METRICS // @todo error?

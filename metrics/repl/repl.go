@@ -73,6 +73,7 @@ func (c *Repl) Help() blip.CollectorHelp {
 }
 
 var statusQuery = "SHOW SLAVE STATUS" // SHOW REPLICA STATUS as of 8.022
+var newTerms = false
 
 func (c *Repl) Prepare(ctx context.Context, plan blip.Plan) (func(), error) {
 	haveVersion := false
@@ -120,6 +121,7 @@ LEVEL:
 		haveVersion = true
 		if major == 8 && patch >= 22 {
 			statusQuery = "SHOW REPLICA STATUS"
+			newTerms = true
 		}
 		blip.Debug("mysql %d.x.%d %s", major, patch, statusQuery)
 	}
@@ -159,15 +161,22 @@ func (c *Repl) Collect(ctx context.Context, levelName string) ([]blip.MetricValu
 			// running if a replica and those ^ 3 conditions are true
 			running = 1
 		}
+
 		m := blip.MetricValue{
 			Name:  "running",
 			Type:  blip.GAUGE,
 			Value: running,
+			Meta:  map[string]string{"source": ""},
+		}
+		if newTerms {
+			m.Meta["source"] = replStatus["Source_Host"]
+		} else {
+			m.Meta["source"] = replStatus["Master_Host"]
 		}
 		metrics = append(metrics, m)
 	}
 
-	// @todo collect other repl status metrics; handle error policy=zero
+	// @todo collect other repl status metrics
 
 	return metrics, nil
 }
@@ -202,6 +211,7 @@ func (c *Repl) collectError(err error) ([]blip.MetricValue, error) {
 			Name:  "running",
 			Type:  blip.GAUGE,
 			Value: 0,
+			Meta:  map[string]string{"source": ""},
 		}}
 	}
 

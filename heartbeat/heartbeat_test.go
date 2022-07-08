@@ -194,7 +194,7 @@ func TestReader(t *testing.T) {
 	// part is 200 (milliseconds): the reader will expect the next heartbeat
 	// in NOW + 200ms, which is easy to do in this by updating the heartbeat
 	// row in 200ms--or, to simulate lag, don't update it, or update it late.
-	q := "INSERT INTO " + blip_writer_table + " VALUES ('m1', NULL, NOW(3), 200)"
+	q := "INSERT INTO " + blip_writer_table + " VALUES ('s1', NULL, NOW(3), 200)"
 	if _, err := db.Exec(q); err != nil {
 		t.Fatal(err)
 	}
@@ -213,7 +213,7 @@ func TestReader(t *testing.T) {
 		},
 	}
 	hr := heartbeat.NewBlipReader(heartbeat.BlipReaderArgs{
-		MonitorId: "m1",
+		MonitorId: "r1",
 		DB:        db,
 		Table:     blip_writer_table,
 		Waiter:    mockWaiter,
@@ -281,7 +281,7 @@ func TestReader(t *testing.T) {
 	lag1 = lag2 // shift to keep last two
 
 	// Write 2nd heartbeat and wait for fifth read
-	q = "UPDATE " + blip_writer_table + " SET ts=NOW(3) WHERE src_id='m1'"
+	q = "UPDATE " + blip_writer_table + " SET ts=NOW(3) WHERE src_id='s1'"
 	if _, err := db.Exec(q); err != nil {
 		t.Fatal(err)
 	}
