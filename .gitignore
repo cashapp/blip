@@ -10,7 +10,8 @@
 
 vendor/
 
-.jekyll-cache
+docs/.jekyll-cache
+docs/.jekyll-metadata
 
 # Ignore everything in bin/blip/ except main.go
 # because I often have test config and plan files.
