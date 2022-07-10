@@ -30,10 +30,11 @@ type Chronosphere struct {
 	monitorId string
 	tags      map[string]string
 	// --
-	url    string
-	labels []*om.Label
-	debug  bool
-	event  event.MonitorReceiver
+	url      string
+	labels   []*om.Label
+	debug    bool
+	strictTr bool
+	event    event.MonitorReceiver
 }
 
 func NewChronosphere(monitorId string, opts, tags map[string]string) (*Chronosphere, error) {
@@ -49,12 +50,12 @@ func NewChronosphere(monitorId string, opts, tags map[string]string) (*Chronosph
 		switch k {
 		case "url":
 			s.url = v
+		case "strict-tr":
+			s.strictTr = blip.Bool(v)
 		case "debug":
 			s.debug = blip.Bool(v)
 		default:
-			if blip.Strict {
-				return nil, fmt.Errorf("invalid option: %s", k)
-			}
+			return nil, fmt.Errorf("invalid option: %s", k)
 		}
 	}
 
@@ -130,11 +131,11 @@ func (s *Chronosphere) Send(ctx context.Context, m *blip.Metrics) (lerr error) {
 		tr := prom.Translator(domain)
 		if tr == nil {
 			err := fmt.Errorf("no translator for %s", domain)
-			if blip.Strict {
+			if s.strictTr {
 				lerr = err
 				return // implicit lerr
 			}
-			blip.Debug(err.Error() + ", ignoring")
+			blip.Debug(err.Error() + ", ignoring (strict-tr = false)")
 			continue
 		}
 		prefix, _, shortDomain := tr.Names()

@@ -98,7 +98,9 @@ func TestMonitor(t *testing.T) {
 		Sinks:      []blip.Sink{sink},
 	})
 
-	go mon.Run()
+	if err := mon.Start(); err != nil {
+		t.Fatal(err)
+	}
 
 	time.Sleep(1300 * time.Millisecond)
 
@@ -108,14 +110,14 @@ func TestMonitor(t *testing.T) {
 	if status.MonitorId != monitorId1 {
 		t.Errorf("MonitorStatus.MonitorId = '%s', expected '%s'", status.MonitorId, monitorId1)
 	}
-	if status.Engine.CollectAll != 1 && status.Engine.CollectAll != 2 {
-		t.Errorf("MonitorStatus.Engine.CollectAll = %d, expected 1 or 2", status.Engine.CollectAll)
+	if status.Collector.Engine.CollectAll != 1 && status.Collector.Engine.CollectAll != 2 {
+		t.Errorf("MonitorStatus.Collector.Engine.CollectAll = %d, expected 1 or 2", status.Collector.Engine.CollectAll)
 	}
-	if status.Engine.CollectSome != 0 {
-		t.Errorf("MonitorStatus.Engine.CollectSome= %d, expected 0", status.Engine.CollectSome)
+	if status.Collector.Engine.CollectSome != 0 {
+		t.Errorf("MonitorStatus.Collector.Engine.CollectSome= %d, expected 0", status.Collector.Engine.CollectSome)
 	}
-	if status.Engine.CollectFail != 0 {
-		t.Errorf("MonitorStatus.Engine.CollectFail = %d, expected 0", status.Engine.CollectFail)
+	if status.Collector.Engine.CollectFail != 0 {
+		t.Errorf("MonitorStatus.Collector.Engine.CollectFail = %d, expected 0", status.Collector.Engine.CollectFail)
 	}
 
 	err := mon.Stop()

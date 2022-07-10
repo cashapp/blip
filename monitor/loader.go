@@ -28,29 +28,19 @@ type LoadFunc func(blip.Config) ([]blip.ConfigMonitor, error)
 // StartMonitorFunc is a callback that matches blip.Plugin.StartMonitor.
 type StartMonitorFunc func(blip.ConfigMonitor) bool
 
-// Changes are monitors added, removed, and changed. It's the return value
-// of Loader.Changes, which the caller might use to clean up or do other things.
-// Currently, the only caller is Server.Boot, which ignores the changes because
-// there can only be added monitors on startup.
-//
-// Invalid errors come from blip.ConfigMonitor.Validate, only if not strict.
-// If strict, Loader.Load returns on the first error.
-type Changes struct {
-	Added   []*Monitor
-	Removed []*Monitor
-	Changed []*Monitor
-	Invalid []error
-}
-
+// loadedMonitor represents one validated and loaded Monitor created by
+// a call to Load. started is false until StartMonitors is called.
 type loadedMonitor struct {
 	monitor *Monitor
 	started bool
 }
 
-// Loader is the singleton Monitor loader. It's a combination of factory and
-// repository because it makes new monitors and it keeps track of them. The
-// Load is created and first called in Server.Boot, and it exists while Blip
-// runs because monitors can be reloaded.
+// Loader is the singleton monitor loader and repo. It's created by the server
+// and only used there (and via API calls). It's dynamic so monitors can be
+// loaded (created) and unloaded (destroyed) while Blip is running, but the
+// normal case is one load and start on Blip startup: Server.Boot calls Load,
+// then Server.Run calls StartMonitors. The user can make API calls to reload
+// while Blip is running.
 //
 // Loader is safe for concurrent use, but it's currently only called by the Server.
 type Loader struct {
@@ -59,7 +49,7 @@ type Loader struct {
 	plugin     blip.Plugins
 	planLoader *plan.Loader
 	// --
-	dbmon           map[string]*loadedMonitor // keyed on monitorId
+	repo            map[string]*loadedMonitor // keyed on monitorId
 	stopLossPercent float64
 	stopLossNumber  uint
 	*sync.Mutex
@@ -92,7 +82,7 @@ func NewLoader(args LoaderArgs) *Loader {
 		// --
 		stopLossPercent: stopLossPercent,
 		stopLossNumber:  stopLossNumber,
-		dbmon:           map[string]*loadedMonitor{},
+		repo:            map[string]*loadedMonitor{},
 		Mutex:           &sync.Mutex{},
 		stopChan:        make(chan struct{}),
 		doneChan:        make(chan struct{}),
@@ -100,42 +90,12 @@ func NewLoader(args LoaderArgs) *Loader {
 	}
 }
 
-func (ml *Loader) Reload(stopChan, doneChan chan struct{}) error {
-	if ml.cfg.MonitorLoader.Freq == "" {
-		panic("MonitorLoader.Reload called but config.monitor-loader.freq not set")
-	}
-
-	defer close(doneChan)
-
-	reloadTime, _ := time.ParseDuration(ml.cfg.MonitorLoader.Freq) // already validated
-	reloadTicker := time.NewTicker(reloadTime)
-	defer reloadTicker.Stop()
-
-	timeout := time.Duration(reloadTime / 2)
-
-	// Reload monitors every config.monitor-loader.freq
-	for {
-		status.Blip("monitor-loader", "idle")
-		select {
-		case <-reloadTicker.C:
-			ctx, cancel := context.WithTimeout(context.Background(), timeout)
-			err := ml.Load(ctx)
-			cancel()
-			if err != nil {
-				event.Errorf(event.MONITORS_RELOAD_ERROR, "error reloading monitors, will retry: %s", err)
-				continue
-			}
-			ml.StartMonitors() // all new monitors
-		case <-stopChan:
-			return nil
-		}
-	}
-}
-
 // StartMonitors runs all monitors that have been loaded but not started.
-// This should be called after Load. If Reload is running (started in Server.Run),
-// it calls Load > StartMonitors periodically, else Server.Boot calls Load then
-// Server.Run calls StartMonitors once.
+// This should be called after Load. On Blip startup, the server calls Load
+// in Server.Boot, then StartMonitors in server.Run. The user can reload
+// by calling the server API: /monitors/reload.
+//
+// This function is safe for concurrent use, but calls are serialized.
 func (ml *Loader) StartMonitors() {
 	ml.Lock()
 	defer ml.Unlock()
@@ -143,12 +103,26 @@ func (ml *Loader) StartMonitors() {
 	event.Send(event.MONITORS_STARTING)
 	defer event.Send(event.MONITORS_STARTED)
 
-	for i := range ml.dbmon {
-		if ml.dbmon[i].started {
+	// Wait between starting each monitor to distribute CPU and network load.
+	// Starting a monitor is quick (run a goroutine), so without a wait between
+	// each, all the monitors would wake up, collect, and send metrics at
+	// roughly the same time. A simple wait more evenly distributes the loads.
+	n := 0
+	for i := range ml.repo {
+		if !ml.repo[i].started {
+			n += 1
+		}
+	}
+	w := time.Duration(wait(n)) * time.Millisecond
+	blip.Debug("%d to start, wait %s between each", n, w)
+
+	// Start monitors that aren't started yet
+	for i := range ml.repo {
+		if ml.repo[i].started {
 			continue // skip started monitors
 		}
 
-		m := ml.dbmon[i] // m is *loadedMonitor
+		m := ml.repo[i] // m is *loadedMonitor
 		status.Blip("monitor-loader", "starting %s", m.monitor.MonitorId())
 
 		// Call StartMonitor callback. Default allows all monitors to start,
@@ -159,25 +133,49 @@ func (ml *Loader) StartMonitors() {
 		}
 
 		// Start the MySQL monitor, which starts metrics collection
-		go m.monitor.Run()
+		if err := m.monitor.Start(); err != nil {
+			blip.Debug(err.Error()) // shouldn't happen
+		}
 		m.started = true
-
-		// Space out monitors so their clocks don't tick at the same time.
-		// We don't want, for example, 25 monitors simultaneously waking up,
-		// connecting to MySQL, processing metrics. That'll make Blip
-		// CPU/net usage unnecessarily spiky.
-		//
-		// @improve: 20ms is reasonable, but if there are very few monitors,
-		// we can sleep longer to distribute the collection load more evenly.
-		time.Sleep(20 * time.Millisecond)
+		time.Sleep(w)
 	}
-	status.Blip("monitor-loader", "monitors started at "+time.Now().String())
+	status.Blip("monitor-loader", "%d monitors started at %s", n, time.Now())
 }
 
-// Load loads all monitors specified and auto-detected, for all environments:
-// local, remote, cloud, etc. It's safe for concurrent use, but calls are
-// serialized. Server.Boot is the first (and primary) caller, which loads
-// monitors on startup.
+// [ 1, 10) = <1s startup
+// [10, 50] = ~1s
+// (50,inf) = >1s + 1s per 50 [e.g. 100=2s, 200=4s]
+const min_wait = 20
+const max_wait = 100
+
+func wait(n int) int {
+	if n == 1 {
+		return 0
+	}
+	ms := 1000 / n
+	if ms < min_wait {
+		return min_wait
+	}
+	if ms > max_wait {
+		return max_wait
+	}
+	return ms
+}
+
+// Load loads all configured monitors. If none are configured, it auto-detects
+// local MySQL instances if config.monitor-loader.local.disable-auto = false,
+// which is the default. Load does NOT start monitors; StartMonitors starts them.
+//
+// Load handles config.monitor-loader.stop-loss: if too many monitors are lost,
+// it returns nil and send a MONITORS_STOPLOSS event, which the user is expected
+// to handle with a custom event.Receiver, else the event is just logged to STDERR.
+//
+// Server.Boot calls Load when Blip starts, then Server.Run calls StartMonitors.
+//
+// If Load returns error, the currently loaded monitors are not affected.
+// The error indicates a problem loading monitors or a validation error.
+//
+// This function is safe for concurrent use, but calls are serialized.
 func (ml *Loader) Load(ctx context.Context) error {
 	ml.Lock()
 	defer ml.Unlock()
@@ -185,16 +183,21 @@ func (ml *Loader) Load(ctx context.Context) error {
 	event.Send(event.MONITORS_LOADING)
 	defer event.Send(event.MONITORS_LOADED)
 
-	changes, err := ml.Changes(ctx)
+	// ----------------------------------------------------------------------
+	// Low-level monitor loading returns a diff: new, chagned, and removed
+	// monitors as compared to what's currently in the repo.
+	diff, err := ml.load(ctx)
 	if err != nil {
 		return err
 	}
 
+	// ----------------------------------------------------------------------
+	// Stop-loss
 	// Check config.monitor-loader.stop-loss: don't change monitors if there's
 	// a big drop in the number because it might be a false-positive that will
 	// set off alarms when a bunch of metrics fail to report.
-	nBefore := float64(len(ml.dbmon))
-	nNow := float64(len(changes.Removed))
+	nBefore := float64(len(ml.repo))
+	nNow := float64(len(diff.removed))
 	if nNow < nBefore {
 		var errMsg string
 		if ml.stopLossPercent > 0 {
@@ -216,21 +219,20 @@ func (ml *Loader) Load(ctx context.Context) error {
 	}
 
 	// ----------------------------------------------------------------------
-	// Now that all has all loaded monitors (for this call), update ml.dbmon,
-	// which is the official internal repo of loaded monitors
-
-	for _, mon := range changes.Removed {
-		mon.Stop()
-		delete(ml.dbmon, mon.MonitorId())
+	// Update repo
+	// Unload monitors that have been removed or changed. changed monitors have
+	// a new *Monitor in added with the same monitor ID, so we must unload the
+	// old copy first, then add in the new copy (using the same monitor ID).
+	for _, mon := range diff.removed {
+		ml.Unload(mon.MonitorId(), false)
+	}
+	for _, mon := range diff.changed {
+		ml.Unload(mon.MonitorId(), false)
 	}
 
-	for _, mon := range changes.Changed {
-		mon.Stop()
-		delete(ml.dbmon, mon.MonitorId())
-	}
-
-	for _, mon := range changes.Added {
-		ml.dbmon[mon.MonitorId()] = &loadedMonitor{
+	// Add new monitors to the repo but don't start them: that's done in StartMonitors.
+	for _, mon := range diff.added {
+		ml.repo[mon.MonitorId()] = &loadedMonitor{
 			monitor: mon,
 			started: false,
 		}
@@ -239,104 +241,123 @@ func (ml *Loader) Load(ctx context.Context) error {
 	return nil
 }
 
-// Changes returns which monitors have been added, changed, or removed since
-// the last call to Load. It is not safe for use by multiple goroutines; calls
-// are serialized by Load.
-func (ml *Loader) Changes(ctx context.Context) (Changes, error) {
-	ch := Changes{
-		Added:   []*Monitor{},
-		Removed: []*Monitor{},
-		Changed: []*Monitor{},
-		Invalid: []error{},
+type diff struct {
+	added   []*Monitor
+	removed []*Monitor
+	changed []*Monitor
+}
+
+func (ml *Loader) load(ctx context.Context) (diff, error) {
+	/*
+		DO NOT MODIFY repo IN THIS FUNC.
+		This func has no side effects on error.
+		Only Load modifies repo.
+	*/
+
+	// diff is always returned, but currently the caller (Load) ignores it if
+	// any error is returned. If we've already made new monitors, that's wasted
+	// allocation, but we'll keep it for now in case Load ever supports partial
+	// success. Plus, failure is the exception, not the normal, so wasted alloc
+	// shouldn't be an issue.
+	diff := diff{
+		added:   []*Monitor{},
+		removed: []*Monitor{},
+		changed: []*Monitor{},
 	}
 	defer func() {
 		last := fmt.Sprintf("added: %d removed: %d changed: %d",
-			len(ch.Added), len(ch.Removed), len(ch.Changed))
+			len(diff.added), len(diff.removed), len(diff.changed))
 		status.Blip("monitor-loader", "%s on %s", last, time.Now())
 	}()
 
-	// All tracks all monitors loaded for this call. By contrast, ml.dbmon
-	// is currently loaded monitors (from a previous call). Load into all first
-	// (which might be slow), then lock and modify ml.dbmon.
-	all := map[string]blip.ConfigMonitor{}
+	// All valid monitor configs loaded, keyed by monitor ID. See save().
+	validConfigs := map[string]blip.ConfigMonitor{}
 
-	// If the user provided a blip.Plugin.LoadMonitors function, it's entirely
-	// responsible for loading monitors. Else, do the normal built-in load sequence.
-	// Monitor configs are finalized and validated in merge(); the func calls
-	// here just load monitor configs as-is.
+	// Judicious use of goto below requires no new vars come into scope
+	var newConfigs []blip.ConfigMonitor
+	var err error
+
+	// ----------------------------------------------------------------------
+	// LoadMonitors (overrides default load sequence)
+
 	if ml.plugin.LoadMonitors != nil {
 		blip.Debug("call plugin.LoadMonitors")
 		status.Blip("monitor-loader", "loading from plugin")
-		monitors, err := ml.plugin.LoadMonitors(ml.cfg)
+		newConfigs, err = ml.plugin.LoadMonitors(ml.cfg)
 		if err != nil {
-			return ch, err
+			return diff, err
 		}
-		if err := ml.merge(monitors, all, &ch); err != nil {
-			return ch, err
+		if err := ml.save(newConfigs, validConfigs); err != nil {
+			return diff, err
 		}
-	} else {
-		// -------------------------------------------------------------------
-		// Built-in load sequence: config files, monitors file, AWS, local
+		goto MAKE_MONITORS // idiomatic Go if used judiciously
+	}
 
-		// First, monitors from the config file
-		if len(ml.cfg.Monitors) != 0 {
-			if err := ml.merge(ml.cfg.Monitors, all, &ch); err != nil {
-				return ch, err
-			}
-			blip.Debug("loaded %d monitors from config file", len(ml.cfg.Monitors))
-		}
+	// -------------------------------------------------------------------
+	// Default load sequence: config files, monitors file, AWS, local
 
-		// Second, monitors from the monitor files
-		monitors, err := ml.loadFiles(ctx)
+	// First, monitors from the config file
+	if len(ml.cfg.Monitors) != 0 {
+		if err := ml.save(ml.cfg.Monitors, validConfigs); err != nil {
+			return diff, err
+		}
+		blip.Debug("loaded %d monitors from config file", len(ml.cfg.Monitors))
+	}
+
+	// Second, monitors from the monitor files
+	newConfigs, err = ml.loadFiles(ctx)
+	if err != nil {
+		return diff, err
+	}
+	if err := ml.save(newConfigs, validConfigs); err != nil {
+		return diff, err
+	}
+
+	// Third, monitors from the AWS RDS API
+	if len(ml.cfg.MonitorLoader.AWS.Regions) > 0 {
+		newConfigs, err = ml.rdsLoader.Load(ctx, ml.cfg)
 		if err != nil {
-			return ch, err
+			if !ml.cfg.MonitorLoader.AWS.Automatic() {
+				return diff, err
+			}
+			blip.Debug("failed auto-AWS loading, ignoring: %s", err)
 		}
-		if err := ml.merge(monitors, all, &ch); err != nil {
-			return ch, err
-		}
-
-		// Third, monitors from the AWS RDS API
-		if len(ml.cfg.MonitorLoader.AWS.Regions) > 0 {
-			monitors, err = ml.rdsLoader.Load(ctx, ml.cfg)
-			if err != nil {
-				if !ml.cfg.MonitorLoader.AWS.Automatic() {
-					return ch, err
-				}
-				blip.Debug("failed auto-AWS loading, ignoring: %s", err)
-			}
-			if err := ml.merge(monitors, all, &ch); err != nil {
-				return ch, err
-			}
-		}
-
-		// Last, local monitors auto-detected
-		if len(all) == 0 && !ml.cfg.MonitorLoader.Local.DisableAuto {
-			monitors, err = ml.loadLocal(ctx)
-			if err != nil {
-				return ch, err
-			}
-			if err := ml.merge(monitors, all, &ch); err != nil {
-				return ch, err
-			}
+		if err := ml.save(newConfigs, validConfigs); err != nil {
+			return diff, err
 		}
 	}
 
+	// Last, local monitors auto-detected
+	if len(validConfigs) == 0 && !ml.cfg.MonitorLoader.Local.DisableAuto {
+		newConfigs, err = ml.loadLocal(ctx)
+		if err != nil {
+			return diff, err
+		}
+		if err := ml.save(newConfigs, validConfigs); err != nil {
+			return diff, err
+		}
+	}
+
+	// ----------------------------------------------------------------------
+	// Make monitors from valid configs
+
+MAKE_MONITORS:
 	// Monitors that have been removed
-	for monitorId, loaded := range ml.dbmon {
-		if _, ok := all[monitorId]; !ok {
-			ch.Removed = append(ch.Removed, loaded.monitor)
+	for monitorId, loaded := range ml.repo {
+		if _, ok := validConfigs[monitorId]; !ok {
+			diff.removed = append(diff.removed, loaded.monitor)
 		}
 	}
 
-	for monitorId, cfg := range all {
+	for monitorId, cfg := range validConfigs {
 		// New monitor? Yes if it doesn't already exist.
-		existingMonitor, ok := ml.dbmon[monitorId]
+		existingMonitor, ok := ml.repo[monitorId]
 		if !ok {
 			newMonitor, err := ml.makeMonitor(cfg)
 			if err != nil {
-				return ch, err
+				return diff, err
 			}
-			ch.Added = append(ch.Added, newMonitor) // note new
+			diff.added = append(diff.added, newMonitor)
 			continue
 		}
 
@@ -351,55 +372,38 @@ func (ml *Loader) Changes(ctx context.Context) (Changes, error) {
 		if newHash == oldHash {
 			continue // no change
 		}
-		ch.Changed = append(ch.Changed, existingMonitor.monitor)
+		diff.changed = append(diff.changed, existingMonitor.monitor)
 		newMonitor, err := ml.makeMonitor(cfg)
 		if err != nil {
-			return ch, err
+			return diff, err
 		}
-		ch.Added = append(ch.Added, newMonitor) // note new
+		diff.added = append(diff.added, newMonitor)
 	}
 
-	return ch, nil
+	return diff, nil
 }
 
-// merge merges new monitors into the map of all monitors. The merge is necessary
-// because, in Load above, we load monitors from 4 places: config file, monitors file,
-// AWS, and local (if the first 3 lodad nothing). Latter silently replaces former.
-// For example, if a monitor is loaded from config file then loaded again from
-// AWS, the AWS instance silently overwrites (takes precedent) the config file
-// instance.
-//
-// Since monitors are identified by blip.ConfigMonitor.MonitorId, this func also
-// finalizes the monitor config by applying defaults, interpolating env vars, and
-// interpolating monitor field vars. These must be done before finalizing MonitorId
-// in case the user specifies something like:
-//
-//   monitors:
-//     - socket: ${TMPDIR}/mysql.sock
-//
-// In this case, env var ${TMPDIR} needs to be replaced first so MonitorId works
-// out to "/tmp/mysql.sock", for example.
-func (ml *Loader) merge(new []blip.ConfigMonitor, all map[string]blip.ConfigMonitor, changes *Changes) error {
-	for _, newcfg := range new {
-		newcfg.ApplyDefaults(ml.cfg)              // apply defaults to monitor values
-		newcfg.InterpolateEnvVars()               // replace ${ENV_VAR} in monitor values
-		newcfg.InterpolateMonitor()               // replace %{monitor.X} in monitor values
-		newcfg.MonitorId = blip.MonitorId(newcfg) // finalize MonitorId
+// save saves newConfigs to validConfigs if all new configs are valid, else it
+// return an error. This function is only called in load (not Load) to initialize,
+// validate, and merge (save) new monitor configs from the various sources: files,
+// table, AWS, and locally auto-detectedd (or however config.monitor-loader is set).
+func (ml *Loader) save(newConfigs []blip.ConfigMonitor, validConfigs map[string]blip.ConfigMonitor) error {
+	for _, newcfg := range newConfigs {
+		// Initialize new configure in this order:
+		newcfg.ApplyDefaults(ml.cfg)              // 1. apply defaults to monitor values
+		newcfg.InterpolateEnvVars()               // 2. replace ${ENV_VAR} in monitor values
+		newcfg.InterpolateMonitor()               // 3. replace %{monitor.X} in monitor values
+		newcfg.MonitorId = blip.MonitorId(newcfg) // 4. set monitor ID if not explicitly set
 
-		// Validate monitor config. If invalid and strict, return the error which
-		// makes Loader return the error to the caller trying to load monitors,
-		// which is probably Server.Boot. If not strict, then same the error and
-		// continue loading other monitors. In this case, the user might be ok
-		// ignore the broken monitor, or maybe they'll fix it and reload while
-		// Blip is running, which is another reason we might see duplicate monitors
-		// on load.
+		// Validate the monitor config after it has been fully initialized
 		if err := newcfg.Validate(); err != nil {
 			return err
 		}
 
-		// Monitor config is valid; merge it. The does NOT create or run the
-		// monitor. That's done at the end of Load.
-		all[newcfg.MonitorId] = newcfg
+		// Save valid monitor config. The does NOT create or run the monitor:
+		// the former is done at the end of load (not Load), and the latter is
+		// done in StartMonitors.
+		validConfigs[newcfg.MonitorId] = newcfg
 	}
 	return nil
 }
@@ -425,7 +429,7 @@ func (ml *Loader) makeMonitor(cfg blip.ConfigMonitor) (*Monitor, error) {
 	}
 
 	// If no sinks, default to printing metrics to stdout
-	if len(sinks) == 0 && !blip.Strict {
+	if len(sinks) == 0 {
 		blip.Debug("using log sink")
 		sink, _ := sink.Make(blip.SinkFactoryArgs{SinkName: "log", MonitorId: cfg.MonitorId})
 		sinks = append(sinks, sink)
@@ -441,8 +445,7 @@ func (ml *Loader) makeMonitor(cfg blip.ConfigMonitor) (*Monitor, error) {
 }
 
 // loadFiles loads monitors from config.monitor-loader.files, if any. It only
-// loads the files; it doesn't validate--that's done in merge, which is called
-// in Load.
+// loads the files; it doesn't validate--that's done in save().
 func (ml *Loader) loadFiles(ctx context.Context) ([]blip.ConfigMonitor, error) {
 	if len(ml.cfg.MonitorLoader.Files) == 0 {
 		return nil, nil
@@ -450,14 +453,10 @@ func (ml *Loader) loadFiles(ctx context.Context) ([]blip.ConfigMonitor, error) {
 	status.Blip("monitor-loader", "loading from files")
 
 	mons := []blip.ConfigMonitor{}
-FILES:
 	for _, file := range ml.cfg.MonitorLoader.Files {
 		bytes, err := ioutil.ReadFile(file)
 		if err != nil {
-			if blip.Strict {
-				return nil, err
-			}
-			continue FILES
+			return nil, err
 		}
 		var cfg blip.ConfigMonitor
 		if err := yaml.Unmarshal(bytes, &cfg); err != nil {
@@ -543,16 +542,16 @@ func (ml *Loader) testLocal(bg context.Context, moncfg blip.ConfigMonitor) error
 func (ml *Loader) Monitor(monitorId string) *Monitor {
 	ml.Lock()
 	defer ml.Unlock()
-	return ml.dbmon[monitorId].monitor
+	return ml.repo[monitorId].monitor
 }
 
 // Monitors returns a list of all currently loaded monitors.
 func (ml *Loader) Monitors() []*Monitor {
 	ml.Lock()
 	defer ml.Unlock()
-	monitors := make([]*Monitor, len(ml.dbmon))
+	monitors := make([]*Monitor, len(ml.repo))
 	i := 0
-	for _, loaded := range ml.dbmon {
+	for _, loaded := range ml.repo {
 		monitors[i] = loaded.monitor
 		i++
 	}
@@ -563,19 +562,21 @@ func (ml *Loader) Monitors() []*Monitor {
 func (ml *Loader) Count() uint {
 	ml.Lock()
 	defer ml.Unlock()
-	return uint(len(ml.dbmon))
+	return uint(len(ml.repo))
 }
 
-func (ml *Loader) Unload(monitorId string) error {
-	ml.Lock()
-	defer ml.Unlock()
-
-	m, ok := ml.dbmon[monitorId]
+// Unload stops and removes a monitor.
+func (ml *Loader) Unload(monitorId string, lock bool) error {
+	if lock {
+		ml.Lock()
+		defer ml.Unlock()
+	}
+	m, ok := ml.repo[monitorId]
 	if !ok {
 		return nil
 	}
 	m.monitor.Stop()
-	delete(ml.dbmon, monitorId)
+	delete(ml.repo, monitorId)
 	status.RemoveMonitor(monitorId)
 	return nil
 }
@@ -585,10 +586,10 @@ func (ml *Loader) Unload(monitorId string) error {
 func (ml *Loader) Print() string {
 	ml.Lock()
 	defer ml.Unlock()
-	m := make([]blip.ConfigMonitor, len(ml.dbmon))
+	m := make([]blip.ConfigMonitor, len(ml.repo))
 	i := 0
-	for monitorId := range ml.dbmon {
-		m[i] = ml.dbmon[monitorId].monitor.Config()
+	for monitorId := range ml.repo {
+		m[i] = ml.repo[monitorId].monitor.Config()
 		i++
 	}
 	p := printMonitors{Monitors: m}

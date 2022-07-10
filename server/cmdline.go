@@ -13,7 +13,7 @@ import (
 
 // Options represents typical command line options: --addr, --config, etc.
 type Options struct {
-	Config        string `arg:"env:BLIP_CONFIG" default:"blip.yaml"`
+	Config        string `arg:"env:BLIP_CONFIG"`
 	Debug         bool   `arg:"env:BLIP_DEBUG"`
 	Help          bool
 	Plans         string `arg:"env:BLIP_PLANS"`
@@ -22,7 +22,6 @@ type Options struct {
 	PrintDomains  bool   `arg:"--print-domains"`
 	PrintMonitors bool   `arg:"--print-monitors"`
 	PrintPlans    bool   `arg:"--print-plans"`
-	Strict        bool   `arg:"env:BLIP_STRICT"`
 	Run           bool   `arg:"env:BLIP_RUN" default:"true"`
 	Version       bool   `arg:"-v"`
 }
@@ -74,8 +73,7 @@ func printHelp() {
 		"  --print-domains  Print metric domains\n"+
 		"  --print-monitors Print monitors on boot\n"+
 		"  --print-plans    Print level plans on boot\n"+
-		"  --run            Run Blip (if false, boot then exit)\n"+
-		"  --strict         Enable strict mode\n"+
+		"  --run            Run monitors (if false, boot then exit)\n"+
 		"  --version        Print version and exit\n"+
 		"\n"+
 		"blip %s\n",

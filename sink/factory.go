@@ -17,10 +17,7 @@ func Register(name string, f blip.SinkFactory) error {
 	defer r.Unlock()
 	_, ok := r.factory[name]
 	if ok {
-		if blip.Strict {
-			return fmt.Errorf("sink %s already registered", name)
-		}
-		blip.Debug("re-register sink %s", name)
+		return fmt.Errorf("sink %s already registered", name)
 	}
 	r.factory[name] = f
 	blip.Debug("register sink %s", name)

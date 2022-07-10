@@ -96,9 +96,7 @@ func (s *Server) Boot(env blip.Env, plugins blip.Plugins, factories blip.Factori
 		return err
 	}
 
-	// Set global strict and debug vars first because all code uses them.
-	// STRICT.md documents the effects of strict mode.
-	blip.Strict = s.cmdline.Options.Strict
+	// Set global debug var first because all code calls blip.Debug
 	blip.Debugging = s.cmdline.Options.Debug
 	blip.Debug("blip %s %+v", blip.VERSION, s.cmdline)
 
@@ -117,7 +115,7 @@ func (s *Server) Boot(env blip.Env, plugins blip.Plugins, factories blip.Factori
 	}
 
 	// ----------------------------------------------------------------------
-	// Boot seqeuence
+	// Boot sequence
 	// ----------------------------------------------------------------------
 
 	startTs := time.Now()
@@ -135,15 +133,24 @@ func (s *Server) Boot(env blip.Env, plugins blip.Plugins, factories blip.Factori
 	// like the API addr:port to listen on. If strict, it's a zero config except
 	// for the absolute most minimal/must-have config values. Else, the default
 	// (not strict) config is a more realistic set of defaults.
-	cfg := blip.DefaultConfig(blip.Strict)
+	cfg := blip.DefaultConfig()
 
-	// User-provided LoadConfig plugin takes priority if set; else, use default
-	// (built-in) LoadConfig func.
+	// Load config file. User-provided LoadConfig plugin takes priority if set.
+	// Else, try to load --config.
 	if plugins.LoadConfig != nil {
 		blip.Debug("call plugins.LoadConfig")
 		cfg, err = plugins.LoadConfig(cfg)
 	} else {
-		cfg, err = blip.LoadConfig(s.cmdline.Options.Config, cfg)
+		// If --config specified, then file is required to exist.
+		// If not specified, then use default if it exist (not required).
+		// If default file doesn't exist, then Blip will run with a
+		// full default config (i.e. the zero config).
+		required := true
+		if s.cmdline.Options.Config == "" {
+			s.cmdline.Options.Config = blip.DEFAULT_CONFIG_FILE
+			required = false
+		}
+		cfg, err = blip.LoadConfig(s.cmdline.Options.Config, cfg, required)
 	}
 	if err != nil {
 		event.Sendf(event.BOOT_ERROR, err.Error())
@@ -207,7 +214,7 @@ func (s *Server) Boot(env blip.Env, plugins blip.Plugins, factories blip.Factori
 	}
 
 	// ----------------------------------------------------------------------
-	// Database monitors
+	// Load monitors
 	status.Blip("server", "boot: load monitors")
 
 	// Create, but don't start, database monitors. They're startTs later in Run.
@@ -255,26 +262,8 @@ func (s *Server) Run(stopChan, doneChan chan struct{}) error {
 
 	// Start all monitors. Then if config.monitor-load.freq is specified, start
 	// periodical monitor reloading.
-	status.Blip("server", "loading monitors")
+	status.Blip("server", "starting monitors")
 	s.monitorLoader.StartMonitors()
-	if s.cfg.MonitorLoader.Freq != "" {
-
-		for {
-			go func() {
-				defer func() { // catch panic in API
-					if r := recover(); r != nil {
-						b := make([]byte, 4096)
-						n := runtime.Stack(b, false)
-						err := fmt.Errorf("PANIC: monitor loader: %s\n%s", r, string(b[0:n]))
-						event.Errorf(event.MONITOR_LOADER_PANIC, err.Error())
-					}
-				}()
-				doneChan := make(chan struct{}) // ignored: goroutine dies with Server
-				s.monitorLoader.Reload(stopChan, doneChan)
-			}()
-			time.Sleep(1 * time.Second) // between panic
-		}
-	}
 
 	// Run API, restart on panic
 	if !s.cfg.API.Disable {
