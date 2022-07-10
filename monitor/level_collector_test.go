@@ -55,6 +55,7 @@ func TestLevelCollector(t *testing.T) {
 		},
 	}
 	metrics.Register(mc.Domain(), mf) // MUST CALL FIRST, before the rest...
+	defer metrics.Remove(mc.Domain())
 
 	// Make a mini, fake config that uses the test plan and load it realistically
 	// because the plan loader combines and sorts levels, etc. This is a lot of
@@ -158,9 +159,9 @@ func TestLevelCollectorChangePlan(t *testing.T) {
 	// cancel the current changePlan goroutine, if any, then start a new one
 	// for the new plan.
 	//
-	// To simulate, we need to make changePlan block, and it only does two things:
+	// To simulate, we need to make changePlan block, but it only does two things:
 	// PlanLoader.Plan() to load the new plan, then Engine.Prepare() to prepare
-	// the new plan. But neither have any direct callbacks or interfaces that we
+	// the new plan. Neither have any direct callbacks or interfaces that we
 	// can mock to make them slow (because these components are meant to be the
 	// fastest and most efficient). However, Prepare() calls the same method on all
 	// collectors, which we can mock. So we'll inject slowness in the callstack like:
@@ -172,11 +173,12 @@ func TestLevelCollectorChangePlan(t *testing.T) {
 	//   0. test
 
 	//blip.Debugging = true
+	defer func() { blip.Debugging = false }()
 
 	// Create and register a mock blip.Collector that saves the level name
 	// every time it's called. This is quite deep within the call stack,
 	// which is what we want: LPC->engine->collector. By using a fake collector
-	// but real LPC and enginer, we testing the real, unmodified logic--
+	// but real LPC and engine, we testing the real, unmodified logic--
 	// the LPC and engine don't know or care that this collector is a mock.
 	callChan := make(chan bool, 1)
 	returnChan := make(chan error, 1)
@@ -196,6 +198,7 @@ func TestLevelCollectorChangePlan(t *testing.T) {
 		},
 	}
 	metrics.Register(mc.Domain(), mf) // MUST CALL FIRST, before the rest...
+	defer metrics.Remove(mc.Domain())
 
 	// Make a mini, fake config that uses the test plan and load it realistically
 	planName := "../test/plans/test.yaml"
@@ -216,8 +219,7 @@ func TestLevelCollectorChangePlan(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Create LPC and and run it, but it starts paused until ChangePlan is called
-	// starts working once a plan is set.
+	// Create LPC and run it, but it starts paused until ChangePlan is called
 	lpc := monitor.NewLevelCollector(monitor.LevelCollectorArgs{
 		Config:     moncfg,
 		Engine:     monitor.NewEngine(blip.ConfigMonitor{MonitorId: monitorId1}, db),
@@ -236,7 +238,7 @@ func TestLevelCollectorChangePlan(t *testing.T) {
 	//   1. LPC.ChangePlan
 	//   0. test
 
-	// CP1: first change plan: returns immediately but the mock collector (ms) blocks on callChan
+	// CP1: first change plan: returns immediately but the mock collector (mc) blocks on callChan
 	lpc.ChangePlan(blip.STATE_ACTIVE, planName)
 	select {
 	case <-callChan:

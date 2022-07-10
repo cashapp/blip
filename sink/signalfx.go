@@ -61,9 +61,7 @@ func NewSignalFx(monitorId string, opts, tags map[string]string, httpClient *htt
 			}
 			s.prefix = v
 		default:
-			if blip.Strict {
-				return nil, fmt.Errorf("invalid option: %s", k)
-			}
+			return nil, fmt.Errorf("invalid option: %s", k)
 		}
 	}
 

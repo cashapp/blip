@@ -4,10 +4,11 @@ package blip_test
 
 import (
 	"fmt"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 	"os"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	//"github.com/stretchr/testify/assert"
 
@@ -23,7 +24,7 @@ func TestMain(m *testing.M) {
 
 func TestDefaultConfig(t *testing.T) {
 	// The default config should be valid. Would be embarrassing if not.
-	got := blip.DefaultConfig(false) // strict=false
+	got := blip.DefaultConfig()
 	if err := got.Validate(); err != nil {
 		t.Errorf("default config is not valid, expected it to be valid: %s", err)
 	}

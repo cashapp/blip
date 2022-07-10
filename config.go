@@ -99,16 +99,15 @@ func validFreq(freq, config string) error {
 	return nil
 }
 
-func LoadConfig(filePath string, cfg Config) (Config, error) {
+func LoadConfig(filePath string, cfg Config, required bool) (Config, error) {
 	file, err := filepath.Abs(filePath)
 	if err != nil {
 		return Config{}, err
 	}
 	Debug("config file: %s (%s)", filePath, file)
 
-	// Config file must exist
 	if _, err := os.Stat(file); err != nil {
-		if cfg.Strict {
+		if required {
 			return Config{}, fmt.Errorf("config file %s does not exist", filePath)
 		}
 		Debug("config file doesn't exist")
@@ -135,7 +134,6 @@ type Config struct {
 	HTTP          ConfigHTTP          `yaml:"http,omitempty"`
 	MonitorLoader ConfigMonitorLoader `yaml:"monitor-loader,omitempty"`
 	Sinks         ConfigSinks         `yaml:"sinks,omitempty"`
-	Strict        bool                `yaml:"strict"`
 
 	// Monitor defaults
 	AWS       ConfigAWS              `yaml:"aws,omitempty"`
@@ -150,15 +148,7 @@ type Config struct {
 	Monitors []ConfigMonitor `yaml:"monitors,omitempty"`
 }
 
-func DefaultConfig(strict bool) Config {
-	if strict {
-		return Config{
-			Strict:   strict,
-			API:      DefaultConfigAPI(),
-			Monitors: []ConfigMonitor{},
-		}
-	}
-
+func DefaultConfig() Config {
 	return Config{
 		API:           DefaultConfigAPI(),
 		MonitorLoader: DefaultConfigMonitorLoader(),
@@ -285,7 +275,6 @@ func (c *ConfigHTTP) InterpolateEnvVars() {
 // --------------------------------------------------------------------------
 
 type ConfigMonitorLoader struct {
-	Freq     string                   `yaml:"freq,omitempty"`
 	Files    []string                 `yaml:"files,omitempty"`
 	StopLoss string                   `yaml:"stop-loss,omitempty"`
 	AWS      ConfigMonitorLoaderAWS   `yaml:"aws,omitempty"`
@@ -315,9 +304,6 @@ func DefaultConfigMonitorLoader() ConfigMonitorLoader {
 }
 
 func (c ConfigMonitorLoader) Validate() error {
-	if err := validFreq(c.Freq, "monitor-loader.freq"); err != nil {
-		return err
-	}
 	if _, _, err := StopLoss(c.StopLoss); err != nil {
 		return err
 	}
@@ -325,7 +311,6 @@ func (c ConfigMonitorLoader) Validate() error {
 }
 
 func (c *ConfigMonitorLoader) InterpolateEnvVars() {
-	c.Freq = interpolateEnv(c.Freq)
 	c.StopLoss = interpolateEnv(c.StopLoss)
 	for i := range c.Files {
 		c.Files[i] = interpolateEnv(c.Files[i])
@@ -777,10 +762,11 @@ func (c *ConfigMySQL) InterpolateMonitor(m *ConfigMonitor) {
 // --------------------------------------------------------------------------
 
 type ConfigPlans struct {
-	Files   []string           `yaml:"files,omitempty"`
-	Table   string             `yaml:"table,omitempty"`
-	Monitor *ConfigMonitor     `yaml:"monitor,omitempty"`
-	Adjust  ConfigPlanAdjuster `yaml:"adjust,omitempty"`
+	Files       []string           `yaml:"files,omitempty"`
+	Table       string             `yaml:"table,omitempty"`
+	Monitor     *ConfigMonitor     `yaml:"monitor,omitempty"`
+	Adjust      ConfigPlanAdjuster `yaml:"adjust,omitempty"`
+	DisableAuto *bool              `yaml:"disable-auto"`
 }
 
 const (
@@ -802,6 +788,7 @@ func (c *ConfigPlans) ApplyDefaults(b Config) {
 		copy(c.Files, b.Plans.Files)
 	}
 	c.Adjust.ApplyDefaults(b)
+	c.DisableAuto = setBool(c.DisableAuto, b.Plans.DisableAuto)
 }
 
 func (c *ConfigPlans) InterpolateEnvVars() {
@@ -809,7 +796,6 @@ func (c *ConfigPlans) InterpolateEnvVars() {
 		c.Files[i] = interpolateEnv(c.Files[i])
 	}
 	c.Table = interpolateEnv(c.Table)
-
 	c.Adjust.InterpolateEnvVars()
 }
 
@@ -818,7 +804,6 @@ func (c *ConfigPlans) InterpolateMonitor(m *ConfigMonitor) {
 		c.Files[i] = m.interpolateMon(c.Files[i])
 	}
 	c.Table = m.interpolateMon(c.Table)
-
 	c.Adjust.InterpolateMonitor(m)
 }
 

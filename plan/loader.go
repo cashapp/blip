@@ -97,7 +97,7 @@ func (pl *Loader) LoadShared(cfg blip.ConfigPlans, dbMaker blip.DbFactory) error
 		if err != nil {
 			return err
 		}
-		if len(plans) == 0 && blip.Strict {
+		if len(plans) == 0 {
 			return fmt.Errorf("LoadPlans plugin returned zero plans, expected at least one in strict mode")
 		}
 		if err := ValidatePlans(plans); err != nil {
@@ -172,7 +172,7 @@ func (pl *Loader) LoadShared(cfg blip.ConfigPlans, dbMaker blip.DbFactory) error
 		}
 	}
 
-	if len(sharedPlans) == 0 && !blip.Strict {
+	if len(sharedPlans) == 0 && !blip.True(cfg.DisableAuto) {
 		// Use built-in internal plan becuase neither config.plans.table
 		// nor config.plans.file was specififed
 		blip.Debug("shared default blip plan enabled")
@@ -241,18 +241,6 @@ func (pl *Loader) LoadMonitor(mon blip.ConfigMonitor, dbMaker blip.DbFactory) er
 			monitorPlans = append(monitorPlans, pm)
 		}
 	}
-
-	/*
-		// Use built-in internal plan becuase neither config.plans.table
-		// nor config.plans.file was specififed
-		if len(monitorPlans) == 0 && !blip.Strict {
-			monitorPlans = append(monitorPlans, planMeta{
-				name:   blip.INTERNAL_PLAN_NAME,
-				shared: true, // copy from sharedPlans
-				source: "blip",
-			})
-		}
-	*/
 
 	pl.Lock()
 	pl.monitorPlans[mon.MonitorId] = monitorPlans
@@ -366,11 +354,7 @@ func (pl *Loader) readPlans(filePaths []string) ([]planMeta, error) {
 			}
 
 			if _, err := os.Stat(file); err != nil {
-				if blip.Strict {
-					return nil, fmt.Errorf("config file %s (%s) does not exist", file, fileabs)
-				}
-				blip.Debug("%s does not exist, skipping")
-				continue FILES
+				return nil, fmt.Errorf("config file %s (%s) does not exist", file, fileabs)
 			}
 
 			plan, err := ReadFile(file)

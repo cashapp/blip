@@ -467,6 +467,7 @@ func (c *lpc) Status() proto.MonitorCollectorStatus {
 		Paused:        c.paused,
 		LastCollectTs: c.lastCollectTs,
 		SinkErrors:    map[string]string{},
+		Engine:        c.engine.Status(),
 	}
 	if c.lastCollectError != nil {
 		s.LastCollectError = c.lastCollectError.Error()

@@ -31,12 +31,22 @@ func Register(domain string, f blip.CollectorFactory) error {
 	r.Lock()
 	defer r.Unlock()
 	_, ok := r.factory[domain]
-	if ok && blip.Strict {
+	if ok {
 		return fmt.Errorf("%s already registered", domain)
 	}
 	r.factory[domain] = f
 	blip.Debug("register collector %s", domain)
 	return nil
+}
+
+// Remove removes the metrics collector factory for the given domain. This is
+// used for testing, but it can also be used to remove (or override) built-in
+// metric collectors.
+func Remove(domain string) {
+	r.Lock()
+	defer r.Unlock()
+	delete(r.factory, domain)
+	blip.Debug("removed collector %s", domain)
 }
 
 // List lists all registered metric collectors. It is used by the server API

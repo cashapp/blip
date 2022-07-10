@@ -39,7 +39,7 @@ func NewAPI(cfg blip.ConfigAPI, ml *monitor.Loader) *API {
 	mux.HandleFunc("/status/monitor/internal", api.statusMonitorInternal)
 	mux.HandleFunc("/registered", api.registered)
 	mux.HandleFunc("/monitors/stop", api.monitorsStop)
-	mux.HandleFunc("/monitors/restart", api.monitorsRestart)
+	mux.HandleFunc("/monitors/start", api.monitorsStart)
 
 	api.httpServer = &http.Server{
 		Addr:    cfg.Bind,
@@ -105,24 +105,34 @@ func (api *API) monitorsStop(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return // monitorId() wrote error response
 	}
-	blip.Debug("unload %s", monitorId)
-	api.monitorLoader.Unload(monitorId)
-	w.WriteHeader(http.StatusOK)
-}
-
-func (api *API) monitorsRestart(w http.ResponseWriter, r *http.Request) {
-	monitorId, ok := monitorId(w, r)
-	if !ok {
-		return // monitorId() wrote error response
-	}
-	blip.Debug("restart %s", monitorId)
+	blip.Debug("stop %s", monitorId)
 	mon := api.monitorLoader.Monitor(monitorId)
 	if mon == nil {
 		errMsg := html.EscapeString(fmt.Sprintf("monitorId %s not loaded", monitorId))
 		http.Error(w, errMsg, http.StatusNotFound)
 		return
 	}
-	mon.Restart()
+	mon.Stop()
+	w.WriteHeader(http.StatusOK)
+}
+
+func (api *API) monitorsStart(w http.ResponseWriter, r *http.Request) {
+	monitorId, ok := monitorId(w, r)
+	if !ok {
+		return // monitorId() wrote error response
+	}
+	blip.Debug("start %s", monitorId)
+	mon := api.monitorLoader.Monitor(monitorId)
+	if mon == nil {
+		errMsg := html.EscapeString(fmt.Sprintf("monitorId %s not loaded", monitorId))
+		http.Error(w, errMsg, http.StatusNotFound)
+		return
+	}
+	if err := mon.Start(); err != nil {
+		errMsg := html.EscapeString(fmt.Sprintf("monitorId %s failed to start: %s", monitorId, err))
+		http.Error(w, errMsg, http.StatusConflict)
+		return
+	}
 	w.WriteHeader(http.StatusOK)
 }
 

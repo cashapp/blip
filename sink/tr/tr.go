@@ -15,7 +15,7 @@ func Register(name string, tr DomainTranslator) error {
 	r.Lock()
 	defer r.Unlock()
 	_, ok := r.tr[name]
-	if ok && blip.Strict {
+	if ok {
 		return fmt.Errorf("domain translator %s already registered", name)
 	}
 	r.tr[name] = tr

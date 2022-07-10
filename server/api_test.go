@@ -30,8 +30,7 @@ type testAPI struct {
 }
 
 func setup(t *testing.T) testAPI {
-	cfg := blip.DefaultConfig(false)
-	blip.Debugging = true
+	cfg := blip.DefaultConfig()
 	ml := monitor.NewLoader(monitor.LoaderArgs{
 		Config: cfg,
 		Factories: blip.Factories{

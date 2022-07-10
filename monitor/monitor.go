@@ -26,19 +26,28 @@ import (
 	"github.com/cashapp/blip/status"
 )
 
-// Monitor monitors one MySQL instance. A monitor is completely self-contained;
-// monitors share nothing. Therefore, each monitor is completely independent, too.
+// Monitor monitors one MySQL instance. The monitor is a high-level component
+// that runs (and keeps running) four monitor subsystems:
+//   * Level plan collector (LPC)
+//   * Level plan adjuster (LPA)
+//   * Blip heartbeat writer
+//   * Exporter (Prometheus)
+// Each subsystem is optional based on the config, but LPC runs by default
+// because it contains the Engine component that does actual metrics collection.
+// If any subsystem crashes (returns for any reason or panics), the monitor
+// stops and restarts all subsystems. The monitor doesn't stop until Stop is
+// called. Consequently, if a monitor is not configured correctly (for example,
+// it can't connect to MySQL), it tries and reports every forever.
 //
-// The Monitor type is a server that boots and runs the core components that do
-// the real work: Engine, LevelCollector (LPC), optional LevelAdjuster (LPA),
-// and optional Heartbeat (HB). You can view it like:
+// Monitors are loaded, created, and initially started only by the MonitorLoader.
+// A monitor can be stopped and started (again) via the server API.
 //
-//   Blip -> Monitor 1[ Engine + LPA + LPC + HB ] -> MySQL 1
-//        ...
-//        -> Monitor N[ Engine + LPA + LPC + HB ] -> MySQL N
+// A monitor is uniquely identified by its monitor ID, which should be included
+// in all output by the monitor and its subsystems. The monitor ID is set when
+// loaded by the MonitoLoad, which calls blip.MonitorId to determine the value.
 //
-// Blip only calls/uses the Monitor; nothing outside the Monitor can access those
-// core components.
+// A monitor is completely self-contained and independent. For example, each monitor
+// has its own LPC, engine, and metric collectors.
 type Monitor struct {
 	// Required to create; created in Loader.makeMonitor()
 	monitorId  string
@@ -50,17 +59,16 @@ type Monitor struct {
 	// Core components
 	runMux  *sync.RWMutex
 	db      *sql.DB
-	dsn     string
-	engine  *Engine
+	dsn     string // redacted (no password)
 	promAPI *prom.API
 	lpc     LevelCollector
 	lpa     LevelAdjuster
 	hbw     *heartbeat.Writer
 
 	// Control chans and sync
-	stopMonitorChan chan struct{} // Stop(): stop the monitor
-	stopRunChan     chan struct{} // stop goroutines run by monitor
-	wg              sync.WaitGroup
+	runLoopChan chan struct{} // Stop(): stop the monitor
+	runChan     chan struct{} // stop goroutines run by monitor
+	wg          sync.WaitGroup
 
 	errMux *sync.Mutex
 	err    error
@@ -91,17 +99,15 @@ func NewMonitor(args MonitorArgs) *Monitor {
 		planLoader: args.PlanLoader,
 		sinks:      args.Sinks,
 		// --
-		stopMonitorChan: make(chan struct{}),
-		stopRunChan:     make(chan struct{}),
-		errMux:          &sync.Mutex{},
-		runMux:          &sync.RWMutex{},
-		wg:              sync.WaitGroup{},
-		event:           event.MonitorReceiver{MonitorId: args.Config.MonitorId},
-		retry:           retry,
+		errMux: &sync.Mutex{},
+		runMux: &sync.RWMutex{},
+		wg:     sync.WaitGroup{},
+		event:  event.MonitorReceiver{MonitorId: args.Config.MonitorId},
+		retry:  retry,
 	}
 }
 
-// MonitorId returns the monitor ID. This method implements *Monitor.
+// MonitorId returns the monitor ID.
 func (m *Monitor) MonitorId() string {
 	return m.monitorId
 }
@@ -121,7 +127,6 @@ func (m *Monitor) Status() proto.MonitorStatus {
 		status.DSN = m.dsn
 	}
 	if m.lpc != nil {
-		status.Engine = m.engine.Status()
 		status.Collector = m.lpc.Status()
 	}
 	if m.lpa != nil {
@@ -139,109 +144,149 @@ func (m *Monitor) Status() proto.MonitorStatus {
 	return status
 }
 
-func (m *Monitor) setErr(err error, isPanic bool) {
-	if err != nil {
-		m.event.Errorf(event.MONITOR_ERROR, err.Error())
-		status.Monitor(m.monitorId, "monitor", "error: %s", err)
+// Stop stops the monitor. It is idempotent and thread-safe.
+func (m *Monitor) Stop() error {
+	m.runMux.Lock()
+	defer m.runMux.Unlock()
+
+	blip.Debug("%s: Stop call", m.monitorId)
+	defer blip.Debug("%s: Stop return", m.monitorId)
+
+	// Stop runLoop() _first_, else it will restart run()
+	select {
+	case <-m.runLoopChan: // not running
+		blip.Debug("%s: already stopped", m.monitorId)
+		return nil
+	default: // running
 	}
-	m.errMux.Lock()
-	m.err = err
-	m.errMux.Unlock()
+
+	// Stop runLoop so it won't restart everything
+	close(m.runLoopChan)
+
+	// Stop and wait for monitor subsystems
+	m.stop(false, "Stop")
+
+	// Everything should be stopped now, so close db connection
+	if m.db != nil {
+		m.db.Close()
+	}
+
+	event.Sendf(event.MONITOR_STOPPED, m.monitorId)
+	status.Monitor(m.monitorId, "monitor", "stopped at %s", time.Now())
+	return nil
 }
 
-// Run runs the monitor. This function could return after starting the monitor
-// components, but it blocks until Stop is called for its defer/recover, i.e.
-// to catch panics. The only caller is Loader.Run: the monitor loader is the only
-// component that runs monitors. It runs this function as a goroutine, which is
-// why the defer/recover works here.
-func (m *Monitor) Run() {
+// Start starts the monitor. If it's already running, it returns an error.
+// It can be called again after calling Stop.
+func (m *Monitor) Start() error {
+	m.runMux.Lock()
+	defer m.runMux.Unlock()
+	select {
+	case <-m.runLoopChan:
+		// not running
+		blip.Debug("%s: start (again)", m.monitorId)
+	default:
+		if m.runLoopChan != nil { // running
+			return fmt.Errorf("ready running")
+		}
+		// first start
+		blip.Debug("%s: start (first)", m.monitorId)
+	}
+	m.runLoopChan = make(chan struct{})
+	go m.runLoop()
+	return nil
+}
+
+// runnLoop starts and keeps the monitor subsystems running by calling startup.
+// If any subsystem crashes, it calls startup again. It doesn't stop until Stop
+// is called.
+//
+// runLoop is called only by Start, which guards (serializes) it.
+func (m *Monitor) runLoop() {
+	defer blip.Debug("%s: runLoop return", m.monitorId)
 	for {
-		// New stopRunChan for every iteration; it can only be used/closed once
+		// New runChan for every iteration; it can only be used/closed once
 		m.runMux.Lock()
-		m.stopRunChan = make(chan struct{})
+		m.runChan = make(chan struct{})
 		m.runMux.Unlock()
 
-		// Run monitor startup sequence. If successful, the monitor is running
-		// but that doesn't mean metrics are collecting because collectors can
-		// fail (and retry) for different reasons.
-		err := m.start()
+		// Run monitor startup sequence to start all (enabled) monitor subsystems.
+		// If successful, the monitor is running but that does _not_ mean metrics
+		// are collecting because collectors can fail for different reasons.
+		err := m.startup()
 		m.setErr(err, false)
 		if err != nil {
 			time.Sleep(m.retry.NextBackOff())
 			continue
 		}
 
-		// Monitor is running. Wait for either Stop (which closes m.stopMonitorChan)
-		// or one of the monitor goroutines to return/panic (which closes m.stopRunChan).
+		// Monitor is running. Wait for either Stop (which closes m.runLoopChan)
+		// or one of the monitor subsystems to return/panic (which closes m.runChan).
 		// On Stop, return immediately: user is stopping the monitor completely.
-		// On m.stopRunChan close (via stop func), we restart almost immediately because
+		// On m.runChan close (via stop func), we restart almost immediately because
 		// Blip never stops trying to send metrics.
 		m.retry.Reset()
 		m.event.Sendf(event.MONITOR_STARTED, m.dsn)
 		status.Monitor(m.monitorId, "monitor", "running since %s", time.Now())
 		select {
-		case <-m.stopMonitorChan:
-			blip.Debug("%s: monitor stopped", m.monitorId)
-			status.Monitor(m.monitorId, "monitor", "stopped at %s", time.Now())
+		case <-m.runLoopChan: // Stop called
 			return
-		case <-m.stopRunChan:
-			blip.Debug("%s: stopRunChan closed; restarting", m.monitorId)
+		case <-m.runChan: // internal failure
+			blip.Debug("%s: runChan closed; restarting", m.monitorId)
 			time.Sleep(1 * time.Second) // between monitor restarts
 		}
 	}
 }
 
-// start starts the four monitor goroutines (all are optional depending on config):
+// startup starts the monitor subsystems, which are optional depending on config:
 // heartbeat writer, exporter API (Prometheus emulation), LPA, and LPC.
-// The monitoring is running once these have started. If any one goroutine fails
-// (panic), then stopRunhChan is closed (because all goroutines call stop()),
-// which is detected by Run, which restarts the monitor.
-func (m *Monitor) start() error {
-	blip.Debug("%s: start called", m.monitorId)
-	defer blip.Debug("%s: start return", m.monitorId)
+// The monitor is running once these have started. If any subsystem crashes
+// (or returns for any reason), it calls stop() to stop the other subsystems,
+// then runLoop() calls startup again to restart monitoring.
+//
+// startup is called only by runLoop, which guards (serializes) and monitors it.
+func (m *Monitor) startup() error {
+	blip.Debug("%s: startup call", m.monitorId)
+	defer blip.Debug("%s: startup return", m.monitorId)
 
-	// Catch panic in this func, pretty much just the start-wait loops because
-	// the monitor goroutines run in separate goroutines, so they have their own
-	// defer.
+	// Catch panic in this func, pretty much just the DB-plan loop because
+	// each monitor subsystems goroutine has its own defer/recover.
 	defer func() {
 		if r := recover(); r != nil {
-			b := make([]byte, 4096)
-			n := runtime.Stack(b, false)
-			errMsg := fmt.Errorf("PANIC: %s: %s\n%s", m.monitorId, r, string(b[0:n]))
-			m.setErr(errMsg, true)
-
-			m.stop(true, "start") // stop monitor goroutines
+			m.panic(r)
+			m.stop(true, "startup") // stop monitor subsystems
 		}
 	}()
 
 	// //////////////////////////////////////////////////////////////////////
-	// Start-wait loops
+	// DB-plan loop
 	// //////////////////////////////////////////////////////////////////////
 
 	// ----------------------------------------------------------------------
-	// Make DSN and *sql.DB
+	// Make DSN and *sql.DB. This does NOT connect to MySQL.
 	for {
 		status.Monitor(m.monitorId, "monitor", "making DB/DSN (not connecting)")
-		db, dsn, err := m.dbMaker.Make(m.cfg)
+		db, dsnRedacted, err := m.dbMaker.Make(m.cfg)
 		m.setErr(err, false)
 		if err == nil { // success
 			m.runMux.Lock()
 			m.db = db
-			m.dsn = dsn
+			m.dsn = dsnRedacted
 			m.runMux.Unlock()
 			break
 		}
 		select {
-		case <-m.stopMonitorChan:
+		case <-m.runLoopChan:
 		default:
-			return nil // monitor stopped
+			return nil // runLoop stopped (Stop called)
 		}
 		status.Monitor(m.monitorId, "monitor", "error making DB/DSN, sleep and retry: %s", err)
 		time.Sleep(m.retry.NextBackOff())
 	}
 
 	// ----------------------------------------------------------------------
-	// Load monitor plans, if any
+	// Load monitor plans, if any. This MIGHT connect to MySQL if the plan
+	// is stored in a table.
 	for {
 		status.Monitor(m.monitorId, "monitor", "loading plans")
 		err := m.planLoader.LoadMonitor(m.cfg, m.dbMaker)
@@ -250,43 +295,41 @@ func (m *Monitor) start() error {
 			break
 		}
 		select {
-		case <-m.stopMonitorChan:
+		case <-m.runLoopChan:
 		default:
-			return nil // monitor stopped
+			return nil // // runLoop stopped (Stop called)
 		}
 		status.Monitor(m.monitorId, "monitor", "error loading plans, sleep and retry: %s", err)
 		time.Sleep(m.retry.NextBackOff())
 	}
 
 	// //////////////////////////////////////////////////////////////////////
-	// Monitor goroutines
+	// Start monitor subsystems
 	// //////////////////////////////////////////////////////////////////////
+
 	m.runMux.Lock()
 	defer m.runMux.Unlock()
 
 	// ----------------------------------------------------------------------
 	// Heartbeat
 
-	// Run optional heartbeat monitor to monitor replication lag. When enabled,
-	// the heartbeat (hb) writes a high-resolution timestamp to a row in a table
-	// at the configured frequence: cfg.monitors.M.heartbeat.freq.
+	// Run optional heartbeat write. When enabled (by setting heartbeat.freq),
+	// Blip writes millisecond-precision timestamps to a table that the repl.lag
+	// metric collector uses to report sub-second replication lag.
 	if m.cfg.Heartbeat.Freq != "" {
 		status.Monitor(m.monitorId, "monitor", "starting heartbeat")
 		m.hbw = heartbeat.NewWriter(m.monitorId, m.db, m.cfg.Heartbeat)
 		m.wg.Add(1)
 		go func() {
-			defer m.stop(true, "heartbeat.Writer") // stop monitor goroutines
+			defer m.stop(true, "heartbeat.Writer") // stop monitor subsystems
 			defer m.wg.Done()                      // notify stop()
 			defer func() {                         // catch panic in heartbeat.Writer
 				if r := recover(); r != nil {
-					b := make([]byte, 4096)
-					n := runtime.Stack(b, false)
-					errMsg := fmt.Errorf("PANIC: %s: %s\n%s", m.monitorId, r, string(b[0:n]))
-					m.setErr(errMsg, true)
+					m.panic(r)
 				}
 			}()
 			doneChan := make(chan struct{}) // Monitor uses wg
-			m.hbw.Write(m.stopRunChan, doneChan)
+			m.hbw.Write(m.runChan, doneChan)
 		}()
 	}
 
@@ -301,7 +344,7 @@ func (m *Monitor) start() error {
 		// that and choose the correct internal plan based on any exporter flags.
 		defaultPlan, err := m.planLoader.Plan(m.monitorId, "", nil)
 		if err != nil {
-			blip.Debug(err.Error())
+			blip.Debug("%s: %s", m.monitorId, err.Error())
 			status.Monitor(m.monitorId, "exporter", "not running: error loading plans: %s", err)
 			return err
 		}
@@ -311,7 +354,7 @@ func (m *Monitor) start() error {
 		// tweak based on config.exporter.flags.
 		promPlan, err := ExporterPlan(m.cfg.Exporter, defaultPlan)
 		if err != nil {
-			blip.Debug(err.Error())
+			blip.Debug("%s: %s", m.monitorId, err.Error())
 			status.Monitor(m.monitorId, "exporter", "not running: invalid plan: %s", err)
 			return err
 		}
@@ -327,14 +370,11 @@ func (m *Monitor) start() error {
 		m.wg.Add(1)
 		go func() {
 			defer status.RemoveComponent(m.monitorId, "exporter")
-			defer m.stop(true, "prom.API") // stop monitor goroutines
+			defer m.stop(true, "prom.API") // stop monitor subsystems
 			defer m.wg.Done()              // notify stop()
 			defer func() {                 // catch panic in exporter API
 				if r := recover(); r != nil {
-					b := make([]byte, 4096)
-					n := runtime.Stack(b, false)
-					errMsg := fmt.Errorf("PANIC: %s: %s\n%s", m.monitorId, r, string(b[0:n]))
-					m.setErr(errMsg, true)
+					m.panic(r)
 				}
 			}()
 			err := m.promAPI.Run()
@@ -356,32 +396,29 @@ func (m *Monitor) start() error {
 	// ----------------------------------------------------------------------
 	// Level plan collector (LPC)
 
-	// LPC starts paused becuase there's no plan. The main loop in lpc.Run
-	// does nothing until lpc.ChangePlan is called, which is done next either
-	// indirectly via LPA or directly if LPA isn't enabled.
+	// Start LPC before LPA because the latter calls the former on state change.
+	// The LPC starts paused (engine not running) until a plan is set by calling
+	// lpc.ChangePlan. If the LPA is enabled, it will do this; if it's not enabled,
+	// we'll do it as the last startup step.
 	status.Monitor(m.monitorId, "monitor", "starting LPC")
-	m.engine = NewEngine(m.cfg, m.db)
 	m.lpc = NewLevelCollector(LevelCollectorArgs{
 		Config:     m.cfg,
-		Engine:     m.engine,
+		Engine:     NewEngine(m.cfg, m.db),
 		PlanLoader: m.planLoader,
 		Sinks:      m.sinks,
 	})
 
 	m.wg.Add(1)
 	go func() {
-		defer m.stop(true, "LPC") // stop monitor goroutines
+		defer m.stop(true, "LPC") // stop monitor subsystems
 		defer m.wg.Done()         // notify stop()
 		defer func() {            // catch panic in LPC
 			if r := recover(); r != nil {
-				b := make([]byte, 4096)
-				n := runtime.Stack(b, false)
-				errMsg := fmt.Errorf("PANIC: %s: %s\n%s", m.monitorId, r, string(b[0:n]))
-				m.setErr(errMsg, true)
+				m.panic(r)
 			}
 		}()
 		doneChan := make(chan struct{}) // Monitor uses wg
-		m.lpc.Run(m.stopRunChan, doneChan)
+		m.lpc.Run(m.runChan, doneChan)
 	}()
 
 	// ----------------------------------------------------------------------
@@ -390,7 +427,7 @@ func (m *Monitor) start() error {
 	if m.cfg.Plans.Adjust.Enabled() {
 		// Run option level plan adjuster (LPA). When enabled, the LPA checks
 		// the state of MySQL. If the state changes, it calls lpc.ChangePlan
-		// to change the plan as configured by config.monitors.M.plans.adjust.<state>.
+		// to change the plan as configured by config.monitors.plans.adjust.<state>.
 		status.Monitor(m.monitorId, "monitor", "starting LPA")
 		m.lpa = NewLevelAdjuster(LevelAdjusterArgs{
 			MonitorId: m.monitorId,
@@ -402,18 +439,15 @@ func (m *Monitor) start() error {
 
 		m.wg.Add(1)
 		go func() {
-			defer m.stop(true, "LPA") // stop monitor goroutines
+			defer m.stop(true, "LPA") // stop monitor subsystems
 			defer m.wg.Done()         // notify stop()
 			defer func() {            // catch panic in LPA
 				if r := recover(); r != nil {
-					b := make([]byte, 4096)
-					n := runtime.Stack(b, false)
-					errMsg := fmt.Errorf("PANIC: %s: %s\n%s", m.monitorId, r, string(b[0:n]))
-					m.setErr(errMsg, true)
+					m.panic(r)
 				}
 			}()
-			doneChan := make(chan struct{})    // Monitor uses wg
-			m.lpa.Run(m.stopRunChan, doneChan) // start LPC indirectly
+			doneChan := make(chan struct{}) // Monitor uses wg
+			m.lpa.Run(m.runChan, doneChan)  // start LPC indirectly
 		}()
 	} else {
 		// When the LPA is not enabled, we must init the state and plan,
@@ -430,9 +464,9 @@ func (m *Monitor) start() error {
 	return nil
 }
 
-// stop stops the monitor goroutines started in start. It does not stop the
-// monitor; Stop does that. Stopping the monitor goroutines causes Run to
-// restart them.
+// stop stops the monitor subsystems started in startup. It does not stop the
+// monitor; Stop does that. Stopping only the monitor subsystems causes runLoop
+// to restart them.
 func (m *Monitor) stop(lock bool, caller string) {
 	if lock {
 		m.runMux.Lock()
@@ -441,7 +475,7 @@ func (m *Monitor) stop(lock bool, caller string) {
 
 	// Already stopped?
 	select {
-	case <-m.stopRunChan:
+	case <-m.runChan:
 		blip.Debug("%s: stop called by %s (noop)", m.monitorId, caller)
 		return // already stopped
 	default:
@@ -449,8 +483,8 @@ func (m *Monitor) stop(lock bool, caller string) {
 		defer blip.Debug("%s: stop return for %s", m.monitorId, caller)
 	}
 
-	// Stop most of the monitor goroutines
-	close(m.stopRunChan)
+	// Stop the monitor subsystem goroutines (except exporter/Prom API)
+	close(m.runChan)
 
 	// Stop exporter API; this one doesn't use stop/done control chans because
 	// it's running an http.Server
@@ -458,55 +492,24 @@ func (m *Monitor) stop(lock bool, caller string) {
 		m.promAPI.Stop()
 	}
 
-	// Wait for monitor gourtines to return
+	// Wait for monitor subsystem goroutines to return
 	status.Monitor(m.monitorId, "monitor", "stopping goroutines")
 	m.wg.Wait()
 }
 
-// Restart restarts the monitor.
-func (m *Monitor) Restart() error {
-	m.runMux.Lock()
-	defer m.runMux.Unlock()
-
-	// Stop and wait for monitor goroutines
-	m.stop(false, "Stop")
-
-	// Everything should be stopped now, so close db connection
-	if m.db != nil {
-		m.db.Close()
+func (m *Monitor) setErr(err error, isPanic bool) {
+	if err != nil {
+		m.event.Errorf(event.MONITOR_ERROR, err.Error())
+		status.Monitor(m.monitorId, "monitor", "error: %s", err)
 	}
-
-	return nil
+	m.errMux.Lock()
+	m.err = err
+	m.errMux.Unlock()
 }
 
-// Stop stops the monitor.
-func (m *Monitor) Stop() error {
-	m.runMux.Lock()
-	defer m.runMux.Unlock()
-
-	// Stop Run loop (whole monitor)
-	select {
-	case <-m.stopMonitorChan:
-		blip.Debug("%s: already stopped", m.monitorId)
-		return nil
-	default:
-	}
-
-	blip.Debug("%s: Stop call", m.monitorId)
-	defer blip.Debug("%s: Stop return", m.monitorId)
-
-	// Stop Run loop so it won't restart everything
-	close(m.stopMonitorChan)
-
-	// Stop and wait for monitor goroutines
-	m.stop(false, "Stop")
-
-	// Everything should be stopped now, so close db connection
-	if m.db != nil {
-		m.db.Close()
-	}
-
-	event.Sendf(event.MONITOR_STOPPED, m.monitorId)
-	status.Monitor(m.monitorId, "monitor", "stopped at %s", time.Now())
-	return nil
+func (m *Monitor) panic(r interface{}) {
+	b := make([]byte, 4096)
+	n := runtime.Stack(b, false)
+	errMsg := fmt.Errorf("PANIC: %s: %s\n%s", m.monitorId, r, string(b[0:n]))
+	m.setErr(errMsg, true)
 }

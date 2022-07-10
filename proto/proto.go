@@ -1,5 +1,6 @@
 // Copyright 2022 Block, Inc.
 
+// Package proto defines message structures returned by the server API.
 package proto
 
 import "time"
@@ -28,7 +29,6 @@ type MonitorStatus struct {
 	MonitorId string
 	DSN       string
 	Started   bool
-	Engine    MonitorEngineStatus    `json:",omitempty"`
 	Collector MonitorCollectorStatus `json:",omitempty"`
 	Adjuster  *MonitorAdjusterStatus `json:",omitempty"`
 	Error     string                 `json:",omitempty"`
@@ -40,9 +40,10 @@ type MonitorCollectorStatus struct {
 	Paused             bool
 	Error              string `json:",omitempty"`
 	LastCollectTs      time.Time
-	LastCollectError   string            `json:",omitempty"`
-	LastCollectErrorTs *time.Time        `json:",omitempty"`
-	SinkErrors         map[string]string `json:",omitempty"`
+	LastCollectError   string              `json:",omitempty"`
+	LastCollectErrorTs *time.Time          `json:",omitempty"`
+	SinkErrors         map[string]string   `json:",omitempty"`
+	Engine             MonitorEngineStatus `json:",omitempty"`
 }
 
 type MonitorAdjusterStatus struct {

@@ -28,7 +28,7 @@ const (
 )
 
 func TestLoadDefault(t *testing.T) {
-	cfg := blip.DefaultConfig(false)
+	cfg := blip.DefaultConfig()
 
 	pl := plan.NewLoader(nil)
 	if err := pl.LoadShared(cfg.Plans, nil); err != nil {
