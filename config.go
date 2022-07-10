@@ -237,7 +237,7 @@ type ConfigAPI struct {
 }
 
 const (
-	DEFAULT_API_BIND = "127.0.0.1:9070"
+	DEFAULT_API_BIND = "127.0.0.1:7522"
 )
 
 func DefaultConfigAPI() ConfigAPI {

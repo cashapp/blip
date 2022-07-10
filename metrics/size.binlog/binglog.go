@@ -20,8 +20,6 @@ const (
 
 	ERR_NO_ACCESS  = "access-denied"
 	ERR_NO_BINLOGS = "binlog-not-enabled"
-
-	ERR_
 )
 
 // Binlog collects metrics for the size.binlog domain. The source is SHOW BINARY LOGS.

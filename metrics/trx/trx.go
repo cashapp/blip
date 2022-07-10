@@ -1,6 +1,6 @@
 // Copyright 2022 Block, Inc.
 
-package eventtrx
+package trx
 
 import (
 	"context"
@@ -11,7 +11,7 @@ import (
 )
 
 const (
-	DOMAIN           = "event.trx"
+	DOMAIN           = "trx"
 	OLDEST_TRX_QUERY = `SELECT COALESCE(UNIX_TIMESTAMP(NOW()) - UNIX_TIMESTAMP(MIN(trx_started)), 0) t FROM information_schema.innodb_trx;`
 )
 

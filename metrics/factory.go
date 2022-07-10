@@ -9,7 +9,6 @@ import (
 
 	"github.com/cashapp/blip"
 	"github.com/cashapp/blip/metrics/aws.rds"
-	"github.com/cashapp/blip/metrics/event.trx"
 	"github.com/cashapp/blip/metrics/innodb"
 	"github.com/cashapp/blip/metrics/percona"
 	"github.com/cashapp/blip/metrics/repl"
@@ -17,6 +16,7 @@ import (
 	"github.com/cashapp/blip/metrics/size.binlog"
 	"github.com/cashapp/blip/metrics/size.database"
 	"github.com/cashapp/blip/metrics/status.global"
+	"github.com/cashapp/blip/metrics/trx"
 	"github.com/cashapp/blip/metrics/var.global"
 )
 
@@ -251,8 +251,6 @@ func (f *factory) Make(domain string, args blip.CollectorFactoryArgs) (blip.Coll
 			return nil, err
 		}
 		return awsrds.NewRDS(awsrds.NewCloudWatchClient(awsConfig)), nil
-	case "event.trx":
-		return eventtrx.NewTrx(args.DB), nil
 	case "innodb":
 		return innodb.NewInnoDB(args.DB), nil
 	case "percona.response-time":
@@ -267,6 +265,8 @@ func (f *factory) Make(domain string, args blip.CollectorFactoryArgs) (blip.Coll
 		return sizedatabase.NewDatabase(args.DB), nil
 	case "status.global":
 		return statusglobal.NewGlobal(args.DB), nil
+	case "trx":
+		return trx.NewTrx(args.DB), nil
 	case "var.global":
 		return varglobal.NewGlobal(args.DB), nil
 	}
@@ -277,7 +277,6 @@ func (f *factory) Make(domain string, args blip.CollectorFactoryArgs) (blip.Coll
 // the same domain in the switch statement above (in factory.Make).
 var builtinCollectors = []string{
 	"aws.rds",
-	"event.trx",
 	"innodb",
 	"percona.response-time",
 	"repl",
@@ -285,5 +284,6 @@ var builtinCollectors = []string{
 	"size.binlog",
 	"size.database",
 	"status.global",
+	"trx",
 	"var.global",
 }
