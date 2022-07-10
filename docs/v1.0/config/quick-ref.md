@@ -15,6 +15,7 @@ See [Config File](config-file) for details.
 ```
 ${ENV_VAR}
 %{monitor.hostname}
+%{monitor.meta.region}
 ```
 
 ### Config File
@@ -22,15 +23,17 @@ ${ENV_VAR}
 ```yaml
 ---
 # ---------------------------------------------------------------------------
-# Blip server
+# Server config
 # ---------------------------------------------------------------------------
 
 api:
   bind: 127.1:7090
   disable: false
 
+http:
+  proxy: "http://proxy.internal"
+
 monitor-loader:
-  freq: 60s
   files: [one.yaml, two.yaml]
   stop-loss: 50%
   aws:
@@ -39,44 +42,45 @@ monitor-loader:
     disable-auto: true
     disable-auto-root: true
 
-strict: true
-
 # ---------------------------------------------------------------------------
 # Monitor defaults
 # ---------------------------------------------------------------------------
 
 aws:
+  auth-token: true
   disable-auto-region: false
   disable-auto-tls: false
-  iam-auth-token: true
   password-secret: "arn::::"
-  region: "us-east-1" # or "auto"
+  region: "us-east-1"
 
 exporter:
-  mode: dual|legacy
   flags:
     web.listen-address: ":9001"
     web.telemetry-path: "/metrics"
+  mode: "dual" # or "legacy"
 
 heartbeat:
-  freq: 1s
-  table: blip.heartbeat
+  freq: 2s
+  source-id: "source-host.local"
+  role: "west-side"
+  table: "blip.heartbeat"
 
 mysql:
   mycnf: "/app/my.cnf"
-  username: blip
-  password: blip
-  password-file: ""
+  username: "blip"
+  password: "..."
+  password-file: "/var/shm/blip-passwd"
   socket: "/var/lib/mysql.sock"
   timeout-connect: 5s
 
 plans:
+  disable-auto: false
   files:
     - none.yaml
     - ro-plan.yaml
     - active-plan.yaml
-  table: blip.plans
   monitor: <monitor>
+  table: "blip.plans"
   adjust:
     offline:
       after: 1s
@@ -93,6 +97,8 @@ plans:
 
 sinks:
   chronosphere:
+    debug: "yes"
+    strict-tr: false
     url: "http://127.0.0.1:3030/openmetrics/write"
   log:
     # No options
@@ -105,6 +111,8 @@ sinks:
   signalfx:
     auth-token: ""
     auth-token-file: ""
+    metric-prefix: ""
+    metric-translator: ""
 
 tags:
   env: ${ENVIRONMENT:-dev}
@@ -112,7 +120,7 @@ tags:
   hostname: "%{monitor.hostname}"
 
 tls:
-  ca: local.ca
+  ca: "local.ca"
   cert: "/secrets/%{monitor.hostname}.crt"
   key: "/secrets/%{monitor.hostname}.key"
 
@@ -121,7 +129,7 @@ tls:
 # ---------------------------------------------------------------------------
 
 monitors:
-  - id: host1 # Optional; Blip auto-sets based on mysql variables
+  - id: host1 # Optional; Blip auto-sets based on MySQL config
 
     # -----------------------------------------------
     # mysql section variables are specified directly:
@@ -135,7 +143,6 @@ monitors:
 
     # ---------------------------------------------------------------------
     # Override monitor defaults by specifying any of the top-level sections
-    # Exapmle:
     tls:
       ca: new.ca # overrides monitor default 'tls.ca: local.ca'
 

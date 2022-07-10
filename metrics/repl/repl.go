@@ -65,7 +65,7 @@ func (c *Repl) Help() blip.CollectorHelp {
 		Errors: map[string]blip.CollectorHelpError{
 			ERR_NO_ACCESS: {
 				Name:    ERR_NO_ACCESS,
-				Handles: "MySQL error 1227: access denied on 'SHOW BINARY LOGS'",
+				Handles: "MySQL error 1227: access denied on 'SHOW REPLICA STATUS' (need REPLICATION CLIENT priv)",
 				Default: c.errPolicy[ERR_NO_ACCESS].String(),
 			},
 		},

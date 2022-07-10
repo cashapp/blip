@@ -12,19 +12,17 @@ b&nbsp;l&nbsp;<span style="color:magenta">.</span>&nbsp;p
 {: .blip-tagline }
 Sublime MySQL monitoring
 
-Blip is the most advanced MySQL metrics collector ever built.
+Blip was designed from the ground up to be _the best and the last_ MySQL monitor ever written.
 
-* Connects to MySQL anywhere&mdash;local, remote, bare metal, cloud
-* Monitors one or many MySQL instances per `blip` instance
+* Connect to MySQL anywhere&mdash;local, remote, bare metal, cloud
+* Monitor one or many MySQL instances per `blip` instance
 * Configurable metrics collection&mdash;metrics are not hard-coded
 * Different metric collection frequencies&mdash;collect metrics at different intervals
 * Built-in support for Amazon RDS include Secrets Manager and IAM authentication
 * Send metrics to any back end&mdash;built-in support for SignalFx and Chronosphere
-* Plugins and factories to integrate with any environment
+* Customize with plugin interfaces to work in any environment
 
-Start by reading the [Introduction](v1.0/intro/concepts.html).
-
-Then read the [Quick Start](v1.0/quick-start) to give Blip a try.
+Start by reading the [Introduction](v1.0/intro/concepts.html), then try the [Quick Start](v1.0/quick-start).
 
 ---
 

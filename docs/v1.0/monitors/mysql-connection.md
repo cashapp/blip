@@ -1,11 +1,10 @@
 ---
 layout: default
-parent: Server
-title: "Db Maker"
-nav_order: 4
+parent: Monitors
+title: "MySQL Connection"
 ---
 
-# Db Maker
+# MySQL Connection
 
 The database connection factory&mdash;_db maker_ for short&mdash;makes connections to MySQL.
 

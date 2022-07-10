@@ -2,7 +2,7 @@
 layout: default
 title: "Plans"
 parent: Introduction
-nav_order: 4
+nav_order: 3
 ---
 
 # Plans
@@ -36,7 +36,7 @@ Or what if you run MySQL in the cloud and the cloud provider emits its own repli
 
 Plans help solve the second problem by using _metric domains_ (or _domains_ for short) to name logically-related group of MySQL metrics.
 Probably the most well known group is `SHOW GLOBAL STATUS`, to which Blip gives the domain name `status.global`.
-A replication lag metric is scoped within the `repl` domain (short for "replication"), which hides (abstarcts way) the technical details of how it's collected.
+A replication lag metric is scoped within the `repl` domain (short for "replication"), which abstracts way the technical details of how it's collected.
 When you write a plan that collects replication lag, the plan works everywhere because domains specify _which_ metrics to collect, not necessarily _how_ to collect them.
 
 The third problem arises from cost and storage limits: if everything was fast and free, you would collect all metrics every 1 second.
@@ -66,4 +66,4 @@ Blip plans can do more, but for this introduction it's sufficient to know that t
 
 ---
 
-Keep going: [Quick Start&nbsp;&darr;](../quick-start/)
+Last page; keep going: [Sinks&nbsp;&darr;](sinks)

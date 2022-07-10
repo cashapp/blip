@@ -1,11 +1,16 @@
 ---
 layout: default
 parent: Quick Start
-title: Laptop
-nav_order: 1
+title: Production
 ---
 
-# Laptop
+# Production
+
+Order:
+
+1. Build
+2. Configure
+3. Deploy
 
 Presuming a standard MySQL insstance runs on your laptop, first create a `blip` user:
 

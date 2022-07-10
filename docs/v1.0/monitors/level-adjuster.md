@@ -1,6 +1,6 @@
 ---
 layout: default
-parent: Monitor
+parent: Monitors
 title: "Level Plan Adjuster"
 ---
 

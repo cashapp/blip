@@ -2,21 +2,20 @@
 layout: default
 title: "Monitors"
 parent: Introduction
-nav_order: 3
+nav_order: 2
 ---
 
 # Monitors
 
-Every MySQL instance that Blip monitors is called a _moniotr_.
+Every MySQL instance that Blip monitors is called a monitor.
 For simplicity, the terms _monitor_ and _MySQL instance_ are synonymous because a monitor requires and represents only one MySQL instance.
 But there is more to a monitor than its MySQL instance.
 
 <div class="note">
-<b>NOTE</b>:
 <em>Monitor</em> and <em>MySQL instance</em> are synonymous in Blip.
 </div>
 
-Monitors are usually specififed in the [Blip config file](../config/config-file), but they can be loaded various ways&mdash;more on this later.
+Monitors are usually specified in the [Blip config file](../config/config-file), but they can be loaded various ways&mdash;more on this later.
 For now, it's only necessary to know that monitors are listed in the YAML config file under the aptly named section `moniotrs`.
 The most basic Blip monitor is a simple hostname, username, and password:
 
@@ -76,7 +75,7 @@ To further ensure that Blip can monitory _any_ MySQL instance, loading monitors 
 LoadMonitors func(Config) ([]ConfigMonitor, error)
 ```
 
-Hopefully, bilt-in features cover every use case, but if you have particular requirements (filtering out certain MySQL instances, for example), you can plug in your own code to load monitors.
+Hopefully, built-in features cover every use case, but if you have particular requirements (filtering out certain MySQL instances, for example), you can plug in your own code to load monitors.
 
 In addition to basic MySQL configuration&mdash;how to connect to MySQL: hostname, username, and password, and so forth&mdash;monitors have other optional features and configuration, summarized briefly in the following table.
 
@@ -103,9 +102,9 @@ One last helpful tip:
 $ blip --print-moniotrs --run=false
 ```
 
-The command line above starts (but does not run) Blip so that it loads monitors and prints them, then exists.
+The command line above starts (but does not run) Blip so that it loads monitors and prints them, then exits.
 This can help debug monitor loading and configuration.
 
 ---
 
-Keep learning: [Plans&nbsp;&darr;](plans)
+Why stop now; keep learning: [Plans&nbsp;&darr;](plans)

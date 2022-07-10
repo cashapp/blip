@@ -2,7 +2,7 @@
 layout: default
 title: "Sinks"
 parent: Introduction
-nav_order: 2
+nav_order: 4
 ---
 
 # Sinks
@@ -20,7 +20,7 @@ Blip has built-in support for these three use cases.
 
 Blip ships with built-in and automatic support for almost everything, but the one thing we (the Blip developers) cannot know is where you (the user) will send metrics.
 Consequently, you might need to develop a Blip metric sink to translate and send Blip metrics to your metrics store or metrics graphing solution.
-Don't worry: Bilp was intentially designed to make this easy.
+Don't worry: Bilp was intentionally designed to make this easy.
 This brief introduction shows the high-level process of developing a new Blip metric sink.
 
 The following presumes that you're an experienced [Go programmer](https://go.dev/).
@@ -58,7 +58,7 @@ Blip passes to your factory:
 * Options (from the monitor config)
 * Tags (from the monitor config)
 
-Options are sink-specific options; for example, an API token is common for authenticating to hosted metrics soltuions.
+Options are sink-specific options; for example, an API token is common for authenticating to hosted metrics solutions.
 Tags describe the metrics; some metrics solutions calls these "dimensions", others call them "labels"&mdash;Blip calls them "tags".
 Options are tags are set in the monitor config, which you'll learn more about later.
 
@@ -143,6 +143,8 @@ monitors:
 On line 5, the "kim" sink is specified, and lines 6 and 7 are its options.
 Lines 9 and 10 are tags for the monitor, which are also passed to the sink when created.
 
+Bottom line: Blip sinks are pure plugins, so you can make Blip send metrics _anywhere_.
+
 ---
 
-Keep learning: [Monitors&nbsp;&darr;](monitors)
+Enough talk; let's run: [Quick Start&nbsp;&darr;](../quick-start/)

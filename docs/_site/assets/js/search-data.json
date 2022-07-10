@@ -19,7 +19,7 @@
   },"3": {
     "doc": "Blip",
     "title": "Zero Config",
-    "content": "Blip uses built-it defaults and auto-detection to run and work without specifing any configuration. This is called the “zero config”. The zero config should work on your laptop (presuming a standard MySQL setup), but it is not intended for real production environments. At the very least, you will need to specify which MySQL instances to monitor in the monitors section of the Blip config file. ",
+    "content": "Blip uses built-it defaults and auto-detection to work without specifying any configuration. This is called the “zero config”. The zero config should work on your laptop (presuming a standard MySQL setup), but it is not intended for production environments. At the very least, you need to specify which MySQL instances to monitor in the monitors section of the Blip config file. ",
     "url": "/blip/v1.0/config/blip#zero-config",
     "relUrl": "/v1.0/config/blip#zero-config"
   },"4": {
@@ -31,7 +31,7 @@
   },"5": {
     "doc": "Blip",
     "title": "Command Line Options",
-    "content": "Run blip --help to list command line options. --config FILE . Default: blip.yaml Env var: BLIP_CONFIG . Specify Blip configuruation file. --debug . Env var: BLIP_CONFIG . Print debug to stderr. --help . Print help and exit. --plans FILE[,FILE...] . Env var: BLIP_PLANS . Specify plan files. --print-config . Print config. --print-domains . Print domains and collector options. --print-monitors . Print monitors. --print-plans . Print level plans. --run . Default: true Env var: BLIP_RUN . Run Blip and all monitors. If --run=false, Blip starts and loads everything, but exists before running monitors. --strict . Env var: BLIP_STRICT . Enable strict mode. --version . Print version and exit. ",
+    "content": "Run blip --help to list command line options. --config FILE . Default: blip.yaml Env var: BLIP_CONFIG . Specify Blip configuration file. --debug . Env var: BLIP_CONFIG . Print debug to stderr. --help . Print help and exit. --plans FILE[,FILE...] . Env var: BLIP_PLANS . Specify plan files. --print-config . Print config. --print-domains . Print domains and collector options. --print-monitors . Print monitors. --print-plans . Print level plans. --run . Default: true Env var: BLIP_RUN . Run Blip and all monitors. If --run=false, Blip starts and loads everything, but exits before running monitors. --version . Print version and exit. ",
     "url": "/blip/v1.0/config/blip#command-line-options",
     "relUrl": "/v1.0/config/blip#command-line-options"
   },"6": {
@@ -109,7 +109,7 @@
   },"18": {
     "doc": "Blip",
     "title": "Blip",
-    "content": "In the simplest setup, a single Blip instance monitors (collect metrics from) a single MySQL instance: . But a single instnace of Blip—a single running blip binary—can monitor any number of MySQL instances: . In Blip lingo (and source code), a monitor collects metrics from a single instance of MySQL, as shown above. In short, “a monitor monitors MySQL.” . Monitors are the central concept in Blip, so let’s zoom in on one monitor to see what makes it ticks: . A monitor has more parts than shown above, but three parts are most important: . Sinks Sinks send metrics to some graphing system. A monitor can send metrics to more than one sink. Blip has built-in sinks for SignalFx and Chronosphere, and it’s easy to write your own sink, which means Blip can send metrics anywhere. Plan A plan determines which metrics to collect. Blip has a default plan that collects more than 60 of the most important MySQL metrics. Plans can be customized. Engine The engine is the core part of a monitor that collects metrics from MySQL (according to the plan). There are many more parts to a monitor, but sinks and plans are the two you are most likely to customize—more on this later. You can’t customize the engine, but you can customize the plan that determines which metrics the engine collects. Let’s zoom in on the engine: . Inside the engine, another part called a metrics collector (or collector for short) collects metrics for one domain: a logical group of MySQL metrics. Above, the engine has four collectors that correspond to four domains: . | Domain | Logical Group | . | status.global | SHOW GLOBAL STATUS | . | var.global | SHOW GLOBAL VARIABLES | . | repl | SHOW REPLICA STATUS, … | . | aws | CloudWatch Metrics | . First, you might notice that a collector is not required required to collect metrics from MySQL. An AWS collector, for example, collects related MySQL metrics from Amazon CloudWatch. But most collectors collect metrics from various outputs of MySQL. Second, why a new abstraction—why “domains”? Because MySQL metrics are unorganized, and some metrics can be obtained from multiple outpus. For example, you can obtain the global system variable max_connections from three different outputs (or commands): . | SHOW GLOBAL VARIABLES LIKE 'max_connections'; | SELECT @@GLOBAL.max_connections; | SELECT * FROM global_variables WHERE variable_name='max_connections'; | . That’s a trivial exmaple. Metric domains become important—practically necessary—when you account for the MySQL Performance Schema (and sometimes the MySQL sys Schema), various command and output changes from MySQL 5.6 to 5.7 to 8.0, subtle differences between distributions (Oracle vs. Percona vs. MariaDB), and cloud providers (like Amazon RDS). Metric domains simplify how metrics are collected. As a user, you shouldn’t care how metrics are collected; you should only care which metrics are collected. Domains and plans make that possible… . A level plan (or plan for short) configures which metrics to collect—by domain. Here’s a snippet of a plan that collects two metrics every 5 seconds: . key-perf-indicators: freq: 5s collect: status.global: metrics: - Queries - Threads_running . First of all, don’t worry: Blip has a built-in plan that collects every common and important MySQL metric, including meta-metrics like database and table sizes. You never have to specify a plan, but chances are that you’ll eventually write your own custom plans, espcially when you learn what other Blip features plans make possible. In the plan snippet above (which is YAML syntax), there is a single level called key-perf-indicators collected every 5 seconds (more on levels in a moment). At this level, Blip collects everything configured under collect:, which is just two metrics in the status.global domain: Queries and Threads_running. Real plans a much larger, listing tens (or hunrdeds) of metrics from various domains. Now the quesiton burning in your mind: what are “levels”? A level is a group of metrics collected at a unique frequency. key-perf-indicators metrics are collected every 5 seconds: 5s, 10s, 15s, and so forth. That’s not very fancy! Every metrics collector collects metrics at some frequency. But consider this: . key-perf-indicators: freq: 5s collect: status.global: metrics: - Queries - Threads_running database-sizes: freq: 60s collect: size.data: options: exclude: test_db,dba_stuff metrics: # Automatic . Now the plan has two levels: the original key-perf-indicators plus database-sizes every 60 seconds. (The domain size.data “collects” [calculatues] data size metrics for databases and tables.) Blip combines levels automatically: at 55 seconds, Blip collects only key-perf-indicators metrics; but at 60 seconds, it collects key-perf-indicators metrics and database-sizes metrics. In technical terms, it collects every level where freq % T == 0, where T is the number of seconds elapsed. Now that’s fancy: with level plans, Blip collects different metrics at different frequencies. Levels aren’t just fancy, they’re more efficient and (potentially) less expensive. For example, calculating table sizes when there are thousands of tables can be relatively slow. Consequently, it’s neither wise nor necessary to collect them every few seconds like regular metrics. By relegating table size collection to a slower frequency, regular metrics collection remains fast and efficient. And if you pay for a hosted metrics graphhing solution, then table size metrics every few seconds is a waste of money (because table sizes don’t usually change that fast). Speaking of paying for a hosted metrics graphhing solution, you need to send the metrics somewhere, and anywhere is possible with pluggable metric sinks (or sinks for short). Blip has built-in sinks for SignalFx and Chronosphere, but the sink is an interface, which means its trivial to write a new sink for wherever you send your metrics. Even better: domains make it possible to programmatically transform and rename metrics from Blip to any data format or protocol because Blip metrics have a consistent naming schema: lowercase domain.metric For example, status.global.threads_running. Your sink might strip the domain prefix, or rename it. It could also add labels, dimensions, and so forth—there are no limits. After collecting metrics specified by the plan, Blip passes them (in a simple data structure) to each sink, which are free to do anything (or nothing) with the metrics. Keep learning: Sinks ↓ . ",
+    "content": "In the simplest setup, a single Blip instance monitors (collect metrics from) a single MySQL instance: . But a single instance of Blip—a single running blip binary—can monitor any number of MySQL instances: . In Blip lingo, a monitor collects metrics from a single instance of MySQL, as shown above. In short, “a monitor monitors MySQL.” . Monitors are the central concept in Blip, so let’s zoom in on one monitor to see what makes it ticks: . A monitor has more parts than shown above, but the three most important parts are: . Sinks Sinks send metrics to a graphing system. A monitor can send metrics to more than one sink. Blip has built-in sinks for SignalFx and Chronosphere, and it’s easy to write your own sink, which means Blip can send metrics anywhere. Plan A plan determines which metrics to collect. Blip has a default plan that collects more than 60 of the most important MySQL metrics. Plans can be customized, which means Blip can collect any MySQL metrics you need (or not collect metrics that you don’t need). Engine The engine does the real work: it collects metrics from MySQL according to a plan. You control the engine by customizing a plan (or just use the built-in default plan). Let’s zoom in on the engine: . Inside the engine, another part called a metrics collector (or collector for short) collects metrics for one domain: a logical group of MySQL metrics. Above, the engine has four collectors that correspond to four domains: . | Domain | Metrics | . | status.global | SHOW GLOBAL STATUS | . | var.global | SHOW GLOBAL VARIABLES | . | repl | SHOW REPLICA STATUS, … | . | aws | CloudWatch Metrics | . First, notice that a collector is not required required to collect metrics from MySQL. An AWS collector, for example, collects related MySQL metrics from Amazon CloudWatch. But most collectors collect metrics from various outputs of MySQL. Second, why a new abstraction—why “domains”? Because MySQL metrics are unorganized, and some metrics can be obtained from multiple outpus. For example, you can obtain the global system variable max_connections from three different outputs (or commands): . | SHOW GLOBAL VARIABLES LIKE 'max_connections'; | SELECT @@GLOBAL.max_connections; | SELECT * FROM global_variables WHERE variable_name='max_connections'; | . That’s a trivial exmaple. Metric domains become important—practically necessary—when you account for the MySQL Performance Schema (and sometimes the MySQL sys Schema), various command and output changes from MySQL 5.6 to 5.7 to 8.0, subtle differences between distributions (Oracle vs. Percona vs. MariaDB), and cloud providers (like Amazon RDS). Metric domains simplify how metrics are collected. As a user, you shouldn’t care how metrics are collected; you should only care which metrics are collected. Domains and plans make that possible. A level plan (or plan for short) configures which metrics to collect—by domain. Here’s a snippet of a plan that collects two metrics every 5 seconds: . key-perf-indicators: freq: 5s collect: status.global: metrics: - Queries - Threads_running . Plans specify at least one level: a named group of metrics collected at a unique frequency. In this example, the level name is key-perf-indicators, and its frequency (freq: 5s) is every 5 seconds: 5s, 10s, 15s, and so forth. It collects two metrics from the status.global domain: Queries and Threads_running. Real plans have several levels and tens (or hundreds) of metrics from various domains. For example, the built-in default plan has four levels and collects over 60 metrics. But here’s a simpler example with two levels: . key-perf-indicators: freq: 5s collect: status.global: metrics: - Queries - Threads_running database-sizes: freq: 60s collect: size.database: options: exclude: test_db,dba_stuff metrics: # Automatic . Now the plan has two levels: the original key-perf-indicators plus database-sizes every 60 seconds. Blip combines levels automatically: at 55 seconds, it collects only key-perf-indicators metrics; but at 60 seconds, it collects key-perf-indicators metrics and database-sizes metrics. In technical terms, Blip collects every level where freq % T == 0, where T is the number of seconds elapsed since the monitor started. You don't have to write a plan to use Blip because it has a built-in plan that collects the most common and important MySQL metrics, including meta-metrics like database sizes. Writing your own plan allows you to customize which metrics to collect and when (how frequently). Plans and levels allow you to collect different metrics at different frequencies. For example, you can collect and report key performance indicators every 5 seconds, but collect and report table sizes every 60s. This is more efficient and cost-effective, especially if you use a hosted metrics graphing solution. When the engine is done collecting metrics for a level, the monitor sends the metrics to one or more metric sink configured for the monitor. A sink is a plugin that accepts a Blip metrics data structure, then translates and sends the metrics somewhere. A sink can also rename metrics, add labels/dimensions/tags, and so forth—whatever is appropriate for the sink destination. Blip has built-in sinks for SignalFx and Chronosphere, but since the sink is a plugin, it’s trivial to write new sinks to support new destinations. Keep learning: Monitors ↓ . ",
     "url": "/blip/v1.0/intro/concepts",
     "relUrl": "/v1.0/intro/concepts"
   },"19": {
@@ -139,682 +139,544 @@
   },"23": {
     "doc": "Config File",
     "title": "api",
-    "content": "The api section configures the Blip API. api: bind: \"127.0.0.1:9070\" disable: false . bind . | Type | string | . | Valid values | addr:port, :port | . | Default value | 127.0.0.1:9070 | . The bind variable sets the interface address and port that the API listens on. disable . | Type | bool | . | Valid values | true, false | . | Default value | false | . The disable variable disables the Blip API. ",
+    "content": "The api section configures the Blip API. api: bind: \"127.0.0.1:7522\" disable: false . bind . | Type | string | . | Valid values | addr:port, :port | . | Default value | 127.0.0.1:7522 | . The bind variable sets the interface address and port that the API listens on. disable . | Type | bool | . | Valid values | true, false | . | Default value | false | . The disable variable disables the Blip API. ",
     "url": "/blip/v1.0/config/config-file#api",
     "relUrl": "/v1.0/config/config-file#api"
   },"24": {
     "doc": "Config File",
     "title": "monitor-loader",
-    "content": "The monitor-loader section configures how Blip finds and loads MySQL instances. monitor-loader: aws: regions: [] freq: \"\" files: [] local: disable-auto: false disable-auto-root: false stop-loss: \"\" . aws . The aws subsection of the monitor-loader section configure built-in support for loading Amazon RDS instances. By default, this feature is disabled. To enable, specify regions. regions . | Type | list of strings | . | Valid values | AWS region names or “auto” to auto-detect | . | Default value |   | . The regions variable sets which AWS regions to query for RDS instances. If auto is specified, Blip queries EC2 IMDS, which only works if Blip is running on an EC2 instance with an EC2 instance profile that allows rds:DescribeDBInstances. freq . | Type | string | . | Valid values | Go duration string | . | Default value |   | . The freq variable enables automatic monitor reloading. It’s off by default, which means moniitors are loaded only once at startup. files . | Type | list of strings | . | Valid values | file names | . | Default value |   | . The files variable specifies YAML files to load monitors from. Each file must have a monitors section, like: . --- monitors: - hostname: db.local . local . The local subsection has only two variables: . disable-auto: true disable-auto-root: true . stop-loss . | Type | string | . | Valid values | • “N%” (percentage) where N is an integer between 0 and 100 (exclusive)• “N” where N is an integer greater than 0 | . | Default value |   | . The stop-loss variable enables the stop-lost feature. ",
+    "content": "The monitor-loader section configures how Blip finds and loads MySQL instances. monitor-loader: aws: regions: [] files: [] local: disable-auto: false disable-auto-root: false stop-loss: \"\" . aws . The aws subsection of the monitor-loader section configure built-in support for loading Amazon RDS instances. By default, this feature is disabled. To enable, specify regions. regions . | Type | list of strings | . | Valid values | AWS region names or “auto” to auto-detect | . | Default value |   | . The regions variable sets which AWS regions to query for RDS instances. If auto is specified, Blip queries EC2 IMDS, which only works if Blip is running on an EC2 instance with an EC2 instance profile that allows rds:DescribeDBInstances. files . | Type | list of strings | . | Valid values | file names | . | Default value |   | . The files variable specifies YAML files to load monitors from. Each file must have a monitors section, like: . --- monitors: - hostname: db.local . local . The local subsection has only two variables: . disable-auto: true disable-auto-root: true . stop-loss . | Type | string | . | Valid values | • “N%” (percentage) where N is an integer between 0 and 100 (exclusive)• “N” where N is an integer greater than 0 | . | Default value |   | . The stop-loss variable enables the stop-lost feature. ",
     "url": "/blip/v1.0/config/config-file#monitor-loader",
     "relUrl": "/v1.0/config/config-file#monitor-loader"
   },"25": {
-    "doc": "Config File",
-    "title": "strict",
-    "content": "| Type | bool | . | Valid values | true, false | . | Default value | false | . The strict variable enables strict mode, which is disabled by default. In strict mode, Blip returns certain errors rather than ignoring them. ",
-    "url": "/blip/v1.0/config/config-file#strict",
-    "relUrl": "/v1.0/config/config-file#strict"
-  },"26": {
     "doc": "Config File",
     "title": "Monitor Defaults",
     "content": "Monitor defaults are top-level sections that set default values for monitors that do not set an explicit value. Monitor defaults are useful when you have several MySQL instances to monitor and the configuration only differs by basic connection parameters, like hostname or socket. For example, imagine that you have 10 monitors all with the same username and password. Instead of setting username and password in all 10 monitors, you can set these variables once in the top-level mysql section: . mysql: username: \"defaultUser\" password: \"defaultPass\" monitors: - hostname: db1 # ... - hostname: db10 . The default username and password are applied to the 10 monitors because none of them explicitly set these variables. If a monitor explicitly sets one of the variables, then its explicit value is used instead of the default value. Monitor defaults are convenient, but explicit monitor configuraiton is more clear, so use monitor defatuls sparingly. The intended use case is for variables that must be consistent for all monitors. For example, if Blip monitors Amazon RDS instances in region us-east-1, then setting monitor default aws.region: \"us-east-1\" makes sense. ",
     "url": "/blip/v1.0/config/config-file#monitor-defaults",
     "relUrl": "/v1.0/config/config-file#monitor-defaults"
-  },"27": {
+  },"26": {
     "doc": "Config File",
     "title": "aws",
     "content": "The aws section configures Amazon RDS for MySQL. aws: disable-auto-region: false disable-auto-tls: false iam-auth-token: false password-secret: \"\" region: \"\" . disable-auto-region . | Type | string | . | Valid values | true or false | . | Default value | false | . The disable-auto-region variable enables/disables automatic detection of the AWS region. disable-auto-tls . | Type | string | . | Valid values | true or false | . | Default value | false | . The disable-auto-tls variables enables/disables automatic use of the Amazon RDS certifcate authority (CA). By default, Blip uses the 2019 AWS RDS CA, which is built-in (you don’t need to configure anything). See AWS for details. iam-auth-token . | Type | bool | . | Valid values | true or false | . | Default value | false | . The iam-auth-token variable enables IAM database authentication. When enabled, IAM authentication is the prefered authentication method . password-secret . | Type | string | . | Valid values | AWS Secrets Manager ARN | . | Default value |   | . The password-secret variables sets the AWS Secrets Manager ARN that contains the MySQL user password. region . | Type | string | . | Valid values |   | . | Default value |   | . The region variable sets the AWS region. ",
     "url": "/blip/v1.0/config/config-file#aws-1",
     "relUrl": "/v1.0/config/config-file#aws-1"
-  },"28": {
+  },"27": {
     "doc": "Config File",
     "title": "exporter",
     "content": "The exporter section configure Blip to emulate Prometheus mysqld_exporter. exporter: flags: web.listen-address: \"127.0.0.1:9104\" web.telemetry-path: \"/metrics\" mode: \"\" . flags . | Type | key-value map (string: string) | . | Valid values | (see list below) | . | Default value | (see list below) | . The flag variable is a key-value map of strings for certain Prometheus mysqld_exporter flags: . | web.listen-address (default: 127.0.0.1:9104) | web.telemetry-path (default: /metrics) | . mode . | Type | string | . | Valid values | dual or legacy | . | Default value |   | . The mode variables enables the Prometheus emualation feature. When set to dual, Blip runs normally and emulates Prometheus. When set to legacy, Blip runs only emulates Prometheus. The feature is disabled by default. ",
     "url": "/blip/v1.0/config/config-file#exporter",
     "relUrl": "/v1.0/config/config-file#exporter"
-  },"29": {
+  },"28": {
     "doc": "Config File",
     "title": "heartbeat",
     "content": "The heartbeat section configures the Blip heartbeat feature. heartbeat: freq: \"\" table: blip.heartbeat . freq . | Type | string | . | Valid values | Go duration string | . | Default value |   | . The freq variables sets how frequently heartbeats are written. See Hearbeat for details. table . | Type | string | . | Valid values | valid MySQL table name | . | Default value |   | . The table variables sets the Blip heartbeat table. The default database is blip if the table name is not database-qualified like db.heartbeat. ",
     "url": "/blip/v1.0/config/config-file#heartbeat",
     "relUrl": "/v1.0/config/config-file#heartbeat"
-  },"30": {
+  },"29": {
     "doc": "Config File",
     "title": "mysql",
     "content": "The mysql section configures how to connect to MySQL. mysql: hostname: \"\" mycnf: \"\" password: \"\" password-file: \"\" socket: \"\" timeout-connect: \"5s\" username: \"blip\" . This is the most important and common seciton since it configures how Blip connects to MySQL. It’s also the only section that becomes top-level in each monitor config: in a monitor config, omit mysql: and configure these variables at the top level. hostname . | Type | string | . | Valid values | hostname or hostname:port | . | Default value |   | . The hostname variable sets the MySQL hostname. mycnf . | Type | string | . | Valid values | my.cnf file name | . | Default value |   | . The mycnf variable sets a my.cnf file to read. Blip reads the [client] section of the my.cnf file: . | my.cnf File | Blip Variable | . | host | hostname | . | password | password | . | port | Appended to hostname | . | socket | socket | . | ssl-ca | tls.ca | . | ssl-cert | tls.cert | . | ssl-key | tls.key | . | user | username | . username . | Type | string | . | Valid values |   | . | Default value |   | . The username variable sets the MySQL username. password . | Type | string | . | Valid values |   | . | Default value |   | . The password variable sets the MySQL password. password-file . | Type | string | . | Valid values |   | . | Default value |   | . The password-file variable sets a file from which Blip reads the MySQL password. socket . | Type | string | . | Valid values |   | . | Default value |   | . The socket variable sets the MySQL socket. timeout-connect . | Type | string | . | Valid values | Go duration string | . | Default value |   | . The timeout-connect variable sets the connection timeout. ",
     "url": "/blip/v1.0/config/config-file#mysql",
     "relUrl": "/v1.0/config/config-file#mysql"
-  },"31": {
+  },"30": {
     "doc": "Config File",
     "title": "plans",
     "content": "The plans section configures the source of plans. plans: files: [\"plan.yaml\"] table: \"blip.plans\" monitor: {} adjust: # See below . adjust . The adjust subection of the plan section configures the Level Plan Adjuster (LPA) feature. plans: adjust: offline: after: \"\" plan: \"\" standby: after: \"\" plan: \"\" read-only: after: \"\" plan: \"\" active: after: \"\" plan: \"\" . Each of the four sections (corresponding to the four connection states) have the same two variables: . after . | Type | string | . | Valid values | Go duration string | . | Default value |   | . The after variable sets how long before the state takes effect. plan . | Type | string | . | Valid values | plan name | . | Default value |   | . The plan variable sets the plan to load when the state takes effect. files . | Type | list of strings | . | Valid values | file names | . | Default value | plans.yaml | . The files variable is a list of file names from which to load plans. Blip attempts to load the default, plans.yaml, but it is not required and does not cause an error if the file does not exist. Instead, in this case, Blip uses a default built-in plan. If plan files are explicitly configured, Blip only reads those plan files. monitor . | Type | dictonary | . | Valid values | Monitor | . | Default value |   | . The monitor variable configures the MySQL instance from which the table is loaded. table . | Type | string | . | Valid values | valid MySQL table name | . | Default value |   | . The table variable configures the MySQL table name from which plans are loaded. ",
     "url": "/blip/v1.0/config/config-file#plans",
     "relUrl": "/v1.0/config/config-file#plans"
-  },"32": {
+  },"31": {
     "doc": "Config File",
     "title": "sinks",
-    "content": "The sinks section configures built-in metrics sinks and custom metrics sinks. This section is a map of maps: . sinks: sinkName1: option1: value1 sinkName2: option1: value1 . Blip has three built-in sinks named log, singalfx, and chronosphere. The options for each are listed below. chronosphere . | Key | Value | Default | . | url | Remote write URL | http://127.0.0.1:3030/openmetrics/write | . log . The Blip built-in log sink has no options. noop . The Blip built-in noop sink has no options. It discards all metrics, which is useful for testing end-to-end metrics collection without having to send the metrics somewhere. signalfix . | Key | Value | Default | . | auth-token | API authentication token |   | . | auth-token-file | File to read API auth token from |   | . ",
+    "content": "The sinks section configures built-in metrics sinks and custom metrics sinks. This section is a map of maps: . sinks: sinkName1: option1: value1 sinkName2: option1: value1 . Blip has three built-in sinks named log, singalfx, and chronosphere. The options for each are listed below. chronosphere . | Key | Value | Default | . | url | Remote write URL | http://127.0.0.1:3030/openmetrics/write | . log . The Blip built-in log sink has no options. noop . The Blip built-in noop sink has no options. It discards all metrics, which is useful for testing end-to-end metrics collection without having to send the metrics somewhere. signalfix . | Key | Value | Default | . | auth-token | API authentication token |   | . | auth-token-file | File to read API auth token from |   | . | metric-prefix | Prefix appended to every metric |   | . | metric-translator | Metric translator plugin name |   | . ",
     "url": "/blip/v1.0/config/config-file#sinks",
     "relUrl": "/v1.0/config/config-file#sinks"
-  },"33": {
+  },"32": {
     "doc": "Config File",
     "title": "tags",
     "content": "The tags section sets user-defined key-value pairs (as strings) that are passed to each sink. For example (using interpolation): . tags: env: ${ENVIRONMENT:-dev} dc: ${DATACENTER:-local} hostname: %{monitor.hostname} . Blip calls these “tags”, but each sink might have a different term for the same concept. For example, with SignalFx these are called “dimensions”. But the concept is the same: metadata (usually string key-value pairs) attached to metrics that describe or annotate the metrics for grouping, aggregation, or filtering when display in graphs/charts. The built-in metrics sinks automatically send all tags with metrics. For example, the signalfx sink sends the tags as SingalFx dimensions. ",
     "url": "/blip/v1.0/config/config-file#tags",
     "relUrl": "/v1.0/config/config-file#tags"
-  },"34": {
+  },"33": {
     "doc": "Config File",
     "title": "tls",
     "content": "The tls section configures TLS certificates. tls: ca: \"\" cert: \"\" key: \"\" . You can specify only tls.ca, or tls.cert and tls.key, or all three; any other combination is invalid. By default, Blip does not use TLS for MySQL connections except when using AWS; see section aws or AWS. ca . | Type | string | . | Valid values | file name | . | Default value |   | . The ca variables sets the certificate authority file. cert . | Type | string | . | Valid values | file name | . | Default value |   | . The cert variables sets the public certificate file. key . | Type | string | . | Valid values | file name | . | Default value |   | . The key variables sets the private key file. ",
     "url": "/blip/v1.0/config/config-file#tls",
     "relUrl": "/v1.0/config/config-file#tls"
-  },"35": {
+  },"34": {
     "doc": "Config File",
     "title": "Monitors",
     "content": "The monitors section is a list of MySQL instances to monitor. Each instance is a YAML dictionary containing any of the monitor default sections with one exception: mysql variables are top-level in a monitor. The example below shows two different MySQL instances to monitor. monitors: - hostname: db1.local username: metrics password-file: \"/secret/db-password\" heartbeat: freq: 1s - mycnf: \"/secret/my.cnf\" exporter: mode: legacy . The first MySQL instance is configured in lines 3-7. (Note the single, leading hyphen on line 3 that denotes an item in a YAML list.) The first three variables—hostname, username, and password-file—are mysql variables but in a monitor they are top-level. But all other sections, like heartbeat and its variable freq, are exactly the same in a monitor. The second MySQL instance is configured in lines 9-11. Variable mycnf belongs to section mysql, but again: in a monitor, mysql variables are top-level. Section exporter is exactly the same in a monitor. Refer to Monitor Defaults for configuring MySQL instances, and remember: mysql variables are top-level in a monitor (omit mysql: and include the variables directly). Monitors have two variables that only appear in monitors: id and meta. id . | Type | string | . | Valid values | any string | . | Default value | (automatic) | . The id variable uniquely identifies the MySQL instance in Blip. Every monitor has a unique ID that, by default, Blip sets automatically. You can set monitor IDs manually, but it’s better to let Blip set them automatically to avoid duplicates (which causes a fatal error). Blip uses monitor IDs to track and report each MySQL instance in its own output and API. Blip does not use monitor IDs to identify MySQL instances for reporting metrics, but you can use them if you want. For example: . monitors: - id: db1 hostname: db1.local tags: monitorId: %{monitor.id} . Since tags are passed to sinks (which report metrics), all sinks will receive the monitor ID. (Sinks receive the monitor ID at the code-level too, so technically this example is not necessary.) . Monitor IDs are not garuanteed to be stable—they might change between Blip versions. Therefore, do not rely on them outside of Blip for truly stable, unique MySQL instance identification. meta . | Type | key-value map (string: string) | . | Valid values | any strings | . | Default value |   | . The meta variable is a map of key-value strings extrensic to Blip. “Extrensic to Blip” is a fancy but succinct way of saying that meta data is not used by Blip, but it can be used by you. For example by contrast, all other variables are used by Blip in some way, for some purpose. But not meta. However, you can still reference meta in the config file and plans: %{monitor.meta.KEY}. meta solves at least one problem: passing the source DSN for a replica from monitor config to plan. Imagine you have two MySQL instances: source.db and replica.db, where the latter replicates from the former. Problem is: there is no configuration section to define the source MySQL instance. Configuring replication sources in Blip is not an easy problem to solve because replication topologies change when replicas are used for high availability, and MySQL Group Replication has different requirements. To solve this problem, you configure the source DSN in meta: . monitors: - hostname: replica.db meta: source-host: source.db source-user: repl source-pass: pleaseDontLag . You could configure it in tags, too, but tags are copied to sinks whereas metadata is not. Therefore, this configuration is better placed in meta than tags. Then in the plan, reference the metadata: . replication: freq: 5s collect: repl: options: source-host: %{monitor.meta.source-host} source-user: %{monitor.meta.source-user} source-pass: %{monitor.meta.source-pass} metrics: - lag . ",
     "url": "/blip/v1.0/config/config-file#monitors",
     "relUrl": "/v1.0/config/config-file#monitors"
-  },"36": {
+  },"35": {
     "doc": "Config File",
     "title": "Config File",
-    "content": ". | Config File | Conventions | Interpolation | Server Config . | api . | bind | disable | . | monitor-loader . | aws | regions | freq | files | local | stop-loss | . | strict | . | Monitor Defaults . | aws . | disable-auto-region | disable-auto-tls | iam-auth-token | password-secret | region | . | exporter . | flags | mode | . | heartbeat . | freq | table | . | mysql . | hostname | mycnf | username | password | password-file | socket | timeout-connect | . | plans . | adjust . | after | plan | . | files | monitor | table | . | sinks . | chronosphere | log | noop | signalfix | . | tags | tls . | ca | cert | key | . | . | Monitors . | id | meta | . | . ",
+    "content": ". | Config File | Conventions | Interpolation | Server Config . | api . | bind | disable | . | monitor-loader . | aws | regions | files | local | stop-loss | . | . | Monitor Defaults . | aws . | disable-auto-region | disable-auto-tls | iam-auth-token | password-secret | region | . | exporter . | flags | mode | . | heartbeat . | freq | table | . | mysql . | hostname | mycnf | username | password | password-file | socket | timeout-connect | . | plans . | adjust . | after | plan | . | files | monitor | table | . | sinks . | chronosphere | log | noop | signalfix | . | tags | tls . | ca | cert | key | . | . | Monitors . | id | meta | . | . ",
     "url": "/blip/v1.0/config/config-file",
     "relUrl": "/v1.0/config/config-file"
-  },"37": {
+  },"36": {
     "doc": "Configure",
     "title": "Configure",
     "content": " ",
     "url": "/blip/v1.0/config/",
     "relUrl": "/v1.0/config/"
-  },"38": {
-    "doc": "Blip",
-    "title": "Blip",
-    "content": "A running instance of the blip binary is a server. Internally, it’s a singleton instances of a Server data type. ",
-    "url": "/blip/v1.0/server/core",
-    "relUrl": "/v1.0/server/core"
-  },"39": {
-    "doc": "Blip",
-    "title": "Startup",
-    "content": "Blip boots then runs. Command line option --run=false stop it from running. Monitors . Monitors have indepdent of the server. A monitor can . ",
-    "url": "/blip/v1.0/server/core#startup",
-    "relUrl": "/v1.0/server/core#startup"
-  },"40": {
-    "doc": "Blip",
-    "title": "Controls",
-    "content": ". | Command line | API | Plan Loader | Monitor Loader | Sighnal handlers | . ",
-    "url": "/blip/v1.0/server/core#controls",
-    "relUrl": "/v1.0/server/core#controls"
-  },"41": {
+  },"37": {
     "doc": "Custom",
     "title": "Custom Sink",
     "content": " ",
     "url": "/blip/v1.0/sinks/custom#custom-sink",
     "relUrl": "/v1.0/sinks/custom#custom-sink"
-  },"42": {
+  },"38": {
     "doc": "Custom",
     "title": "Custom",
     "content": " ",
     "url": "/blip/v1.0/sinks/custom",
     "relUrl": "/v1.0/sinks/custom"
-  },"43": {
-    "doc": "Db Maker",
-    "title": "Db Maker",
-    "content": "The database connection factory—db maker for short—makes connections to MySQL. ",
-    "url": "/blip/v1.0/server/db-maker",
-    "relUrl": "/v1.0/server/db-maker"
-  },"44": {
-    "doc": "Db Maker",
-    "title": "Authentication",
-    "content": ". | Amazon RDS IAM authentication (config.aws-rds.iam-auth-token) | Amazon Secrets Manager (config.aws-rds.password-secret) | TLS certificate (config.tls) | Password file (config.mysql.password-file) | my.cnf (config.mysql.mycnf) | Password (config.mysql.password) | No password | . Source code: dbconn/factory.go . ",
-    "url": "/blip/v1.0/server/db-maker#authentication",
-    "relUrl": "/v1.0/server/db-maker#authentication"
-  },"45": {
-    "doc": "Db Maker",
-    "title": "Password Reloading",
-    "content": "Blip automatically reloads the password for all authentication methods. It uses go-mysql/hotswap-dsn-driver. ",
-    "url": "/blip/v1.0/server/db-maker#password-reloading",
-    "relUrl": "/v1.0/server/db-maker#password-reloading"
-  },"46": {
+  },"39": {
     "doc": "Defaults",
     "title": "Default Metrics",
     "content": "Blip collects over 70 metrics by default—see Default Plans. To collect different metrics, first see which metric domains Blip collects, then write and use a new plan to collect the metrics you need. ",
     "url": "/blip/v1.0/metrics/defaults#default-metrics",
     "relUrl": "/v1.0/metrics/defaults#default-metrics"
-  },"47": {
+  },"40": {
     "doc": "Defaults",
     "title": "Defaults",
     "content": " ",
     "url": "/blip/v1.0/metrics/defaults",
     "relUrl": "/v1.0/metrics/defaults"
-  },"48": {
+  },"41": {
     "doc": "Defaults",
     "title": "Default Plans",
     "content": " ",
     "url": "/blip/v1.0/plans/defaults#default-plans",
     "relUrl": "/v1.0/plans/defaults#default-plans"
-  },"49": {
+  },"42": {
     "doc": "Defaults",
     "title": "Blip",
     "content": "--- performance: freq: 5s collect: innodb: metrics: - trx_active_transactions - lock_timeouts - lock_row_lock_current_waits - lock_row_lock_waits - lock_row_lock_time - buffer_flush_adaptive_total_pages - buffer_LRU_batch_flush_total_pages - buffer_flush_background_total_pages - log_lsn_checkpoint_age_total - log_max_modified_age_async - innodb_os_log_pending_writes - innodb_log_waits - trx_rseg_history_len - lock_deadlocks status.global: metrics: - queries - threads_running - com_begin - com_commit - com_rollback - com_select - com_delete - com_delete_multi - com_insert - com_insert_select - com_replace - com_replace_select - com_update - com_update_multi - innodb_data_reads - innodb_data_writes - innodb_data_written - innodb_data_read - innodb_buffer_pool_read_requests - innodb_buffer_pool_reads - Innodb_buffer_pool_wait_free - innodb_buffer_pool_pages_dirty - innodb_buffer_pool_pages_free - innodb_buffer_pool_pages_total - innodb_buffer_pool_pages_flushed - innodb_os_log_written additional: freq: 20s collect: status.global: metrics: - created_tmp_disk_tables - created_tmp_tables - created_tmp_files - connections - threads_connected - max_used_connections - bytes_sent - bytes_received - binlog_cache_disk_use - prepared_stmt_count - com_stmt_execute - com_stmt_prepare - aborted_clients - aborted_connects - select_full_join - select_full_range_join - select_range_check - select_scan - com_flush - com_kill - com_purge - com_admin_commands - com_show_processlist - com_show_slave_status - com_show_status - com_show_variables - com_show_warnings data-size: freq: 5m collect: size.binlogs: {} size.data: {} sysvars: freq: 15m collect: var.global: metrics: - max_connections - max_prepared_stmt_count - innodb_log_file_size . ",
     "url": "/blip/v1.0/plans/defaults#blip",
     "relUrl": "/v1.0/plans/defaults#blip"
-  },"50": {
+  },"43": {
     "doc": "Defaults",
     "title": "Prometheus",
     "content": " ",
     "url": "/blip/v1.0/plans/defaults#prometheus",
     "relUrl": "/v1.0/plans/defaults#prometheus"
-  },"51": {
+  },"44": {
     "doc": "Defaults",
     "title": "Defaults",
     "content": " ",
     "url": "/blip/v1.0/plans/defaults",
     "relUrl": "/v1.0/plans/defaults"
-  },"52": {
-    "doc": "Domains",
-    "title": "Domains",
-    "content": "This page is the full domain list and reference. Each domain that Blip currently implements begins with a table with these fields: . Blip version Blip version collector was added or changed. MySQL config . | no = No config required; all metrics available if MySQL default config | required = Metrics require MySQL config as documented | optional = Limited metrics unless MySQL config as documented | . Sources Usual source of metrics, but might have mulitple sources. Group keys Metric groups. Omitted if collector does not group metrics. Meta key-values Metric meta Omitted if collector does not set meta. Collector metrics Collector metrics. Omitted if collector does not report derived metrics. Run blip --print-domains to list available domains and collector options. | access . | access.index | access.table | . | aria | autoinc | aws . | aws.rds | aws.aurora | . | azure | error . | error.global | error.query | error.repl | error.client | . | event . | event.stage | event.stmt | event.trx | event.wait | . | file | galera | gcp | gr | host | innodb . | innodb.mutex | . | mariadb | ndb | oracle | percona . | percona.userstat.index | percona.userstat.table | . | processlist | pfs | pxc | query . | query.global | query.id | . | repl . | repl.lag | . | rocksdb | size . | size.binlog | size.data | size.index | size.file | . | status . | status.account | status.global | status.host | status.thread | status.user | . | thd | tls | tokudb | var.global | . ",
-    "url": "/blip/v1.0/metrics/domains",
-    "relUrl": "/v1.0/metrics/domains"
-  },"53": {
-    "doc": "Domains",
-    "title": "access",
-    "content": "Access statistics . Not implemented yet but planned. access.index . Index access statistics . Not implemented yet but planned. (Metrics from sys.schema_index_statistics.) . access.table . Table access statistics . Not implemented yet but planned. (Metrics from sys.schema_table_statistics.) . ",
-    "url": "/blip/v1.0/metrics/domains#access",
-    "relUrl": "/v1.0/metrics/domains#access"
-  },"54": {
-    "doc": "Domains",
-    "title": "aria",
-    "content": "MariaDB Aria Storage Engine . Reserved for future use. ",
-    "url": "/blip/v1.0/metrics/domains#aria",
-    "relUrl": "/v1.0/metrics/domains#aria"
-  },"55": {
-    "doc": "Domains",
-    "title": "autoinc",
-    "content": "Auto-increment Columns . Not implemented yet but planned. ",
-    "url": "/blip/v1.0/metrics/domains#autoinc",
-    "relUrl": "/v1.0/metrics/domains#autoinc"
-  },"56": {
-    "doc": "Domains",
-    "title": "aws",
-    "content": "Amazon Web Services . aws.rds . Amazon RDS for MySQL . Collects Amazon RDS metrics. Not implemented yet but planned. aws.aurora . Amazon Aurora . Not implemented yet but planned. ",
-    "url": "/blip/v1.0/metrics/domains#aws",
-    "relUrl": "/v1.0/metrics/domains#aws"
-  },"57": {
-    "doc": "Domains",
-    "title": "azure",
-    "content": "Microsoft Azure . Reserved for future use. ",
-    "url": "/blip/v1.0/metrics/domains#azure",
-    "relUrl": "/v1.0/metrics/domains#azure"
-  },"58": {
-    "doc": "Domains",
-    "title": "error",
-    "content": "MySQL, Client, and Query Errors . Not implemented yet but planned. error.global . error.query . error.repl . error.client . ",
-    "url": "/blip/v1.0/metrics/domains#error",
-    "relUrl": "/v1.0/metrics/domains#error"
-  },"59": {
-    "doc": "Domains",
-    "title": "event",
-    "content": "MySQL Events . Reserved for future use. event.stage . event.stmt . event.trx . event.wait . ",
-    "url": "/blip/v1.0/metrics/domains#event",
-    "relUrl": "/v1.0/metrics/domains#event"
-  },"60": {
-    "doc": "Domains",
-    "title": "file",
-    "content": "Files and Tablespaces . Reserved for future use. ",
-    "url": "/blip/v1.0/metrics/domains#file",
-    "relUrl": "/v1.0/metrics/domains#file"
-  },"61": {
-    "doc": "Domains",
-    "title": "galera",
-    "content": "Percona XtraDB Cluster and MariaDB Cluster (wsrep) . Reserved for future use. ",
-    "url": "/blip/v1.0/metrics/domains#galera",
-    "relUrl": "/v1.0/metrics/domains#galera"
-  },"62": {
-    "doc": "Domains",
-    "title": "gcp",
-    "content": "Google Cloud . Reserved for future use. ",
-    "url": "/blip/v1.0/metrics/domains#gcp",
-    "relUrl": "/v1.0/metrics/domains#gcp"
-  },"63": {
-    "doc": "Domains",
-    "title": "gr",
-    "content": "MySQL Group Replication . Reserved for future use. ",
-    "url": "/blip/v1.0/metrics/domains#gr",
-    "relUrl": "/v1.0/metrics/domains#gr"
-  },"64": {
-    "doc": "Domains",
-    "title": "host",
-    "content": "Host (Client) . Reserved for future use. ",
-    "url": "/blip/v1.0/metrics/domains#host",
-    "relUrl": "/v1.0/metrics/domains#host"
-  },"65": {
-    "doc": "Domains",
-    "title": "innodb",
-    "content": "InnoDB Metrics . | Blip version | v1.0.0 | . | MySQL config | maybe | . | Sources | I_S | . | Group keys |   | . | Meta | subsystem=SUBSYSTEM column | . Metrics from INFORMATION_SCHEMA.INNODB_METRICS. innodb.mutex . InnoDB Mutexes . Reserved for future use. (Metrics from SHOW ENGINE INNODB MUTEX.) . ",
-    "url": "/blip/v1.0/metrics/domains#innodb",
-    "relUrl": "/v1.0/metrics/domains#innodb"
-  },"66": {
-    "doc": "Domains",
-    "title": "mariadb",
-    "content": "MariaDB Enhancements . Reserved for future use. ",
-    "url": "/blip/v1.0/metrics/domains#mariadb",
-    "relUrl": "/v1.0/metrics/domains#mariadb"
-  },"67": {
-    "doc": "Domains",
-    "title": "ndb",
-    "content": "MySQL NDB Cluster . Reserved for future use. ",
-    "url": "/blip/v1.0/metrics/domains#ndb",
-    "relUrl": "/v1.0/metrics/domains#ndb"
-  },"68": {
-    "doc": "Domains",
-    "title": "oracle",
-    "content": "Oracle Cloud and Enterprise Enhancements . Reserved for future use. ",
-    "url": "/blip/v1.0/metrics/domains#oracle",
-    "relUrl": "/v1.0/metrics/domains#oracle"
-  },"69": {
-    "doc": "Domains",
-    "title": "percona",
-    "content": "Percona Server Enhancements . Metrics from Percona User Statistics. percona.userstat.index . Percona userstat Index Statistics . | Blip version | v1.0.0 | . | MySQL config | yes | . | Sources | INFORMATION_SCHEMA.INDEX_STATISTICS | . | Group keys |   | . | Meta |   | . percona.userstat.table . Percona userstat Table Statistics . | Blip version | v1.0.0 | . | MySQL config | yes | . | Sources | INFORMATION_SCHEMA.TABLE_STATISTICS | . | Group keys |   | . | Meta |   | . ",
-    "url": "/blip/v1.0/metrics/domains#percona",
-    "relUrl": "/v1.0/metrics/domains#percona"
-  },"70": {
-    "doc": "Domains",
-    "title": "processlist",
-    "content": "Processlist . Reserved for future use. (Metrics from SHOW PROCESSLIST or I_S.PROCESSLIST.) . ",
-    "url": "/blip/v1.0/metrics/domains#processlist",
-    "relUrl": "/v1.0/metrics/domains#processlist"
-  },"71": {
-    "doc": "Domains",
-    "title": "pfs",
-    "content": "Performance Schema . Reserved for future use. (Metrics from SHOW ENGINE PERFORMANCE_SCHEMA STATUS.) . ",
-    "url": "/blip/v1.0/metrics/domains#pfs",
-    "relUrl": "/v1.0/metrics/domains#pfs"
-  },"72": {
-    "doc": "Domains",
-    "title": "pxc",
-    "content": "Percona XtraDB Cluster . Reserved for future use, or use galera. ",
-    "url": "/blip/v1.0/metrics/domains#pxc",
-    "relUrl": "/v1.0/metrics/domains#pxc"
-  },"73": {
-    "doc": "Domains",
-    "title": "query",
-    "content": "Query Metrics . query.global . Global Query Response Time . | Blip version | v1.0.0 | . | MySQL config | yes | . | Sources | MySQL 8.0 p_s.events_statements_histogram_global, Percona Server 5.7 RTD plugin | . | Group keys |   | . | Meta key-values | • pN=pA: where pN is configured percentile (default: p999) and pA is actual percentile (see note 1) | . | Collector metrics | • reponse_time (gauge) | . The query.global domain includes metrics for all queries, which is currently only response time. By default, it reports the P999 (99.9th percentile) reponse time using either MySQL 8.0 performance_schema.events_statements_histogram_global or Percona Server 5.7 Response Time Distribution plugin. Multiple percentiles can be collected—p95, p99, and p999 for example. The metric for each percentile is denoted by meta key pN. To convert units, use the TransformMetrics plugin or write a custom sink. Collector Metrics . | reponse_time Type: gauge Response time for all queries, reported as a percentile (default: P999) in microseconds. The true percentile might be slightly more or less depending on how the histogram buckets are configured (see note 1). | . Notes . | MySQL (and Percona Server) use histograms with varible bucket ranges. Therefore, the P99 might actually be P98.9 or P99.2. Meta key pN indicates the configured percentile, and its value pA indicates the actual percentile that was used. | . query.id . Not implemented yet. The query.id domain includes metrics for unique queries identified by digest SHA and set in meta as id. ",
-    "url": "/blip/v1.0/metrics/domains#query",
-    "relUrl": "/v1.0/metrics/domains#query"
-  },"74": {
-    "doc": "Domains",
-    "title": "repl",
-    "content": "MySQL Replication . | Blip version | v1.0.0 | . | Sources | ≥ MySQL 8.0.22: SHOW REPLICA STATUS≤ MySQL 8.0.21: SHOW SLAVE STATUS | . | MySQL config | no | . | Group keys |   | . | Meta |   | . | Collector metrics | • running (gauge) | . The repl domain reports a few gauges metrics from the output of SHOW SLAVE STATUS (or SHOW REPLICA STATUS as of MySQL 8.0.22): . | Replica Status Variable | Collected | . | Slave_IO_Running | ✓ | . | Slave_SQL_Running | ✓ | . | Relay_Log_Space | ✓ | . | Seconds_Behind_Master | ✓ | . | Auto_Position | ✓ | . Although the output has many more fields, most fields are not metric counters or guages, which is why Blip does not collect them. Collector Metrics . | running Type: gauge . | Value | Meaning | . | 1 |   ☑ MySQL is a replica  ☑ Slave_IO_Running=Yes  ☑ Slave_SQL_Running=Yes  ☑ Last_Errno=0 | . | 0 | MySQL is a replica, but IO and SQL threads are not running or a replication error occurred | . | -1 | MySQL is not a replica: SHOW SLAVE|REPLICA STATUS returns no output | . Replication lag does not affect the running metric: replication can be running but lagging. | . repl.lag . MySQL Replication Lag . | Blip version | v1.0.0 | . | Sources | Blip Heartbeat, Percona pt-heartbeat, or ~~MySQL | . | MySQL config | MySQL: no; other sources: yes | . | Group keys |   | . | Meta |   | . | Metrics | • max (gauge): Maximum replication lag (milliseconds) observed during collect interval. | . Requires option source in the plan; use %{monitor.meta.repl-source} like: . level: collect: repl.lag: options: source: \"%{monitor.meta.repl-source}\" . Then define config.monitor.meta.repl-source in the monitor meta: . monitors: - hostname: replica.db meta: repl-source: source.db . ",
-    "url": "/blip/v1.0/metrics/domains#repl",
-    "relUrl": "/v1.0/metrics/domains#repl"
-  },"75": {
-    "doc": "Domains",
-    "title": "rocksdb",
-    "content": "RocksDB Store Engine . Reserved for future use. ",
-    "url": "/blip/v1.0/metrics/domains#rocksdb",
-    "relUrl": "/v1.0/metrics/domains#rocksdb"
-  },"76": {
-    "doc": "Domains",
-    "title": "size",
-    "content": "Data, Index, and File Sizes . size.binlog . Binary Log Storage Size . | Blip version | v1.0.0 | . | Sources | SHOW BINARY LOGS | . | MySQL config | no | . | Group keys |   | . | Meta |   | . Collector Metrics . | bytes Type: gauge Total size of all binary logs in bytes. | . size.data . Database and Table Storage Size . | Blip version | v1.0.0 | . | MySQL config | no | . | Group keys | db, tbl | . | Meta |   | . size.index . Index Storage Size . size.file . File Storage Size . (Metrics innodb_undo and innodb_temp.) . ",
-    "url": "/blip/v1.0/metrics/domains#size",
-    "relUrl": "/v1.0/metrics/domains#size"
-  },"77": {
-    "doc": "Domains",
-    "title": "status",
-    "content": "MySQL Status Variables . Classic MySQL status variables. status.account . Status by Account . Reserved for future use. status.global . Global Status Variables . | Blip version | v1.0.0 | . | MySQL config | no | . | Group keys |   | . | Meta |   | . The status.global domain reports the primary source of MySQL server metrics: SHOW GLOBAL STATUS. status.host . Status by Host (Client) . Reserved for future use. status.thread . Status by Thread . Reserved for future use. status.user . Status by User . Reserved for future use. ",
-    "url": "/blip/v1.0/metrics/domains#status",
-    "relUrl": "/v1.0/metrics/domains#status"
-  },"78": {
-    "doc": "Domains",
-    "title": "thd",
-    "content": "Threads . Reserved for future use. ",
-    "url": "/blip/v1.0/metrics/domains#thd",
-    "relUrl": "/v1.0/metrics/domains#thd"
-  },"79": {
-    "doc": "Domains",
-    "title": "tls",
-    "content": "TLS (SSL) Status and Configuration . Not implemented yet but planned. Collector Metrics . | enabled (have_ssl) | ssl_server_not_before (date-time converted to Unix timestamp) | ssl_server_not_after (date-time converted to Unix timestamp) | current_tls_version | . ",
-    "url": "/blip/v1.0/metrics/domains#tls",
-    "relUrl": "/v1.0/metrics/domains#tls"
-  },"80": {
-    "doc": "Domains",
-    "title": "tokudb",
-    "content": "TokuDB Storage Engine . Reserved for future use. ",
-    "url": "/blip/v1.0/metrics/domains#tokudb",
-    "relUrl": "/v1.0/metrics/domains#tokudb"
-  },"81": {
-    "doc": "Domains",
-    "title": "var.global",
-    "content": "MySQL System Variables . | Blip version | v1.0.0 | . | Sources | SHOW GLOBAL VARIABLES, SELECT @@GLOBAL.&lt;var&gt;, Performance Schema | . | MySQL config | no | . | Group keys |   | . | Meta |   | . The var.global domain reports global MySQL system variables (a.k.a. “syvars”). These are not technically metrics, but some are required to calculate utilization percentages. For example, it’s common to report max_connections to gauge the percentage of max connections used: Max_used_connections / max_connections * 100, which would be status.global.max_used_connections / var.global.max_connections * 100 in Blip metric naming convention. ",
-    "url": "/blip/v1.0/metrics/domains#varglobal",
-    "relUrl": "/v1.0/metrics/domains#varglobal"
-  },"82": {
+  },"45": {
+    "doc": "Development",
+    "title": "Development",
+    "content": "This quick start guide is for development: running Blip on your laptop or any other development environment where we can take shortcuts to get Blip running as quickly as possible. The goal is only to get an idea of how Blip works. cd bin/blip go build . Presuming a standard MySQL instance is running on your laptop, first create a blip user: . ",
+    "url": "/blip/v1.0/quick-start/development",
+    "relUrl": "/v1.0/quick-start/development"
+  },"46": {
+    "doc": "Development",
+    "title": "Exercise 1: Indistinguishable from Magic (Blip)",
+    "content": "1. Create blip MySQL user . CREATE USER IF NOT EXISTS 'blip' IDENTIFIED BY ''; -- no password GRANT SELECT ON `performance_schema`.* TO 'blip'@'%'; GRANT REPLICATION CLIENT ON *.* TO 'blip'@'%'; . $ blip . By default, Blip automatically finds local MySQL instances, and tries a few default username-password combinations. If successful, it will dump metrics to STDOUT. If not successful, run with --debug. ",
+    "url": "/blip/v1.0/quick-start/development#exercise-1-indistinguishable-from-magic-blip",
+    "relUrl": "/v1.0/quick-start/development#exercise-1-indistinguishable-from-magic-blip"
+  },"47": {
+    "doc": "Development",
+    "title": "Exercise 2:",
+    "content": " ",
+    "url": "/blip/v1.0/quick-start/development#exercise-2",
+    "relUrl": "/v1.0/quick-start/development#exercise-2"
+  },"48": {
+    "doc": "Development",
+    "title": "Exercise 3: Like a Tax Form, Only More Fun (Configuration)",
+    "content": " ",
+    "url": "/blip/v1.0/quick-start/development#exercise-3-like-a-tax-form-only-more-fun-configuration",
+    "relUrl": "/v1.0/quick-start/development#exercise-3-like-a-tax-form-only-more-fun-configuration"
+  },"49": {
+    "doc": "Development",
+    "title": "Exercise 4: Right Down The (Sink)",
+    "content": " ",
+    "url": "/blip/v1.0/quick-start/development#exercise-4-right-down-the-sink",
+    "relUrl": "/v1.0/quick-start/development#exercise-4-right-down-the-sink"
+  },"50": {
+    "doc": "Development",
+    "title": "Exercise 5: The Strong, Silent Type (Logs and API)",
+    "content": " ",
+    "url": "/blip/v1.0/quick-start/development#exercise-5-the-strong-silent-type-logs-and-api",
+    "relUrl": "/v1.0/quick-start/development#exercise-5-the-strong-silent-type-logs-and-api"
+  },"51": {
     "doc": "Engine",
     "title": "Engine",
     "content": " ",
-    "url": "/blip/v1.0/monitor/engine",
-    "relUrl": "/v1.0/monitor/engine"
-  },"83": {
+    "url": "/blip/v1.0/monitors/engine",
+    "relUrl": "/v1.0/monitors/engine"
+  },"52": {
+    "doc": "Error Handling",
+    "title": "Error Handling",
+    "content": "Blip is designed to recover and retry on all errors. This design reflects the fact that monitoring requires higher reliability and availability than what is monitored. As a result, even if MySQL is offline, or some transient failure prevents Blip from collecting metrics, it will keep trying. ",
+    "url": "/blip/v1.0/monitors/error-handling",
+    "relUrl": "/v1.0/monitors/error-handling"
+  },"53": {
+    "doc": "Error Handling",
+    "title": "Metrics Collection",
+    "content": "Monitors do not stop on error, they keep retrying. When a collector encounters an error: . | Error policy | Engine | LPC | . If no error policy is defined, the collector returns the error immediately to the engine. The engine tries to collect all metrics. If one collector returns an error, it does not affect other collectors. The engine saves errors and reports them per-collector in its status. It returns a varible success to the LPC: no errors (all metrics collected), some collected, none collected. The LPC reports an error unless the engine reeport no errors. It keeps trying all metric collect as usual at the next interval. ",
+    "url": "/blip/v1.0/monitors/error-handling#metrics-collection",
+    "relUrl": "/v1.0/monitors/error-handling#metrics-collection"
+  },"54": {
+    "doc": "Error Handling",
+    "title": "MySQL Connection",
+    "content": "On startup, if Blip cannot connect to MySQL, it tries forever with an exponential backoff. Once it’s able to connect, it starts collecting metrics. Once it has started collecting metrics, any connection errors are handled as defined above. ",
+    "url": "/blip/v1.0/monitors/error-handling#mysql-connection",
+    "relUrl": "/v1.0/monitors/error-handling#mysql-connection"
+  },"55": {
+    "doc": "Error Handling",
+    "title": "Panic",
+    "content": "All goroutines in Blip recover from panic with a few exceptions: . | Prom API | . ",
+    "url": "/blip/v1.0/monitors/error-handling#panic",
+    "relUrl": "/v1.0/monitors/error-handling#panic"
+  },"56": {
+    "doc": "Error Policy",
+    "title": "Error Policy",
+    "content": "An error policy defines how a metric collector handles a specific MySQL errors. Error policies are optional, and most metric collectors do not define any. Instead, they rely on the default error policy, report,drop,retry: report the error, drop the metric, and retry. Since one error policy handles one specific MySQL error, they are not intended for general error handling. Instead, they are intended to handle different MySQL setup without different Blip plans. collect: repl: metrics: - running errors: access-denied: \"ignore,drop,retry\" . ",
+    "url": "/blip/v1.0/plans/error-policy",
+    "relUrl": "/v1.0/plans/error-policy"
+  },"57": {
+    "doc": "Error Policy",
+    "title": "Format",
+    "content": "The value has three parts: &lt;report&gt;,&lt;metric&gt;,&lt;retry&gt; . Report: . | ignore: Silently ignore the error; report nothing (not even an event) | report: Report the metric (default) | report-once: Report the metric only the first time it occurs, then ignore further errors | . Metric: . | drop: Drop the metric (default) | zero: Report zero value | . Retry: . | retry: Keep trying to collect metric (default) | stop: Stop collecting metric | . ",
+    "url": "/blip/v1.0/plans/error-policy#format",
+    "relUrl": "/v1.0/plans/error-policy#format"
+  },"58": {
     "doc": "File",
     "title": "Plan File",
     "content": "One YAML file specifies one Blip plan. ",
     "url": "/blip/v1.0/plans/file#plan-file",
     "relUrl": "/v1.0/plans/file#plan-file"
-  },"84": {
+  },"59": {
     "doc": "File",
     "title": "Syntax",
     "content": "Plan files use YAML syntax. The high-level pseudo structure is: . --- level-name: &lt;level config&gt; collect: &lt;domain name&gt;: &lt;domain config&gt; . That structure repeats for each level, which is given a unique name. Following is a small but realistic example: . --- performance: freq: 5s collect: status.global: options: all: yes metrics: # ALL because of option ^ innodb: metrics: - trx_rseg_history_len # HLL data-size: freq: 60m collect: data.size: # All defaults . The example above specifies two levels, “performance” and “data-size”. The “performance” level is collected every 5 seconds. For this level, Blip collect metrics from two domains: status.global and innodb. The “data-size” level is collected every 60 minutes. For this level, Blip collects metrics for one domain: data.size. When the two levels overlap (every 60 minutes), Blip collects metrics for both levels. The “data-size” level demonstrates the minimum valid level config: freq and at least one domain with all defaults. Level Config . | Parameter | Value | Required? | Purpose | . | collect | Domain Config | YES | Configures which domains and metrics to collect | . | freq | Go duration string | YES | Interval at which level is collected | . Domain Config . | Parameter | Value | Required? | Purpose | . | metrics | list of strings | no | List of metrics to collect; not required but common unless domain has option to collect all metrics, or only collects a fixed list of metrics | . | options | key-value pairs (strings) | no | Sets collector options | . Values for both metrics and options are domain (and collector) specific. See Domains for the latter, and Collectors &gt; Options for the latter. ",
     "url": "/blip/v1.0/plans/file#syntax",
     "relUrl": "/v1.0/plans/file#syntax"
-  },"85": {
+  },"60": {
     "doc": "File",
     "title": "Naming",
     "content": "Plan names are exactly as written in the plans section of the Blip config file. For example: . plans: files: - \"/blip/plan1.yaml\" - ../plan2.yaml - ${HOME}/plan3.yaml . The first plan name is /blip/plan1.yaml (Blip does not strip base paths). The second plan name is ../plan2.yaml (Blip does not replace relative paths). The third plan name is /home/user/plan3.yaml where HOME=/home/user because interpolation happens first. ",
     "url": "/blip/v1.0/plans/file#naming",
     "relUrl": "/v1.0/plans/file#naming"
-  },"86": {
+  },"61": {
     "doc": "File",
     "title": "Interpolation",
     "content": "Blip interpolates option values in the domain config. Interpolation in plan files is identical to interpolation in the config file (see Config File &gt; Interpolation). Environment variable ${FOO} Environment variable with default value ${FOO:-default} Monitor variable %{monitor.VAR} NOTE: ${} and %{} are always required. ",
     "url": "/blip/v1.0/plans/file#interpolation",
     "relUrl": "/v1.0/plans/file#interpolation"
-  },"87": {
+  },"62": {
     "doc": "File",
     "title": "File",
     "content": " ",
     "url": "/blip/v1.0/plans/file",
     "relUrl": "/v1.0/plans/file"
-  },"88": {
+  },"63": {
     "doc": "Heartbeat",
     "title": "Heartbeat",
     "content": "Blip has a built-in heartbeat feature for measuring replication lag. ",
     "url": "/blip/v1.0/heartbeat",
     "relUrl": "/v1.0/heartbeat"
-  },"89": {
+  },"64": {
     "doc": "Home",
     "title": "GitHub Repo",
     "content": "https://github.com/cashapp/blip . Official releases are tagged with version. Only the latest version is stable and supported. ",
     "url": "/blip/#github-repo",
     "relUrl": "/#github-repo"
-  },"90": {
+  },"65": {
     "doc": "Home",
     "title": "Support",
     "content": "For bugs and general issues, please create a new GitHub issue. If submitting code changes, please also see the contributing guide. ",
     "url": "/blip/#support",
     "relUrl": "/#support"
-  },"91": {
+  },"66": {
     "doc": "Home",
     "title": "Release Notes",
     "content": ". | Release Notes | . ",
     "url": "/blip/#release-notes",
     "relUrl": "/#release-notes"
-  },"92": {
+  },"67": {
     "doc": "Home",
     "title": "Home",
-    "content": "b l . p . Sublime MySQL monitoring . Blip is the most advanced MySQL metrics collector ever built. | Connects to MySQL anywhere—local, remote, bare metal, cloud | Monitors one or many MySQL instances per blip instance | Configurable metrics collection—metrics are not hard-coded | Different metric collection frequencies—collect metrics at different intervals | Built-in support for Amazon RDS include Secrets Manager and IAM authentication | Send metrics to any back end—built-in support for SignalFx and Chronosphere | Plugins and factories to integrate with any environment | . Start by reading the Introduction. Then read the Quick Start to give Blip a try. ",
+    "content": "b l . p . Sublime MySQL monitoring . Blip was designed from the ground up to be the best and the last MySQL monitor ever written. | Connect to MySQL anywhere—local, remote, bare metal, cloud | Monitor one or many MySQL instances per blip instance | Configurable metrics collection—metrics are not hard-coded | Different metric collection frequencies—collect metrics at different intervals | Built-in support for Amazon RDS include Secrets Manager and IAM authentication | Send metrics to any back end—built-in support for SignalFx and Chronosphere | Customize with plugin interfaces to work in any environment | . Start by reading the Introduction, then try the Quick Start. ",
     "url": "/blip/",
     "relUrl": "/"
-  },"93": {
+  },"68": {
     "doc": "Release Notes",
     "title": "Release Notes",
     "content": " ",
     "url": "/blip/release-notes",
     "relUrl": "/release-notes"
-  },"94": {
+  },"69": {
     "doc": "Release Notes",
     "title": "v1.0",
     "content": "v1.0.0 (not released yet) . | First GA, production-ready release. | . ",
     "url": "/blip/release-notes#v10",
     "relUrl": "/release-notes#v10"
-  },"95": {
+  },"70": {
     "doc": "Integrate",
     "title": "Integrate",
     "content": "Blip was designed from the ground up to integrate with your MySQL environment. To accomplish that, Blip has two mains points of integration: . Plugins Plugins are function callbacks that let you override specific functionality of Blip. Every plugin is optional: if specified, it overrides the built-in functionality. Factories Factories are interfaces that let you override certain object creation of Blip. Every factory is optional: if specified, it overrides the built-in factory. ",
     "url": "/blip/v1.0/integrate",
     "relUrl": "/v1.0/integrate"
-  },"96": {
+  },"71": {
     "doc": "Integrate",
     "title": "Plugins",
     "content": "LoadConfig . LoadConfig func(Config) (Config, error) . LoadMonitors . LoadMonitors func(Config) ([]ConfigMonitor, error) . LoadPlans . LoadPlans func(ConfigPlans) ([]Plan, error) . ModifyDB . ModifyDB func(*sql.DB) . StartMonitor . StartMonitor func(ConfigMonitor) bool . TransformMetrics . TransformMetrics func(*Metrics) error . ",
     "url": "/blip/v1.0/integrate#plugins",
     "relUrl": "/v1.0/integrate#plugins"
-  },"97": {
+  },"72": {
     "doc": "Introduction",
     "title": "Introduction to Blip",
     "content": " ",
     "url": "/blip/v1.0/intro/#introduction-to-blip",
     "relUrl": "/v1.0/intro/#introduction-to-blip"
-  },"98": {
+  },"73": {
     "doc": "Introduction",
     "title": "Introduction",
     "content": " ",
     "url": "/blip/v1.0/intro/",
     "relUrl": "/v1.0/intro/"
-  },"99": {
-    "doc": "Laptop",
-    "title": "Laptop",
-    "content": "Presuming a standard MySQL insstance runs on your laptop, first create a blip user: . CREATE USER IF NOT EXISTS 'blip' IDENTIFIED BY ''; -- no password GRANT SELECT ON `performance_schema`.* TO 'blip'@'%'; -- no privlieges . Then run blip (after compiling it in bin/blip/, of course): . $ blip . By default, Blip automatically finds local MySQL instances, and tries a few default username-password combinations. If successful, it will dump metrics to STDOUT. If not successful, run with --debug. ",
-    "url": "/blip/v1.0/quick-start/laptop",
-    "relUrl": "/v1.0/quick-start/laptop"
-  },"100": {
+  },"74": {
     "doc": "Level Plan Adjuster",
     "title": "Level Plan Adjuster",
     "content": " ",
-    "url": "/blip/v1.0/monitor/level-adjuster",
-    "relUrl": "/v1.0/monitor/level-adjuster"
-  },"101": {
+    "url": "/blip/v1.0/monitors/level-adjuster",
+    "relUrl": "/v1.0/monitors/level-adjuster"
+  },"75": {
     "doc": "Level Plan Adjuster",
     "title": "Connection States",
     "content": "| State | Connected to MySQL | Collecting Metrics | Description | . | offline | no | no | Completely offline, no connection to MySQL | . | standby | YES | YES | Connected to MySQL but HA passive mode | . | read-only | YES | YES | MySQL is read-only | . | active | YES | YES | MySQL is writable | . When HA is disabled, standby state is not used. ",
-    "url": "/blip/v1.0/monitor/level-adjuster#connection-states",
-    "relUrl": "/v1.0/monitor/level-adjuster#connection-states"
-  },"102": {
+    "url": "/blip/v1.0/monitors/level-adjuster#connection-states",
+    "relUrl": "/v1.0/monitors/level-adjuster#connection-states"
+  },"76": {
     "doc": "Level Plan Collector",
     "title": "Level Plan Collector",
     "content": " ",
-    "url": "/blip/v1.0/monitor/level-collector",
-    "relUrl": "/v1.0/monitor/level-collector"
-  },"103": {
+    "url": "/blip/v1.0/monitors/level-collector",
+    "relUrl": "/v1.0/monitors/level-collector"
+  },"77": {
+    "doc": "Loading",
+    "title": "Loading",
+    "content": " ",
+    "url": "/blip/v1.0/monitors/loading",
+    "relUrl": "/v1.0/monitors/loading"
+  },"78": {
+    "doc": "Loading",
+    "title": "Default Load Sequence",
+    "content": ". | LoadMonitors plugin | monitors section in Blip config file | --monitors files | AWS instances | Local instances | . ",
+    "url": "/blip/v1.0/monitors/loading#default-load-sequence",
+    "relUrl": "/v1.0/monitors/loading#default-load-sequence"
+  },"79": {
+    "doc": "Loading",
+    "title": "Stop-loss",
+    "content": "Stop-loss is a feature of auto reloading that prevents Blip from dropping too many MySQL instances due to unrelated external issues. ",
+    "url": "/blip/v1.0/monitors/loading#stop-loss",
+    "relUrl": "/v1.0/monitors/loading#stop-loss"
+  },"80": {
     "doc": "log",
     "title": "Log Sink",
     "content": "sinks: log: # No options . Log is the default sink that dumps (logs) metrics to STDOUT. ",
     "url": "/blip/v1.0/sinks/log#log-sink",
     "relUrl": "/v1.0/sinks/log#log-sink"
-  },"104": {
+  },"81": {
     "doc": "log",
     "title": "log",
     "content": " ",
     "url": "/blip/v1.0/sinks/log",
     "relUrl": "/v1.0/sinks/log"
-  },"105": {
+  },"82": {
     "doc": "Metrics",
     "title": "Metrics",
     "content": " ",
     "url": "/blip/v1.0/metrics/",
     "relUrl": "/v1.0/metrics/"
-  },"106": {
-    "doc": "Monitor Loader",
-    "title": "Monitor Loader",
-    "content": " ",
-    "url": "/blip/v1.0/server/monitor-loader",
-    "relUrl": "/v1.0/server/monitor-loader"
-  },"107": {
-    "doc": "Monitor Loader",
-    "title": "Auto Reloading",
-    "content": " ",
-    "url": "/blip/v1.0/server/monitor-loader#auto-reloading",
-    "relUrl": "/v1.0/server/monitor-loader#auto-reloading"
-  },"108": {
-    "doc": "Monitor Loader",
-    "title": "Stop-loss",
-    "content": "Stop-loss is a feature of auto reloading that prevents Bip from dropping too many MySQL instances due to unrelated external issues. ",
-    "url": "/blip/v1.0/server/monitor-loader#stop-loss",
-    "relUrl": "/v1.0/server/monitor-loader#stop-loss"
-  },"109": {
-    "doc": "Monitor",
+  },"83": {
+    "doc": "Monitors",
     "title": "Monitor",
     "content": " ",
-    "url": "/blip/v1.0/monitor/",
-    "relUrl": "/v1.0/monitor/"
-  },"110": {
+    "url": "/blip/v1.0/monitors/#monitor",
+    "relUrl": "/v1.0/monitors/#monitor"
+  },"84": {
     "doc": "Monitors",
     "title": "Monitors",
-    "content": "Every MySQL instance that Blip monitors is called a moniotr. For simplicity, the terms monitor and MySQL instance are synonymous because a monitor requires and represents only one MySQL instance. But there is more to a monitor than its MySQL instance. NOTE: Monitor and MySQL instance are synonymous in Blip. Monitors are usually specififed in the Blip config file, but they can be loaded various ways—more on this later. For now, it’s only necessary to know that monitors are listed in the YAML config file under the aptly named section moniotrs. The most basic Blip monitor is a simple hostname, username, and password: . monitors: - hostname: 127.0.0.1 username: blip password: aStrongRandomPassword . Or, if you want to use a my.cnf file: . monitors: - mycnf: ${HOME}/.my.cnf . A single Blip instances can monitor any number of MySQL instances. Here is a snippet of config that specifies three different MySQL instances: . monitors: - socket: /tmp/mysql.sock username: blip password-file: /dev/shm/metrics-password - hostname: 10.1.1.53 username: metrics password: foo - hostname: db3.us-east-1.amazonaws.com aws-rds: auth-token: true . The first instance is local: Blip connects using socket file /tmp/mysql.sock. The second instance is remote: Blip connects to IP 10.1.1.53. The third instance is an Amazon RDS for MySQL instance, and Blip uses IAM authentication. The point of these contrived examples is: Blip can monitor any MySQL instance anywhere it’s running. (If you have a case where this is not true, please file an issue.) . By default, Blip first attempts to load monitors from its config file (which is blip.yaml in the current working directory, by default). But the config file can specify other ways to load monitors: . monitor-loader: freq: 60s files: [monitors1.yaml, monitors2.yaml] . In short, that config snippet makes Blip load (read) monitor configuration from files monitors1.yaml and monitors2.yaml every 60 seconds. (Blip can dynamically load [add] and unload [remove] monitors while running.) The monitor-load config is optional; by default, Blip loads monitors from the monitors section in its config file. To further ensure that Blip can monitory any MySQL instance, loading monitors is an optional plugin with this callback signature: . LoadMonitors func(Config) ([]ConfigMonitor, error) . Hopefully, bilt-in features cover every use case, but if you have particular requirements (filtering out certain MySQL instances, for example), you can plug in your own code to load monitors. In addition to basic MySQL configuration—how to connect to MySQL: hostname, username, and password, and so forth—monitors have other optional features and configuration, summarized briefly in the following table. | Monitor Confg | Feature | . | aws | Amazon RDS authentication | . | exporter | Prometheus mysqld_exporter emulation | . | ha | High availability (not implemented yet) | . | heartbeat | Heartbeat to measure replication lag | . | meta | User-defined key-value data | . | plans | Monitor-specific plans for metrics collection | . | sinks | Monitors-specific sinks for sending metrics | . | tags | Monitor-specific key-value data passed to sinks | . | tls | TLS configuration | . That’s a lot of information, but the point is a lot simpler: Blip monitors can do almost anything. For the most part, these features support Blip in large, automated environments. If you don’t need a feature, you can forget about it: Blip is simple (and fully automatic) by default. When you need a feature, Blip most likely already supports it. One last helpful tip: . $ blip --print-moniotrs --run=false . The command line above starts (but does not run) Blip so that it loads monitors and prints them, then exists. This can help debug monitor loading and configuration. Keep learning: Plans ↓ . ",
+    "content": " ",
+    "url": "/blip/v1.0/monitors/",
+    "relUrl": "/v1.0/monitors/"
+  },"85": {
+    "doc": "Monitors",
+    "title": "Monitors",
+    "content": "Every MySQL instance that Blip monitors is called a monitor. For simplicity, the terms monitor and MySQL instance are synonymous because a monitor requires and represents only one MySQL instance. But there is more to a monitor than its MySQL instance. Monitor and MySQL instance are synonymous in Blip. Monitors are usually specified in the Blip config file, but they can be loaded various ways—more on this later. For now, it’s only necessary to know that monitors are listed in the YAML config file under the aptly named section moniotrs. The most basic Blip monitor is a simple hostname, username, and password: . monitors: - hostname: 127.0.0.1 username: blip password: aStrongRandomPassword . Or, if you want to use a my.cnf file: . monitors: - mycnf: ${HOME}/.my.cnf . A single Blip instances can monitor any number of MySQL instances. Here is a snippet of config that specifies three different MySQL instances: . monitors: - socket: /tmp/mysql.sock username: blip password-file: /dev/shm/metrics-password - hostname: 10.1.1.53 username: metrics password: foo - hostname: db3.us-east-1.amazonaws.com aws-rds: auth-token: true . The first instance is local: Blip connects using socket file /tmp/mysql.sock. The second instance is remote: Blip connects to IP 10.1.1.53. The third instance is an Amazon RDS for MySQL instance, and Blip uses IAM authentication. The point of these contrived examples is: Blip can monitor any MySQL instance anywhere it’s running. (If you have a case where this is not true, please file an issue.) . By default, Blip first attempts to load monitors from its config file (which is blip.yaml in the current working directory, by default). But the config file can specify other ways to load monitors: . monitor-loader: freq: 60s files: [monitors1.yaml, monitors2.yaml] . In short, that config snippet makes Blip load (read) monitor configuration from files monitors1.yaml and monitors2.yaml every 60 seconds. (Blip can dynamically load [add] and unload [remove] monitors while running.) The monitor-load config is optional; by default, Blip loads monitors from the monitors section in its config file. To further ensure that Blip can monitory any MySQL instance, loading monitors is an optional plugin with this callback signature: . LoadMonitors func(Config) ([]ConfigMonitor, error) . Hopefully, built-in features cover every use case, but if you have particular requirements (filtering out certain MySQL instances, for example), you can plug in your own code to load monitors. In addition to basic MySQL configuration—how to connect to MySQL: hostname, username, and password, and so forth—monitors have other optional features and configuration, summarized briefly in the following table. | Monitor Confg | Feature | . | aws | Amazon RDS authentication | . | exporter | Prometheus mysqld_exporter emulation | . | ha | High availability (not implemented yet) | . | heartbeat | Heartbeat to measure replication lag | . | meta | User-defined key-value data | . | plans | Monitor-specific plans for metrics collection | . | sinks | Monitors-specific sinks for sending metrics | . | tags | Monitor-specific key-value data passed to sinks | . | tls | TLS configuration | . That’s a lot of information, but the point is a lot simpler: Blip monitors can do almost anything. For the most part, these features support Blip in large, automated environments. If you don’t need a feature, you can forget about it: Blip is simple (and fully automatic) by default. When you need a feature, Blip most likely already supports it. One last helpful tip: . $ blip --print-moniotrs --run=false . The command line above starts (but does not run) Blip so that it loads monitors and prints them, then exits. This can help debug monitor loading and configuration. Why stop now; keep learning: Plans ↓ . ",
     "url": "/blip/v1.0/intro/monitors",
     "relUrl": "/v1.0/intro/monitors"
-  },"111": {
-    "doc": "Plan Loader",
-    "title": "Plan Loader",
-    "content": " ",
-    "url": "/blip/v1.0/server/plan-loader",
-    "relUrl": "/v1.0/server/plan-loader"
-  },"112": {
-    "doc": "Plan Loader",
-    "title": "Load Order",
-    "content": "--- # Zero config #plans: #default: blip plans: files: first.yaml plans: files: [first.yaml,second.yaml] #default: first.yaml plans: files: [first.yaml,second.yaml] default: second.yaml plans: files: [first.yaml,second.yaml] adjust: freq: 1s readonly: first.yaml active: second.yaml plans: files: first.yaml:second.yaml default: first.yaml adjust: # ERROR: default and adjust mutually exclusive freq: 1s readonly: first.yaml active: second.yaml plans: files: first.yaml:second.yaml table: blip.plans plans: table: blip.plans # WHERE 1=1 (all rows) #default: WHERE monitorId IS NULL ORDER BY name ASC LIMIT 1 plans: table: blip.plans default: plan1 monitors: - id: host1 plans: table: blip.plans # WHERE monitorId=host1 #default: WHERE monitorId=host1 ORDER BY name ASC LIMIT 1 . ",
-    "url": "/blip/v1.0/server/plan-loader#load-order",
-    "relUrl": "/v1.0/server/plan-loader#load-order"
-  },"113": {
-    "doc": "Plan Loader",
-    "title": "Combining Levels",
-    "content": "Levels are combined by the LPC (call stack): . sortedLevels() changePlan() . ",
-    "url": "/blip/v1.0/server/plan-loader#combining-levels",
-    "relUrl": "/v1.0/server/plan-loader#combining-levels"
-  },"114": {
+  },"86": {
+    "doc": "MySQL Connection",
+    "title": "MySQL Connection",
+    "content": "The database connection factory—db maker for short—makes connections to MySQL. ",
+    "url": "/blip/v1.0/monitors/mysql-connection",
+    "relUrl": "/v1.0/monitors/mysql-connection"
+  },"87": {
+    "doc": "MySQL Connection",
+    "title": "Authentication",
+    "content": ". | Amazon RDS IAM authentication (config.aws-rds.iam-auth-token) | Amazon Secrets Manager (config.aws-rds.password-secret) | TLS certificate (config.tls) | Password file (config.mysql.password-file) | my.cnf (config.mysql.mycnf) | Password (config.mysql.password) | No password | . Source code: dbconn/factory.go . ",
+    "url": "/blip/v1.0/monitors/mysql-connection#authentication",
+    "relUrl": "/v1.0/monitors/mysql-connection#authentication"
+  },"88": {
+    "doc": "MySQL Connection",
+    "title": "Password Reloading",
+    "content": "Blip automatically reloads the password for all authentication methods. It uses go-mysql/hotswap-dsn-driver. ",
+    "url": "/blip/v1.0/monitors/mysql-connection#password-reloading",
+    "relUrl": "/v1.0/monitors/mysql-connection#password-reloading"
+  },"89": {
+    "doc": "Plans",
+    "title": "Plans",
+    "content": "A level plan (or plan for short) configures which metrics to collect. Plans solve three problems: . | Which metrics to collect? | How to collect those metrics? | How often to collect those metrics? | . The first problem arises because there are over 1,000 MySQL metrics but 0 standards for which metrics to collect. Some engineers collect nearly all metrics and use what they need in graphs. Some engineers collect as few metrics as possible due to costs. Some engineers don’t know what to collect, relying on monitor defaults to be useful. Plans help solve the first problem by not hard-coding which metrics to collect. Write a plan to collect only the metrics you need. Blip has a built-in default plan that collects more than 60 of the most important MySQL metrics, which might be all you need. The second problem arises because there are many versions and distributions of MySQL, which makes some metrics a moving target. For example: where do you collect a MySQL replication lag metric? The oldest and perhaps still most common source is Seconds_Behind_Master in the SHOW SLAVE STATUS output. But those two changed to Seconds_Behind_Source and SHOW REPLICA STATUS, respectively. And what if you don’t use those and, instead, use pt-heartbeat or the Blip built-in heartbeat? Or what if you’re running MySQL Group Replication? Or what if you run MySQL in the cloud and the cloud provider emits its own replication lag metric? . Plans help solve the second problem by using metric domains (or domains for short) to name logically-related group of MySQL metrics. Probably the most well known group is SHOW GLOBAL STATUS, to which Blip gives the domain name status.global. A replication lag metric is scoped within the repl domain (short for “replication”), which abstracts way the technical details of how it’s collected. When you write a plan that collects replication lag, the plan works everywhere because domains specify which metrics to collect, not necessarily how to collect them. The third problem arises from cost and storage limits: if everything was fast and free, you would collect all metrics every 1 second. But this is (almost) never done because it requires significant storage and processing, which lead to significant costs. Instead, the norm is collecting all metrics every 10, 20, or 30 seconds. But even 10 seconds is too long for a busy database because, for example, at only 5,000 QPS, that resolution averages out the metrics for 50,000 queries. Plans help solve the third problem by allowing you to collect different metrics at different frequencies—which is the “level” in the full term: “level plan”. It helps to remember as: “Higher the level, higher the wait (time between collection).” For example, imagine three levels as shown below. Level 1, the base level, is collected frequently (shortest wait time): every 5 seconds. Level 2 is collected less frequently: every 20 seconds. Level 3, the highest level, is collected the most infrequently (longest wait time): every 30 seconds. Blip automatically combines levels when they overlap and collects all metrics at that time. At 20 seconds (since Blip started collecting metrics for this plan), Blip collects metrics for both levels 1 and 2 because 20 mod 5 = 0 and 20 mod 20 = 0, respectively. At 30 seconds, Blip collects metrics for both levels 1 and 3 because 30 mod 5 = 0 and 30 mod 20 = 0, respectively. And at 60 seconds, Blip collects metrics for all three levels because 60 mod freq = 0. Blip plans can do more, but for this introduction it’s sufficient to know that they allow you to fine-tune metrics collection, which increases the quality of monitoring while reducing costs. Last page; keep going: Sinks ↓ . ",
+    "url": "/blip/v1.0/intro/plans",
+    "relUrl": "/v1.0/intro/plans"
+  },"90": {
     "doc": "Plans",
     "title": "Plans",
     "content": " ",
     "url": "/blip/v1.0/plans/",
     "relUrl": "/v1.0/plans/"
-  },"115": {
-    "doc": "Plans",
-    "title": "Plans",
-    "content": "A level plan (or plan for short) configures which metrics to collect. Plans solve three problems: . | Which metrics to collect? | How to collect those metrics? | How often to collect those metrics? | . The first problem arises because there are over 1,000 MySQL metrics but 0 standards for which metrics to collect. Some engineers collect nearly all metrics and use what they need in graphs. Some engineers collect as few metrics as possible due to costs. Some engineers don’t know what to collect, relying on monitor defaults to be useful. Plans help solve the first problem by not hard-coding which metrics to collect. Write a plan to collect only the metrics you need. Blip has a built-in default plan that collects more than 60 of the most important MySQL metrics, which might be all you need. The second problem arises because there are many versions and distributions of MySQL, which makes some metrics a moving target. For example: where do you collect a MySQL replication lag metric? The oldest and perhaps still most common source is Seconds_Behind_Master in the SHOW SLAVE STATUS output. But those two changed to Seconds_Behind_Source and SHOW REPLICA STATUS, respectively. And what if you don’t use those and, instead, use pt-heartbeat or the Blip built-in heartbeat? Or what if you’re running MySQL Group Replication? Or what if you run MySQL in the cloud and the cloud provider emits its own replication lag metric? . Plans help solve the second problem by using metric domains (or domains for short) to name logically-related group of MySQL metrics. Probably the most well known group is SHOW GLOBAL STATUS, to which Blip gives the domain name status.global. A replication lag metric is scoped within the repl domain (short for “replication”), which hides (abstarcts way) the technical details of how it’s collected. When you write a plan that collects replication lag, the plan works everywhere because domains specify which metrics to collect, not necessarily how to collect them. The third problem arises from cost and storage limits: if everything was fast and free, you would collect all metrics every 1 second. But this is (almost) never done because it requires significant storage and processing, which lead to significant costs. Instead, the norm is collecting all metrics every 10, 20, or 30 seconds. But even 10 seconds is too long for a busy database because, for example, at only 5,000 QPS, that resolution averages out the metrics for 50,000 queries. Plans help solve the third problem by allowing you to collect different metrics at different frequencies—which is the “level” in the full term: “level plan”. It helps to remember as: “Higher the level, higher the wait (time between collection).” For example, imagine three levels as shown below. Level 1, the base level, is collected frequently (shortest wait time): every 5 seconds. Level 2 is collected less frequently: every 20 seconds. Level 3, the highest level, is collected the most infrequently (longest wait time): every 30 seconds. Blip automatically combines levels when they overlap and collects all metrics at that time. At 20 seconds (since Blip started collecting metrics for this plan), Blip collects metrics for both levels 1 and 2 because 20 mod 5 = 0 and 20 mod 20 = 0, respectively. At 30 seconds, Blip collects metrics for both levels 1 and 3 because 30 mod 5 = 0 and 30 mod 20 = 0, respectively. And at 60 seconds, Blip collects metrics for all three levels because 60 mod freq = 0. Blip plans can do more, but for this introduction it’s sufficient to know that they allow you to fine-tune metrics collection, which increases the quality of monitoring while reducing costs. Keep going: Quick Start ↓ . ",
-    "url": "/blip/v1.0/intro/plans",
-    "relUrl": "/v1.0/intro/plans"
-  },"116": {
+  },"91": {
+    "doc": "Production",
+    "title": "Production",
+    "content": "Order: . | Build | Configure | Deploy | . Presuming a standard MySQL insstance runs on your laptop, first create a blip user: . CREATE USER IF NOT EXISTS 'blip' IDENTIFIED BY ''; -- no password GRANT SELECT ON `performance_schema`.* TO 'blip'@'%'; -- no privlieges . Then run blip (after compiling it in bin/blip/, of course): . $ blip . By default, Blip automatically finds local MySQL instances, and tries a few default username-password combinations. If successful, it will dump metrics to STDOUT. If not successful, run with --debug. ",
+    "url": "/blip/v1.0/quick-start/production",
+    "relUrl": "/v1.0/quick-start/production"
+  },"92": {
     "doc": "Prometheus",
     "title": "Prometheus",
     "content": "Blip can emulate Prometheus mysqld_exporter. ",
     "url": "/blip/v1.0/prometheus",
     "relUrl": "/v1.0/prometheus"
-  },"117": {
-    "doc": "Quick Reference",
-    "title": "Quick Reference",
-    "content": "The following are quick references, not complete or valid examples. See Config File for details. Interpolation . ${ENV_VAR} %{monitor.hostname} . Config File . --- # --------------------------------------------------------------------------- # Blip server # --------------------------------------------------------------------------- api: bind: 127.1:7090 disable: false monitor-loader: freq: 60s files: [one.yaml, two.yaml] stop-loss: 50% aws: regions: [\"auto\",\"us-east-1\"] local: disable-auto: true disable-auto-root: true strict: true # --------------------------------------------------------------------------- # Monitor defaults # --------------------------------------------------------------------------- aws: disable-auto-region: false disable-auto-tls: false iam-auth-token: true password-secret: \"arn::::\" region: \"us-east-1\" # or \"auto\" exporter: mode: dual|legacy flags: web.listen-address: \":9001\" web.telemetry-path: \"/metrics\" heartbeat: freq: 1s table: blip.heartbeat mysql: mycnf: \"/app/my.cnf\" username: blip password: blip password-file: \"\" socket: \"/var/lib/mysql.sock\" timeout-connect: 5s plans: files: - none.yaml - ro-plan.yaml - active-plan.yaml table: blip.plans monitor: &lt;monitor&gt; adjust: offline: after: 1s plan: none.yaml standby: after: 1s plan: none.yaml read-only: after: 1s plan: ro-plan.yaml active: after: 1s plan: active-plan.yaml sinks: chronosphere: url: \"http://127.0.0.1:3030/openmetrics/write\" log: # No options noop: # No options retry: buffer-size: 60 send-timeout: 5s send-retry-wait: 200ms signalfx: auth-token: \"\" auth-token-file: \"\" tags: env: ${ENVIRONMENT:-dev} dc: ${DATACENTER:-local} hostname: \"%{monitor.hostname}\" tls: ca: local.ca cert: \"/secrets/%{monitor.hostname}.crt\" key: \"/secrets/%{monitor.hostname}.key\" # --------------------------------------------------------------------------- # Monitors (MySQL instances) # --------------------------------------------------------------------------- monitors: - id: host1 # Optional; Blip auto-sets based on mysql variables # ----------------------------------------------- # mysql section variables are specified directly: hostname: host1.local mycnf: my.cnf username: metrics password: foo password-file: /dev/shm/mypasswd socket: /tmp/mysql.sock timeout-connect: 5s # --------------------------------------------------------------------- # Override monitor defaults by specifying any of the top-level sections # Exapmle: tls: ca: new.ca # overrides monitor default 'tls.ca: local.ca' # ---------------------------------------------- # Tags override monitor defaults or set new tags tags: hostname: \"host1\" # overrides monitor default foo: \"bar\" # new tag # --------------------------------------------------- # Meta values unique to monitor (no monitor defaults) meta: repl-source: source-db.local canary: yes . ",
-    "url": "/blip/v1.0/config/quick-ref",
-    "relUrl": "/v1.0/config/quick-ref"
-  },"118": {
+  },"93": {
     "doc": "Quick Reference",
     "title": "Quick Reference",
     "content": "Interpolation . ${ENV_VAR} %{monitor.hostname} . Plan File . Following is a full Blip config file (YAML syntax). This is only a reference to show all configuration variables. --- level: freq: 5s collect: status.global: metrics: - queries status.host: options: host: 10.1.1.1 metrics: - threads_running query.global: options: response_time_percentiles: \"p95,p99,p999\" metrics: - response_time var: options: opt_1: value_1 opt_N: value_N metrics: - metric_1 - metric_N level_N: freq: 10s collect: domain_1: options: opt_1: value_1 opt_N: value_N metrics: - metric_1 - metric_N . ",
     "url": "/blip/v1.0/plans/quick-ref",
     "relUrl": "/v1.0/plans/quick-ref"
-  },"119": {
+  },"94": {
+    "doc": "Quick Reference",
+    "title": "Quick Reference",
+    "content": "The following are quick references, not complete or valid examples. See Config File for details. Interpolation . ${ENV_VAR} %{monitor.hostname} %{monitor.meta.region} . Config File . --- # --------------------------------------------------------------------------- # Server config # --------------------------------------------------------------------------- api: bind: 127.1:7090 disable: false http: proxy: \"http://proxy.internal\" monitor-loader: files: [one.yaml, two.yaml] stop-loss: 50% aws: regions: [\"auto\",\"us-east-1\"] local: disable-auto: true disable-auto-root: true # --------------------------------------------------------------------------- # Monitor defaults # --------------------------------------------------------------------------- aws: auth-token: true disable-auto-region: false disable-auto-tls: false password-secret: \"arn::::\" region: \"us-east-1\" exporter: flags: web.listen-address: \":9001\" web.telemetry-path: \"/metrics\" mode: \"dual\" # or \"legacy\" heartbeat: freq: 2s source-id: \"source-host.local\" role: \"west-side\" table: \"blip.heartbeat\" mysql: mycnf: \"/app/my.cnf\" username: \"blip\" password: \"...\" password-file: \"/var/shm/blip-passwd\" socket: \"/var/lib/mysql.sock\" timeout-connect: 5s plans: disable-auto: false files: - none.yaml - ro-plan.yaml - active-plan.yaml monitor: &lt;monitor&gt; table: \"blip.plans\" adjust: offline: after: 1s plan: none.yaml standby: after: 1s plan: none.yaml read-only: after: 1s plan: ro-plan.yaml active: after: 1s plan: active-plan.yaml sinks: chronosphere: debug: \"yes\" strict-tr: false url: \"http://127.0.0.1:3030/openmetrics/write\" log: # No options noop: # No options retry: buffer-size: 60 send-timeout: 5s send-retry-wait: 200ms signalfx: auth-token: \"\" auth-token-file: \"\" metric-prefix: \"\" metric-translator: \"\" tags: env: ${ENVIRONMENT:-dev} dc: ${DATACENTER:-local} hostname: \"%{monitor.hostname}\" tls: ca: \"local.ca\" cert: \"/secrets/%{monitor.hostname}.crt\" key: \"/secrets/%{monitor.hostname}.key\" # --------------------------------------------------------------------------- # Monitors (MySQL instances) # --------------------------------------------------------------------------- monitors: - id: host1 # Optional; Blip auto-sets based on MySQL config # ----------------------------------------------- # mysql section variables are specified directly: hostname: host1.local mycnf: my.cnf username: metrics password: foo password-file: /dev/shm/mypasswd socket: /tmp/mysql.sock timeout-connect: 5s # --------------------------------------------------------------------- # Override monitor defaults by specifying any of the top-level sections tls: ca: new.ca # overrides monitor default 'tls.ca: local.ca' # ---------------------------------------------- # Tags override monitor defaults or set new tags tags: hostname: \"host1\" # overrides monitor default foo: \"bar\" # new tag # --------------------------------------------------- # Meta values unique to monitor (no monitor defaults) meta: repl-source: source-db.local canary: yes . ",
+    "url": "/blip/v1.0/config/quick-ref",
+    "relUrl": "/v1.0/config/quick-ref"
+  },"95": {
     "doc": "Quick Start",
     "title": "Quick Start",
     "content": " ",
     "url": "/blip/v1.0/quick-start/",
     "relUrl": "/v1.0/quick-start/"
-  },"120": {
+  },"96": {
     "doc": "Reporting",
     "title": "Reporting",
     "content": "Blip does not have a single format or protocol for reporting metrics. Instead, it has well-defined structures for collecting metrics that are passed to metric sinks, which convert and send metrics in various formats and protocols depending on the sink. In YAML, the basic structure of Blip metrics is: . domain: - metric: value: &lt;float64&gt; type: counter|gauge|... group: key1: val1 meta: key1: val1 . All metrics belong to a single domain. Each domain collector can collect any number of metrics. Each metric has a type and value (see Conventions &gt; Metrics). Groups and Meta are detailed below. A realistic example of two metrics from the status.global domain: . global.status: - threads_running: value: 16 type: gauge - queries: value: 138923 type: counter . The metric sink determines how those 2 metrics are reported. For example, a Prometheus sink might report them in Exposition format: . # TYPE mysql_global_status_threads_running gauge mysql_global_status_threads_running 16 # TYPE mysql_global_status_queries counter mysql_global_status_queries 138923 . Blip conventions terminate at each metric sink. ",
     "url": "/blip/v1.0/metrics/reporting",
     "relUrl": "/v1.0/metrics/reporting"
-  },"121": {
+  },"97": {
     "doc": "Reporting",
     "title": "Groups",
     "content": "Certain domains (as documented) implicitly or explicitly group metrics. In both cases, group key-value pairs are set for each metric, and metrics are uniquely identified using all group keys. Groups, labels, and dimensions serve the same purpose. Blip uses the term group because it’s similar to MySQL GROUP BY. Implicit grouping means the metrics collector groups metrics automatically (or as configured in the plan by collector options). For example, the size.data collector, which collects database and table sizes, groups metrics by database name. As a result, each metric has a group key on db, like the following example: . size.database: - bytes: value: 50920482048 type: gauge group: db: foo - bytes: value: 8920482048 type: gauge group: db: bar - bytes: value: 59840964096 type: gauge group: db: \"\" # all databases . The metric is the same—bytes—but there are 3 instances of the metric for each of the 3 groups: db=foo, db=bar, and db=\"\". The last group, db=\"\", is how this collector represents the metric for all databases (the global group). Explicit grouping refers to MySQL-grouped metrics—see Sub-domains. For example, the status.host collector is explicitly grouped by host. As a result, each metric has a group key on host, like host=10.1.1.1. ",
     "url": "/blip/v1.0/metrics/reporting#groups",
     "relUrl": "/v1.0/metrics/reporting#groups"
-  },"122": {
+  },"98": {
     "doc": "Reporting",
     "title": "Meta",
     "content": "Certain domains (as documented) set metadata about a metric. The canonical example is the response_time collector metric reported by the query.global collector: . query.global: - response_time: value: 130493 type: gauge meta: p95: p948 - response_time: value: 255001 type: gauge meta: p999: p997 . As shown above, there are 2 response_time metrics that differ by meta=p95 and meta=p999: the former is the 95th percentile response time, and the latter is the 99.9th percentile response time. Blip uses meta rather than prefixing or suffixing the metric name (see Conventions &gt; Metrics &gt; Naming). This makes metrics (by name) consistent: the metric is always response_time, not pN_response_time or response_time_pN where N could be any number. It also allows for a greater variety of metrics without special case exceptions to naming or structure; for example, average response time could be denoted by meta key avg. ",
     "url": "/blip/v1.0/metrics/reporting#meta",
     "relUrl": "/v1.0/metrics/reporting#meta"
-  },"123": {
+  },"99": {
     "doc": "retry",
     "title": "Retry Sink",
     "content": "sinks: retry: buffer-size: 60 send-timeout: 5s send-retry-wait: 200ms . Retry is a pseudo-sink that provides buffering, serialization, and retry for a real sink. The built-in sinks, except log, use Retry to handle those three complexities. Retry uses a LIFO queue (a stack) to prioritize sending the latest metrics. This means that, during a long outage of the real sink, Retry drops the oldest metrics and keeps the latest metrics, up to its buffer size, which is configurable. ",
     "url": "/blip/v1.0/sinks/retry#retry-sink",
     "relUrl": "/v1.0/sinks/retry#retry-sink"
-  },"124": {
+  },"100": {
     "doc": "retry",
     "title": "retry",
     "content": " ",
     "url": "/blip/v1.0/sinks/retry",
     "relUrl": "/v1.0/sinks/retry"
-  },"125": {
-    "doc": "Scope",
-    "title": "Scope",
+  },"101": {
+    "doc": "Loading",
+    "title": "Loading",
     "content": "Plans have two scopes: . Shared . Shared plans are scoped to Blip and can be used by any monitor that references them. All plans configured in config.plans and the built-in plans plans are shared. This is the normal case: you define one or more plan (or none, using the built-in Blip plan), and all the monitors use those plans. Since interpolation works in plan files (see File &gt; Interpolation), shared plans can still be tailored to each monitor, if necessary (although it’s usually not necessary). Monitor . Monitor plans are scoped to one monitor and can only be used by that monitor. All plans configured in config.monitor.plans are monitor plans. See [config.plans] . ",
     "url": "/blip/v1.0/plans/scope",
     "relUrl": "/v1.0/plans/scope"
-  },"126": {
-    "doc": "Scope",
+  },"102": {
+    "doc": "Loading",
     "title": "Built-in",
     "content": "Blip . Prometheus mysqld_exporter . ",
     "url": "/blip/v1.0/plans/scope#built-in",
     "relUrl": "/v1.0/plans/scope#built-in"
-  },"127": {
+  },"103": {
+    "doc": "Loading",
+    "title": "Load Order",
+    "content": "--- # Zero config #plans: #default: blip plans: files: first.yaml plans: files: [first.yaml,second.yaml] #default: first.yaml plans: files: [first.yaml,second.yaml] default: second.yaml plans: files: [first.yaml,second.yaml] adjust: freq: 1s readonly: first.yaml active: second.yaml plans: files: first.yaml:second.yaml default: first.yaml adjust: # ERROR: default and adjust mutually exclusive freq: 1s readonly: first.yaml active: second.yaml plans: files: first.yaml:second.yaml table: blip.plans plans: table: blip.plans # WHERE 1=1 (all rows) #default: WHERE monitorId IS NULL ORDER BY name ASC LIMIT 1 plans: table: blip.plans default: plan1 monitors: - id: host1 plans: table: blip.plans # WHERE monitorId=host1 #default: WHERE monitorId=host1 ORDER BY name ASC LIMIT 1 . ",
+    "url": "/blip/v1.0/plans/scope#load-order",
+    "relUrl": "/v1.0/plans/scope#load-order"
+  },"104": {
+    "doc": "Loading",
+    "title": "Combining Levels",
+    "content": "Levels are combined by the LPC (call stack): . sortedLevels() changePlan() . ",
+    "url": "/blip/v1.0/plans/scope#combining-levels",
+    "relUrl": "/v1.0/plans/scope#combining-levels"
+  },"105": {
     "doc": "Server",
     "title": "Server",
     "content": "Server endpoints return information about the blip instance (the server) and high-level information about monitors. | GET /status | GET /version | . ",
     "url": "/blip/v1.0/api/server",
     "relUrl": "/v1.0/api/server"
-  },"128": {
+  },"106": {
     "doc": "Server",
     "title": "GET /status",
     "content": "Returns high-level Blip server status. GET . /status . Response . { \"Started\" string // ISO timestamp (UTC) \"Uptime\" int64 // seconds \"MonitorCount\" uint // number of monitors loaded \"Internal\" map[string]string // Blip components \"Version\" string // Blip version } . Response Status Codes . 200: Successful operation. ",
     "url": "/blip/v1.0/api/server#get-status",
     "relUrl": "/v1.0/api/server#get-status"
-  },"129": {
+  },"107": {
     "doc": "Server",
     "title": "GET /version",
     "content": "Return Bip version. GET . /version . Response . v1.0.75 . Response Status Codes . 200: Successful operation. ",
     "url": "/blip/v1.0/api/server#get-version",
     "relUrl": "/v1.0/api/server#get-version"
-  },"130": {
-    "doc": "Server",
-    "title": "Server",
-    "content": " ",
-    "url": "/blip/v1.0/server/",
-    "relUrl": "/v1.0/server/"
-  },"131": {
+  },"108": {
     "doc": "signalfx",
     "title": "SignalFx Sink",
     "content": "sinks: signalfx: auth-token: \"\" auth-token-file: \"\" . Must provide auth-token or auth-token-file in config. Reports all tags as dimensions. Reports domain-qualified metric names: status.global.threads_running. ",
     "url": "/blip/v1.0/sinks/signalfx#signalfx-sink",
     "relUrl": "/v1.0/sinks/signalfx#signalfx-sink"
-  },"132": {
+  },"109": {
     "doc": "signalfx",
     "title": "signalfx",
     "content": " ",
     "url": "/blip/v1.0/sinks/signalfx",
     "relUrl": "/v1.0/sinks/signalfx"
-  },"133": {
+  },"110": {
     "doc": "Sinks",
     "title": "Sinks",
-    "content": "NOTE: You can skip this part of the introduction if: . | You use SignalFx, or | You use Chronosphere, or | You plan to use Blip to emulate and replace Prometheus `mysqld_exporter` | . Blip has built-in support for these three use cases. Blip ships with built-in and automatic support for almost everything, but the one thing we (the Blip developers) cannot know is where you (the user) will send metrics. Consequently, you might need to develop a Blip metric sink to translate and send Blip metrics to your metrics store or metrics graphing solution. Don’t worry: Bilp was intentially designed to make this easy. This brief introduction shows the high-level process of developing a new Blip metric sink. The following presumes that you’re an experienced Go programmer. All Blip sinks implement this interface: . type Sink interface { Send(context.Context, *Metrics) error Status() string } . Unsurprisingly, Blip calls the Send method to send metrics. The vast majority of work to implement a new sink is this one method. More on this in a moment. Blip calls the Status method to report real-time status of the sink (along with all other parts in the monitor). The reported status can be anything you think is useful to know; for exmaple, the last error sending metrics (if any). Let’s presume, for a moment, that you have implement a new sink. To allow Blip to make (instantiate) that sink, you implement one last interface: . type SinkFactory interface { Make(name, monitorId string, opts, tags map[string]string) (Sink, error) } . When a monitor uses your sink, Blip calls your sink factory to make a new sink for the monitor. Blip passes to your factory: . | Sink name (which is slightly redundant, but nobody is perfect) | Monitor ID (all monitors have a unique ID for status, logging, and so forth”) | Options (from the monitor config) | Tags (from the monitor config) | . Options are sink-specific options; for example, an API token is common for authenticating to hosted metrics soltuions. Tags describe the metrics; some metrics solutions calls these “dimensions”, others call them “labels”—Blip calls them “tags”. Options are tags are set in the monitor config, which you’ll learn more about later. Here’s a mock (incomplete and nonfunctional) implementation of a sink (called “Kim” for an engineer who left us [the Blip developers] to join a metrics solution startup) and sink factory, just to give you an idea: . import ( \"context\" \"github.com/cashapp/blip\" ) type Kim struct { tags map[string]string client Client // sink-specific client } func NewKim(monitorId string, opts, tags map[string]string) *Kim { return &amp;Kim{ tags: tags, client: NewClient(opts[\"addr\"], opts[\"api-token\"]), } } func (k *Kim) Send(cxt context.Context, metrics *blip.Metrics) error { // Metrics are grouped by/keyed on domain name for domain := range metrics { // Loop through metrics in each domain for i := range metrics[domain] { m := metrics[domain][i] // Name: m.Name (string) // Value: m.Value (float64) // Type: m.Type (const byte) // Transform Blip metrics to sink-specific struct/protocol } } // Send sink-specific struct/protocol (km) return k.client.Send(ctx, km) } func (k *Kim) Status() string { return \"I miss where I used to work\" } // -------------------------------------------------------------------------- type KimFactory struct{} func (f KimFactory) Make(name, monitorId string, opts, tags map[string]string) (blip.Sink, error) { k := NewKim(monitorId, opts, tags) return k, nil } . For real sinks, see the built-in Blip sinks: blip/sinks. Once your implementation is done, you register the sink with Blip: . sink.Register(\"kim\", KimFactory{}) . More on this later; for now, the point is that you register your sink with a given name (“kim”), and that name is important because it’s what you specify in a monitor config to make Blip instantiate the sink. Following is a snippet of a monitor config that shows how the “kim” sink is used and configured: . monitors: - id: host1 hostname: host1.local sinks: kim: addr: https://local.domain api-token: ABC123 tags: env: staging region: us-east-1 . On line 5, the “kim” sink is specified, and lines 6 and 7 are its options. Lines 9 and 10 are tags for the monitor, which are also passed to the sink when created. Keep learning: Monitors ↓ . ",
+    "content": "NOTE: You can skip this part of the introduction if: . | You use SignalFx, or | You use Chronosphere, or | You plan to use Blip to emulate and replace Prometheus `mysqld_exporter` | . Blip has built-in support for these three use cases. Blip ships with built-in and automatic support for almost everything, but the one thing we (the Blip developers) cannot know is where you (the user) will send metrics. Consequently, you might need to develop a Blip metric sink to translate and send Blip metrics to your metrics store or metrics graphing solution. Don’t worry: Bilp was intentionally designed to make this easy. This brief introduction shows the high-level process of developing a new Blip metric sink. The following presumes that you’re an experienced Go programmer. All Blip sinks implement this interface: . type Sink interface { Send(context.Context, *Metrics) error Status() string } . Unsurprisingly, Blip calls the Send method to send metrics. The vast majority of work to implement a new sink is this one method. More on this in a moment. Blip calls the Status method to report real-time status of the sink (along with all other parts in the monitor). The reported status can be anything you think is useful to know; for exmaple, the last error sending metrics (if any). Let’s presume, for a moment, that you have implement a new sink. To allow Blip to make (instantiate) that sink, you implement one last interface: . type SinkFactory interface { Make(name, monitorId string, opts, tags map[string]string) (Sink, error) } . When a monitor uses your sink, Blip calls your sink factory to make a new sink for the monitor. Blip passes to your factory: . | Sink name (which is slightly redundant, but nobody is perfect) | Monitor ID (all monitors have a unique ID for status, logging, and so forth”) | Options (from the monitor config) | Tags (from the monitor config) | . Options are sink-specific options; for example, an API token is common for authenticating to hosted metrics solutions. Tags describe the metrics; some metrics solutions calls these “dimensions”, others call them “labels”—Blip calls them “tags”. Options are tags are set in the monitor config, which you’ll learn more about later. Here’s a mock (incomplete and nonfunctional) implementation of a sink (called “Kim” for an engineer who left us [the Blip developers] to join a metrics solution startup) and sink factory, just to give you an idea: . import ( \"context\" \"github.com/cashapp/blip\" ) type Kim struct { tags map[string]string client Client // sink-specific client } func NewKim(monitorId string, opts, tags map[string]string) *Kim { return &amp;Kim{ tags: tags, client: NewClient(opts[\"addr\"], opts[\"api-token\"]), } } func (k *Kim) Send(cxt context.Context, metrics *blip.Metrics) error { // Metrics are grouped by/keyed on domain name for domain := range metrics { // Loop through metrics in each domain for i := range metrics[domain] { m := metrics[domain][i] // Name: m.Name (string) // Value: m.Value (float64) // Type: m.Type (const byte) // Transform Blip metrics to sink-specific struct/protocol } } // Send sink-specific struct/protocol (km) return k.client.Send(ctx, km) } func (k *Kim) Status() string { return \"I miss where I used to work\" } // -------------------------------------------------------------------------- type KimFactory struct{} func (f KimFactory) Make(name, monitorId string, opts, tags map[string]string) (blip.Sink, error) { k := NewKim(monitorId, opts, tags) return k, nil } . For real sinks, see the built-in Blip sinks: blip/sinks. Once your implementation is done, you register the sink with Blip: . sink.Register(\"kim\", KimFactory{}) . More on this later; for now, the point is that you register your sink with a given name (“kim”), and that name is important because it’s what you specify in a monitor config to make Blip instantiate the sink. Following is a snippet of a monitor config that shows how the “kim” sink is used and configured: . monitors: - id: host1 hostname: host1.local sinks: kim: addr: https://local.domain api-token: ABC123 tags: env: staging region: us-east-1 . On line 5, the “kim” sink is specified, and lines 6 and 7 are its options. Lines 9 and 10 are tags for the monitor, which are also passed to the sink when created. Bottom line: Blip sinks are pure plugins, so you can make Blip send metrics anywhere. Enough talk; let’s run: Quick Start ↓ . ",
     "url": "/blip/v1.0/intro/sinks",
     "relUrl": "/v1.0/intro/sinks"
-  },"134": {
+  },"111": {
     "doc": "Sinks",
     "title": "Sinks",
     "content": " ",
     "url": "/blip/v1.0/sinks/",
     "relUrl": "/v1.0/sinks/"
-  },"135": {
+  },"112": {
     "doc": "Table",
     "title": "Plan Table",
     "content": "CREATE TABLE plans ( name varchar(100) not null, levels blob not null monitor_id varchar(1000) null default null PRIMARY KEY (name), INDEX (monitorId) ) . -- Defalut single state plan (DSSP) (\"default\", \"{...}\", NULL) -- Default multi-state plans (\"readonly\", \"{...}\", NULL) (\"active\", \"{...}\", NULL) -- Per-moitor single state plans (\"mon1\", \"{...}\", \"mon1\") (\"mon2\", \"{...}\", \"mon2\") -- Mixed plans (\"default\", \"{...}\", NULL) (\"mon1-ro\", \"{...}\", \"mon1\") (\"mon1-rw\", \"{...}\", \"mon1\") (\"mon2\", \"{...}\", \"mon2\") -- mon3 uses default plan . ",
     "url": "/blip/v1.0/plans/table#plan-table",
     "relUrl": "/v1.0/plans/table#plan-table"
-  },"136": {
+  },"113": {
     "doc": "Table",
     "title": "Table",
     "content": " ",

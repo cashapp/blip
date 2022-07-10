@@ -9,11 +9,11 @@ nav_order: 1
 
 ## Zero Config
 
-Blip uses built-it defaults and auto-detection to run and work without specifing any configuration.
+Blip uses built-it defaults and auto-detection to work without specifying any configuration.
 This is called the "zero config".
 
-The zero config should work on your laptop (presuming a standard MySQL setup), but it is not intended for real production environments.
-At the very least, you will need to specify which MySQL instances to monitor in the `monitors` section of the Blip config file.
+The zero config should work on your laptop (presuming a standard MySQL setup), but it is not intended for production environments.
+At the very least, you need to specify which MySQL instances to monitor in the `monitors` section of the Blip config file.
 
 ## Specifying a Config File
 
@@ -58,7 +58,7 @@ Default: `blip.yaml`<br>
 Env var: `BLIP_CONFIG`
 
 {: .help-option }
-Specify Blip configuruation file.
+Specify Blip configuration file.
 
 ### `--debug`
 
@@ -109,15 +109,7 @@ Env var: `BLIP_RUN`
 
 {: .help-option }
 Run Blip and all monitors.
-If `--run=false`, Blip starts and loads everything, but exists before running monitors.
-
-### `--strict`
-
-{: .help-option-default }
-Env var: `BLIP_STRICT`
-
-{: .help-option }
-Enable strict mode.
+If `--run=false`, Blip starts and loads everything, but exits before running monitors.
 
 ### `--version`
 

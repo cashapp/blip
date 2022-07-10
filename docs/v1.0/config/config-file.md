@@ -156,7 +156,7 @@ The `api` section configures the [Blip API](../api/).
 
 ```yaml
 api:
-  bind: "127.0.0.1:9070"
+  bind: "127.0.0.1:7522"
   disable: false
 ```
 
@@ -165,7 +165,7 @@ api:
 {: .var-table }
 |**Type**|string|
 |**Valid values**|`addr:port`, `:port`|
-|**Default value**|`127.0.0.1:9070`|
+|**Default value**|`127.0.0.1:7522`|
 
 The `bind` variable sets the interface address and port that the API listens on.
 
@@ -187,7 +187,6 @@ The `monitor-loader` section configures how Blip finds and loads MySQL instances
 monitor-loader:
   aws:
     regions: []
-  freq: ""
   files: []
   local:
     disable-auto: false
@@ -211,16 +210,6 @@ To enable, specify `regions`.
 The `regions` variable sets which AWS regions to query for RDS instances.
 If `auto` is specified, Blip queries [EC2 IMDS](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ec2-instance-metadata.html), which only works if Blip is running on an EC2 instance with an [EC2 instance profile](https://docs.aws.amazon.com/IAM/latest/UserGuide/id_roles_use_switch-role-ec2_instance-profiles.html) that allows [rds:DescribeDBInstances](https://docs.aws.amazon.com/AmazonRDS/latest/APIReference/API_DescribeDBInstances.html).
 
-### `freq`
-
-{: .var-table }
-|**Type**|string|
-|**Valid values**|[Go duration string](https://pkg.go.dev/time#ParseDuration)|
-|**Default value**||
-
-The `freq` variable enables automatic monitor reloading.
-It's off by default, which means moniitors are loaded only once at startup.
-
 ### `files`
 
 {: .var-table }
@@ -235,7 +224,6 @@ The `files` variable specifies YAML files to load monitors from. Each file must 
 monitors:
   - hostname: db.local
 ```
-
 
 ### local
 
@@ -252,16 +240,6 @@ The `local` subsection has only two variables:
 |**Default value**||
 
 The `stop-loss` variable enables the [stop-lost feature](../server/monitor-loader#stop-loss).
-
-## `strict`
-
-{: .var-table }
-|**Type**|bool|
-|**Valid values**|`true`, `false`|
-|**Default value**|`false`|
-
-The `strict` variable enables strict mode, which is disabled by default.
-In strict mode, Blip returns certain errors rather than ignoring them.
 
 # Monitor Defaults
 
@@ -638,6 +616,8 @@ It discards all metrics, which is useful for testing end-to-end metrics collecti
 |---|-----|-------|
 |`auth-token`|API authentication token||
 |`auth-token-file`|File to read API auth token from||
+|`metric-prefix`|Prefix appended to every metric||
+|`metric-translator`|Metric translator plugin name||
 
 {: .config-section-title}
 ##  tags
