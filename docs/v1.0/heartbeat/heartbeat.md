@@ -7,7 +7,7 @@ permalink: /v1.0/heartbeat
 
 # Heartbeat
 
-Blip heartbeat works in conjunction with the [`repl.lag` metric collector](../metrics/domains#repllag) to measure replication lag.
+Blip heartbeat works in conjunction with the [`repl.lag` metric collector](metrics/domains#repllag) to measure replication lag.
 Although MySQL has built-in replication heartbeats and lag metrics, they are not always enabled or accurate.
 For example, `Seconds_Behind_Source` from `SHOW REPLICA STATUS` (or `Seconds_Behind_Master` from `SHOW SLAVE STATUS` before MySQL 8.022) is always on but infamously inaccurate: it reports zero when a network issue blocks replication.
 Consequently, external replication heartbeats are an industry norm because they are easy and accurate&mdash;and they work the same across all versions and distributions of MySQL, including the the cloud.

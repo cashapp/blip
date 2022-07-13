@@ -330,6 +330,10 @@ See [Heartbeat](../heartbeat) to learn more.
 * `current`<br>
 Type: gauge<br>
 The current replication lag in milliseconds.
+This is an instantaneous measurement: replication lag at one moment.
+As such, it might not detect if lag is "flapping": oscillating between near-zero and a higher value.
+But will always detect if replication is steadily lagged and if the lag increases.
+A future feature might measure and record lag between report intervals.
 
 #### Options
 {: .no_toc }
@@ -339,6 +343,7 @@ Default: 50<br>
 Network latency (in milliseconds) between source and replicas.
 The value must be an integer >= 0.
 (Do not suffix with "ms".)
+See [Heartbeat > Accuracy](../heartbeat#accuracy).
 * `repl-check`<br>
 MySQL global system variable, like `server_id`.
 (Do not prefix with "@".)
