@@ -370,11 +370,13 @@ The feature is disabled by default.
 {: .config-section-title}
 ## heartbeat
 
-The `heartbeat` section configures the [Blip heartbeat feature](../hearbeat/).
+The `heartbeat` section configures the [Blip heartbeat](../heartbeat/).
 
 ```yaml
 heartbeat:
   freq: ""
+  role: ""
+  source-id: ""
   table: blip.heartbeat
 ```
 
@@ -382,21 +384,55 @@ heartbeat:
 
 {: .var-table }
 |**Type**|string|
-|**Valid values**|[Go duration string](https://pkg.go.dev/time#ParseDuration)|
+|**Valid values**|[Go duration string](https://pkg.go.dev/time#ParseDuration) greater than zero|
 |**Default value**||
 
-The `freq` variables sets how frequently heartbeats are written.
-See [Hearbeat](../hearbeat/) for details.
+The `freq` variable enables [Blip heartbeats](../hearbeat) at the specified frequency.
+A frequency of "1s" or "2s" is suggested because heartbeat frequency does _not_ determine replication lag accuracy or reporting.
+See [Heartbeat > Accuracy](../heartbeat#accuracy) for details.
+
+See [`repl.lag` metric collector](../metrics/domains#repllag) for reporting replication lag.
+
+To disable heartbeat, remove `freq` or set to an empty string (zero is not a valid value).
+
+### `role`
+
+{: .var-table }
+|**Type**|string|
+|**Valid values**|User-defined|
+|**Default value**||
+
+The `role` variable sets the role that the monitor reports in the [heartbeat table](../heartbeat#table).
+For example, this might be a region like "us-east-1".
+
+See [Heartbeat > Topology](../heartbeat#topology) to learn how `role` and `source-id` are used.
+
+### `source-id`
+
+{: .var-table }
+|**Type**|string|
+|**Valid values**|User-defined|
+|**Default value**|`%{monitor.id}`|
+
+The `source-id` variable sets the source ID that the monitor reports in the [heartbeat table](../heartbeat#table).
+This overrides the default value, which is often necessary in the cloud where MySQL instances do not have user-defined hostnames, especially with respect to replication.
+
+See [Heartbeat > Topology](../heartbeat#topology) to learn how `role` and `source-id` are used.
 
 ### `table`
 
 {: .var-table }
 |**Type**|string|
 |**Valid values**|valid MySQL table name|
-|**Default value**||
+|**Default value**|`blip.heartbeat`|
 
-The `table` variables sets the Blip heartbeat table.
+The `table` variable sets the Blip heartbeat table (where heartbeat are written).
 The default database is `blip` if the table name is not database-qualified like `db.heartbeat`.
+
+The table must already exist; Blip does not create the table.
+See [Heartbeat > Table](../heartbeat#table) for details.
+
+
 
 {: .config-section-title}
 ## mysql

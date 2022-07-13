@@ -96,7 +96,7 @@ func NewBlipReader(args BlipReaderArgs) *BlipReader {
 		blip.Debug("%s: heartbeat from role %s", r.monitorId, r.srcRole)
 		where = "WHERE src_role='" + r.srcRole + "' ORDER BY ts DESC LIMIT 1"
 	} else {
-		blip.Debug("%s: heartbeat from any source (max ts)", r.monitorId)
+		blip.Debug("%s: heartbeat from latest (max ts)", r.monitorId)
 		where = "WHERE src_id != '" + args.MonitorId + "' ORDER BY ts DESC LIMIT 1"
 	}
 	if r.replCheck != "" {

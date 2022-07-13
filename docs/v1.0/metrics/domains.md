@@ -1,4 +1,4 @@
-multiple---
+---
 layout: default
 parent: Metrics
 title: Domains
@@ -318,24 +318,11 @@ _MySQL Replication Lag_
 |MySQL config|yes|
 |Meta|&bull; `source=<src_id column>`|
 |Collector metrics|&bull; `current` (gauge): Current replication lag (milliseconds).<br>|
+|Options|&bull; `network-latency`<br>&bull; `repl-check`<br>&bull; `report-no-heartbeat`<br>&bull; `source-id`<br>&bull; `source-role`<br>&bull; `table`<br>&bull; `writer`|
 
-Requires option `source` in the plan; use `%{monitor.meta.repl-source}` like:
-
-```yaml
-level:
-  collect:
-    repl.lag:
-      options:
-        source: "%{monitor.meta.repl-source}"
-```
-
-Then define `config.monitor.meta.repl-source` in the [monitor meta](../config/config-file#meta):
-```yaml
-monitors:
-  - hostname: replica.db
-    meta:
-      repl-source: source.db
-```
+The `repl.lag` collector measures and reports MySQL replication lag from a source using the [Blip heartbeat](../heartbeat).
+By default, it reports replication lag from the latest timestamp (heartbeat), which presumes there is only one writable node in the replication topology at all times.
+See [Heartbeat](../heartbeat) to learn more.
 
 #### Collector Metrics
 {: .no_toc }
@@ -343,6 +330,39 @@ monitors:
 * `current`<br>
 Type: gauge<br>
 The current replication lag in milliseconds.
+
+#### Options
+{: .no_toc }
+
+* `network-latency`<br>
+Default: 50<br>
+Network latency (in milliseconds) between source and replicas.
+The value must be an integer >= 0.
+(Do not suffix with "ms".)
+* `repl-check`<br>
+MySQL global system variable, like `server_id`.
+(Do not prefix with "@".)
+If the value is zero, replica lag is not collected.
+See [Heartbeat > Repl Check](../heartbeat#repl-check).
+* `report-no-heartbeat`<br>
+Default: no<br>
+If yes, no heartbeat from the source is reported as value -1.
+If no, the metric is dropped if no heartbeat from the source.
+* `source-id`<br>
+Source ID to report lag from.
+The default (no value) reports lag from the latest (most recent) timestamp.
+See [Heartbeat > Source Following](../heartbeat#source-following).
+* `source-role`<br>
+Source role to report lag from.
+If set, the most recent timestamp is used.
+See [Heartbeat > Source Following](../heartbeat#source-following).
+* `table`<br>
+Default: `blip.heartbeat`<br>
+Blip [heartbeat table](../heartbeat#table).
+* `writer`<br>
+Default: `blip`<br>
+Type of heartbeat writer.
+Only `blip` is currently supported.
 
 {: .config-section-title .dark}
 ## rocksdb
