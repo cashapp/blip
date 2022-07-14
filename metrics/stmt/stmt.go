@@ -72,7 +72,7 @@ LEVEL:
 			// var metric stmtMetric
 
 			switch name {
-			case "oldesetQuery":
+			case "oldestQuery":
 				metrics = append(metrics, oldestQuery{metric{name}})
 			case "activeLongRunningQueries":
 				metrics = append(metrics, activeLongQueryCount{metric{name}})
