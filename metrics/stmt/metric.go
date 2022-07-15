@@ -31,7 +31,8 @@ func (q oldestQuery) CollectMetric(ctx context.Context, db *sql.DB) (float64, er
 	var t float64
 
 	query := `SELECT TIMER_WAIT FROM performance_schema.events_statements_current 
-		WHERE EVENT_NAME NOT IN ('statement/com/Sleep','statement/com/Connect','statement/com/Binlog Dump','statement/com/Binlog Dump GTID') 
+		WHERE END_EVENT_ID IS NULL 
+		AND EVENT_NAME NOT IN ('statement/com/Sleep','statement/com/Connect','statement/com/Binlog Dump','statement/com/Binlog Dump GTID') 
 		ORDER BY TIMER_WAIT DESC LIMIT 1;`
 
 	err := db.QueryRowContext(ctx, query).Scan(&t)
@@ -53,7 +54,8 @@ func (q activeLongQueryCount) CollectMetric(ctx context.Context, db *sql.DB) (fl
 	var t float64
 
 	query := `SELECT COUNT(*) FROM performance_schema.events_statements_current 
-		WHERE EVENT_NAME NOT IN ('statement/com/Sleep','statement/com/Connect','statement/com/Binlog Dump','statement/com/Binlog Dump GTID') 
+		WHERE END_EVENT_ID IS NULL 
+		AND EVENT_NAME NOT IN ('statement/com/Sleep','statement/com/Connect','statement/com/Binlog Dump','statement/com/Binlog Dump GTID') 
 		AND TIMER_WAIT > 30000000000000;`
 
 	err := db.QueryRowContext(ctx, query).Scan(&t)
