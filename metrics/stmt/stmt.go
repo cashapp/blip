@@ -69,16 +69,18 @@ LEVEL:
 
 		metrics := []stmtMetric{}
 		for _, name := range dom.Metrics {
-			// var metric stmtMetric
+			var m stmtMetric
 
 			switch name {
 			case "oldestQuery":
-				metrics = append(metrics, oldestQuery{metric{name}})
+				m = oldestQuery{metric{name}}
 			case "activeLongRunningQueries":
-				metrics = append(metrics, activeLongQueryCount{metric{name}})
+				m = activeLongQueryCount{metric{name}}
 			default:
 				return nil, fmt.Errorf("invalid collector metric: %s (run 'blip --print-domains' to list collector metrics)", name)
 			}
+
+			metrics = append(metrics, m)
 		}
 
 		c.atLevel[level.Name] = metrics
@@ -96,10 +98,15 @@ func (c *Stmt) Collect(ctx context.Context, levelName string) ([]blip.MetricValu
 
 	metrics := []blip.MetricValue{}
 	for _, m := range rm {
+		t, err := m.CollectMetric(ctx, c.db)
+		if err != nil {
+			return nil, err
+		}
+
 		metrics = append(metrics, blip.MetricValue{
 			Name:  m.Name(),
 			Type:  blip.GAUGE,
-			Value: m.CollectMetric(c.db),
+			Value: t,
 		})
 	}
 
