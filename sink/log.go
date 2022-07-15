@@ -5,6 +5,7 @@ package sink
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/cashapp/blip"
@@ -27,7 +28,17 @@ func (s logSink) Send(ctx context.Context, m *blip.Metrics) error {
 	fmt.Printf("# duration: %d ms\n", m.End.Sub(m.Begin).Milliseconds())
 	for domain, values := range m.Values {
 		for i := range values {
-			fmt.Printf("%s.%s = %d\n", domain, values[i].Name, int64(values[i].Value))
+			metricStr := fmt.Sprintf("%s.%s = %d", domain, values[i].Name, int64(values[i].Value))
+			var metaKVs []string
+			for metaKey, metaValue := range values[i].Meta {
+				metaKV := fmt.Sprintf("%s=%s", metaKey, metaValue)
+				metaKVs = append(metaKVs, metaKV)
+			}
+			metaStr := strings.Join(metaKVs, ",")
+			if len(metaKVs) > 0 {
+				metricStr = fmt.Sprintf("%s (meta: %s)", metricStr, metaStr)
+			}
+			fmt.Println(metricStr)
 		}
 	}
 	fmt.Println()

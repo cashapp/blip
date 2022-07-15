@@ -64,6 +64,7 @@ func NewQRT(db *sql.DB) *QRT {
 		db:          db,
 		percentiles: map[string]map[float64]float64{},
 		optional:    map[string]bool{},
+		flushQrt:    map[string]bool{},
 		available:   true,
 	}
 }
