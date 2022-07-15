@@ -10,17 +10,15 @@ import (
 
 const DOMAIN = "stmt"
 
-// Stmt collects metrics for the event.stmt domain.
+// Stmt collects metrics for the stmt domain.
 // The source is performance_schema.events_statements_current.
 type Stmt struct {
 	db      *sql.DB
 	atLevel map[string][]stmtMetric
 }
 
-// Verify collector implements blip.Collector interface
 var _ blip.Collector = &Stmt{}
 
-// NewStmt makes a new Stmt collector.
 func NewStmt(db *sql.DB) *Stmt {
 	return &Stmt{
 		db:      db,
@@ -43,18 +41,17 @@ func (c *Stmt) Help() blip.CollectorHelp {
 			{
 				Name: "oldestQuery",
 				Type: blip.GAUGE,
-				Desc: "The time of oldest query in seconds",
+				Desc: "The length of the oldest active query in seconds",
 			},
 			{
 				Name: "activeLongRunningQueries",
 				Type: blip.GAUGE,
-				Desc: "The count of long running query",
+				Desc: "The count of active long running queries",
 			},
 		},
 	}
 }
 
-// Prepare prepares the collector for the given plan.
 func (c *Stmt) Prepare(ctx context.Context, plan blip.Plan) (func(), error) {
 LEVEL:
 	for _, level := range plan.Levels {
@@ -89,7 +86,6 @@ LEVEL:
 	return nil, nil
 }
 
-// Collect collects metrics at the given level.
 func (c *Stmt) Collect(ctx context.Context, levelName string) ([]blip.MetricValue, error) {
 	rm, ok := c.atLevel[levelName]
 	if !ok {

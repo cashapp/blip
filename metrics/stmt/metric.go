@@ -6,11 +6,15 @@ import (
 	"fmt"
 )
 
+// stmtMetric is a metric in the stmt domain
 type stmtMetric interface {
+	// Gets the name of the metric
 	Name() string
+	// Collects the metric
 	CollectMetric(ctx context.Context, db *sql.DB) (float64, error)
 }
 
+// Parent metric
 type metric struct {
 	name string
 }
