@@ -149,7 +149,7 @@ const min_wait = 20
 const max_wait = 100
 
 func wait(n int) int {
-	if n == 1 {
+	if n <= 1 {
 		return 0
 	}
 	ms := 1000 / n

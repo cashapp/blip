@@ -59,6 +59,12 @@ p.note, div.note {
 	margin-left: 10px;
 }
 
+p.warn, div.warn {
+	border-left: 3px solid orange;
+	padding-left: 10px;
+	margin-left: 10px;
+}
+
 
 .help-option {
 	margin-left: 3em;

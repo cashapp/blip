@@ -18,3 +18,5 @@ docs/_site/
 # because I often have test config and plan files.
 bin/blip/*
 !bin/blip/main.go
+
+examples/integrate/integrate
