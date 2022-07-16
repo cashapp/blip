@@ -28,7 +28,7 @@ level:
 
 Before transformation, metrics will be:
 
-```json
+```js
 {
   repl: {
     {
@@ -36,15 +36,17 @@ Before transformation, metrics will be:
       Value: 1
       Meta: {
         "source": "02"  // immediate source
+      }
     }
   }
   repl.lag: {
     {
       Name: "current"
-      Value: 75,
+      Value: 75
       Meta: {
         "source": "01"  // heartbeat source
-    },
+      }
+    }
   }
 }
 ```
