@@ -110,6 +110,7 @@ func (c *QRT) Help() blip.CollectorHelp {
 func (c *QRT) Prepare(ctx context.Context, plan blip.Plan) (func(), error) {
 	_, err := c.db.Query(query)
 	if err != nil {
+		blip.Debug("error running qrt query: %v", err.Error())
 		c.available = false
 	}
 
