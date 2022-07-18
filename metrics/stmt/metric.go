@@ -6,6 +6,17 @@ import (
 	"fmt"
 )
 
+const (
+	OLDEST_QUERY = `SELECT TIMER_WAIT FROM performance_schema.events_statements_current 
+		WHERE END_EVENT_ID IS NULL 
+		AND EVENT_NAME NOT IN ('statement/com/Sleep','statement/com/Connect','statement/com/Binlog Dump','statement/com/Binlog Dump GTID') 
+		ORDER BY TIMER_WAIT DESC LIMIT 1;`
+	ACTIVE_LONG_QUERY_COUNT = `SELECT COUNT(*) FROM performance_schema.events_statements_current 
+		WHERE END_EVENT_ID IS NULL 
+		AND EVENT_NAME NOT IN ('statement/com/Sleep','statement/com/Connect','statement/com/Binlog Dump','statement/com/Binlog Dump GTID') 
+		AND TIMER_WAIT > 30000000000000;`
+)
+
 // stmtMetric is a metric in the stmt domain
 type stmtMetric interface {
 	// Gets the name of the metric
@@ -30,14 +41,9 @@ type oldestQuery struct {
 func (q oldestQuery) CollectMetric(ctx context.Context, db *sql.DB) (float64, error) {
 	var t float64
 
-	query := `SELECT TIMER_WAIT FROM performance_schema.events_statements_current 
-		WHERE END_EVENT_ID IS NULL 
-		AND EVENT_NAME NOT IN ('statement/com/Sleep','statement/com/Connect','statement/com/Binlog Dump','statement/com/Binlog Dump GTID') 
-		ORDER BY TIMER_WAIT DESC LIMIT 1;`
-
-	err := db.QueryRowContext(ctx, query).Scan(&t)
+	err := db.QueryRowContext(ctx, OLDEST_QUERY).Scan(&t)
 	if err != nil {
-		return t, fmt.Errorf("%s failed: %s", query, err)
+		return t, fmt.Errorf("%s failed: %s", OLDEST_QUERY, err)
 	}
 
 	// Convert unit from picoseconds to seconds.
@@ -53,14 +59,9 @@ type activeLongQueryCount struct {
 func (q activeLongQueryCount) CollectMetric(ctx context.Context, db *sql.DB) (float64, error) {
 	var t float64
 
-	query := `SELECT COUNT(*) FROM performance_schema.events_statements_current 
-		WHERE END_EVENT_ID IS NULL 
-		AND EVENT_NAME NOT IN ('statement/com/Sleep','statement/com/Connect','statement/com/Binlog Dump','statement/com/Binlog Dump GTID') 
-		AND TIMER_WAIT > 30000000000000;`
-
-	err := db.QueryRowContext(ctx, query).Scan(&t)
+	err := db.QueryRowContext(ctx, ACTIVE_LONG_QUERY_COUNT).Scan(&t)
 	if err != nil {
-		return t, fmt.Errorf("%s failed: %s", query, err)
+		return t, fmt.Errorf("%s failed: %s", ACTIVE_LONG_QUERY_COUNT, err)
 	}
 
 	return t, nil
