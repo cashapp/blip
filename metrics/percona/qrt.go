@@ -64,6 +64,7 @@ func NewQRT(db *sql.DB) *QRT {
 		db:          db,
 		percentiles: map[string]map[float64]float64{},
 		optional:    map[string]bool{},
+		flushQrt:    map[string]bool{},
 		available:   true,
 	}
 }
@@ -109,6 +110,7 @@ func (c *QRT) Help() blip.CollectorHelp {
 func (c *QRT) Prepare(ctx context.Context, plan blip.Plan) (func(), error) {
 	_, err := c.db.Query(query)
 	if err != nil {
+		blip.Debug("error running qrt query: %v", err.Error())
 		c.available = false
 	}
 
