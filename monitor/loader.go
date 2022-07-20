@@ -77,6 +77,7 @@ func NewLoader(args LoaderArgs) *Loader {
 	return &Loader{
 		cfg:        args.Config,
 		factory:    args.Factories,
+		plugin:     args.Plugins,
 		planLoader: args.PlanLoader,
 		rdsLoader:  args.RDSLoader,
 		// --
@@ -436,10 +437,11 @@ func (ml *Loader) makeMonitor(cfg blip.ConfigMonitor) (*Monitor, error) {
 	}
 
 	mon := NewMonitor(MonitorArgs{
-		Config:     cfg,
-		DbMaker:    ml.factory.DbConn,
-		PlanLoader: ml.planLoader,
-		Sinks:      sinks,
+		Config:          cfg,
+		DbMaker:         ml.factory.DbConn,
+		PlanLoader:      ml.planLoader,
+		Sinks:           sinks,
+		TransformMetric: ml.plugin.TransformMetrics,
 	})
 	return mon, nil
 }

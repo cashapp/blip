@@ -50,11 +50,12 @@ import (
 // has its own LPC, engine, and metric collectors.
 type Monitor struct {
 	// Required to create; created in Loader.makeMonitor()
-	monitorId  string
-	cfg        blip.ConfigMonitor
-	dbMaker    blip.DbFactory
-	planLoader *plan.Loader
-	sinks      []blip.Sink
+	monitorId       string
+	cfg             blip.ConfigMonitor
+	dbMaker         blip.DbFactory
+	planLoader      *plan.Loader
+	sinks           []blip.Sink
+	transformMetric func(metrics *blip.Metrics) error
 
 	// Core components
 	runMux  *sync.RWMutex
@@ -79,10 +80,11 @@ type Monitor struct {
 
 // MonitorArgs are required arguments to NewMonitor.
 type MonitorArgs struct {
-	Config     blip.ConfigMonitor
-	DbMaker    blip.DbFactory
-	PlanLoader *plan.Loader
-	Sinks      []blip.Sink
+	Config          blip.ConfigMonitor
+	DbMaker         blip.DbFactory
+	PlanLoader      *plan.Loader
+	Sinks           []blip.Sink
+	TransformMetric func(metrics *blip.Metrics) error
 }
 
 // NewMonitor creates a new Monitor with the given arguments. The caller must
@@ -93,11 +95,12 @@ func NewMonitor(args MonitorArgs) *Monitor {
 	retry.MaxElapsedTime = 0
 	retry.MaxInterval = 20 * time.Second
 	return &Monitor{
-		monitorId:  args.Config.MonitorId,
-		cfg:        args.Config,
-		dbMaker:    args.DbMaker,
-		planLoader: args.PlanLoader,
-		sinks:      args.Sinks,
+		monitorId:       args.Config.MonitorId,
+		cfg:             args.Config,
+		dbMaker:         args.DbMaker,
+		planLoader:      args.PlanLoader,
+		sinks:           args.Sinks,
+		transformMetric: args.TransformMetric,
 		// --
 		errMux: &sync.Mutex{},
 		runMux: &sync.RWMutex{},
@@ -402,10 +405,11 @@ func (m *Monitor) startup() error {
 	// we'll do it as the last startup step.
 	status.Monitor(m.monitorId, "monitor", "starting LPC")
 	m.lpc = NewLevelCollector(LevelCollectorArgs{
-		Config:     m.cfg,
-		Engine:     NewEngine(m.cfg, m.db),
-		PlanLoader: m.planLoader,
-		Sinks:      m.sinks,
+		Config:           m.cfg,
+		Engine:           NewEngine(m.cfg, m.db),
+		PlanLoader:       m.planLoader,
+		Sinks:            m.sinks,
+		TransformMetrics: m.transformMetric,
 	})
 
 	m.wg.Add(1)
