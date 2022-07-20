@@ -15,6 +15,7 @@ import (
 	"github.com/cashapp/blip/metrics/repl.lag"
 	"github.com/cashapp/blip/metrics/size.binlog"
 	"github.com/cashapp/blip/metrics/size.database"
+	"github.com/cashapp/blip/metrics/size.table"
 	"github.com/cashapp/blip/metrics/status.global"
 	"github.com/cashapp/blip/metrics/trx"
 	"github.com/cashapp/blip/metrics/var.global"
@@ -263,6 +264,8 @@ func (f *factory) Make(domain string, args blip.CollectorFactoryArgs) (blip.Coll
 		return sizebinlog.NewBinlog(args.DB), nil
 	case "size.database":
 		return sizedatabase.NewDatabase(args.DB), nil
+	case "size.table":
+		return sizetable.NewTable(args.DB), nil
 	case "status.global":
 		return statusglobal.NewGlobal(args.DB), nil
 	case "trx":
@@ -283,6 +286,7 @@ var builtinCollectors = []string{
 	"repl.lag",
 	"size.binlog",
 	"size.database",
+	"size.table",
 	"status.global",
 	"trx",
 	"var.global",
