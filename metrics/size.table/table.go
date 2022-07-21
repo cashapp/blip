@@ -13,13 +13,8 @@ import (
 const (
 	DOMAIN = "size.table"
 
-	OPT_ALL = "all"
-
-	TABLE_SIZES_QUERY = `
-    SELECT table_schema AS db, table_name as tbl,
-           data_length + index_length AS tbl_size_bytes
-      FROM information_schema.TABLES
-     WHERE table_schema NOT IN ('performance_schema', 'information_schema', 'mysql');`
+	opt_total         = "total"
+	OPT_SCHEMA_FILTER = "schema"
 )
 
 // Table collects table sizes for domain size.table.
@@ -37,6 +32,7 @@ var _ blip.Collector = &Table{}
 func NewTable(db *sql.DB) *Table {
 	return &Table{
 		db:    db,
+		query: map[string]string{},
 		total: map[string]bool{},
 	}
 }
@@ -52,13 +48,34 @@ func (t *Table) Help() blip.CollectorHelp {
 		Domain:      DOMAIN,
 		Description: "Table sizes",
 		Options: map[string]blip.CollectorHelpOption{
-			OPT_ALL: {
-				Name:    OPT_ALL,
-				Desc:    "Returns total sizes of all tables in all databses",
+			opt_total: {
+				Name:    opt_total,
+				Desc:    "Returns total size of all tables",
 				Default: "yes",
 				Values: map[string]string{
-					"yes": "Collect all table sizes",
+					"yes": "Includes total size of all tables",
+					"no":  "Excludes total size of all tables",
 				},
+			},
+			OPT_SCHEMA_FILTER: {
+				Name:    OPT_SCHEMA_FILTER,
+				Desc:    "Excludes performance_schema, information_schema, mysql, and sys",
+				Default: "yes",
+				Values: map[string]string{
+					"no":  "Exclude schemas, mysql, and sys",
+					"yes": "Include schemas, mysql, and sys",
+				},
+			},
+		},
+		Groups: []blip.CollectorKeyValue{
+			{Key: "db", Value: "the database name for the corresponding table size, or empty string for all dbs"},
+			{Key: "table", Value: "the table name for the corresponding table size, or empty string for all tables"},
+		},
+		Metrics: []blip.CollectorMetric{
+			{
+				Name: "bytes",
+				Type: blip.GAUGE,
+				Desc: "Table size",
 			},
 		},
 	}
@@ -73,20 +90,27 @@ LEVEL:
 			continue LEVEL // not collected in this level
 		}
 
-		t.query[level.Name] = TABLE_SIZES_QUERY
-		if dom.Options[OPT_ALL] == "yes" {
+		q, err := TableSizeQuery(dom.Options, t.Help())
+		if err != nil {
+			return nil, err
+		}
+		t.query[level.Name] = q
+
+		if dom.Options[opt_total] == "yes" {
 			t.total[level.Name] = true
+		} else {
+			t.total[level.Name] = false
 		}
 	}
 	return nil, nil
 }
 
 func (t *Table) Collect(ctx context.Context, levelName string) ([]blip.MetricValue, error) {
-	if !t.total[levelName] {
+	q, ok := t.query[levelName]
+	if !ok {
 		return nil, nil
 	}
-
-	rows, err := t.db.QueryContext(ctx, TABLE_SIZES_QUERY)
+	rows, err := t.db.QueryContext(ctx, q)
 	if err != nil {
 		return nil, err
 	}
@@ -120,12 +144,14 @@ func (t *Table) Collect(ctx context.Context, levelName string) ([]blip.MetricVal
 		metrics = append(metrics, m)
 	}
 
-	metrics = append(metrics, blip.MetricValue{
-		Name:  "bytes",
-		Type:  blip.GAUGE,
-		Group: map[string]string{"db": "", "table": ""},
-		Value: total,
-	})
+	if t.total[levelName] {
+		metrics = append(metrics, blip.MetricValue{
+			Name:  "bytes",
+			Type:  blip.GAUGE,
+			Group: map[string]string{"db": "", "table": ""},
+			Value: total,
+		})
+	}
 
 	return metrics, err
 }
