@@ -3,3 +3,5 @@ user     = U
 password = P
 host     = H
 port     = 33560
+# Path is relative to the test file factory_test.go which uses this `full-dsn` file inside it's test.
+ssl-ca   = ../test/mycnf/rds-master.pem

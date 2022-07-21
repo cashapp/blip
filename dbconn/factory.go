@@ -113,7 +113,6 @@ func (f factory) Make(cfg blip.ConfigMonitor) (*sql.DB, string, error) {
 	tlsConfig, err := cfg.TLS.LoadTLS()
 
 	if err != nil {
-		blip.Debug("Error loading TLS Config for %s", cfg.MonitorId)
 		return nil, "", err
 	}
 
