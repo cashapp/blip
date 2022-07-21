@@ -111,7 +111,13 @@ func (f factory) Make(cfg blip.ConfigMonitor) (*sql.DB, string, error) {
 
 	// Load and register TLS, if any
 	tlsConfig, err := cfg.TLS.LoadTLS()
-	if tlsConfig != nil && err != nil {
+
+	if err != nil {
+		blip.Debug("Error loading TLS Config for %s", cfg.MonitorId)
+		return nil, "", err
+	}
+
+	if tlsConfig != nil {
 		mysql.RegisterTLSConfig(cfg.MonitorId, tlsConfig)
 		params = append(params, "tls="+cfg.MonitorId)
 		blip.Debug("TLS enabled for %s", cfg.MonitorId)
