@@ -11,10 +11,9 @@ func TableSizeQuery(set map[string]string, def blip.CollectorHelp) (string, erro
 		FROM information_schema.TABLES`
 
 	if val := set[OPT_SCHEMA_FILTER]; val == "no" {
-		query = query + ` WHERE table_schema NOT IN ('performance_schema', 'information_schema', 'mysql', 'sys');`
-	} else {
-		query = query + `;`
+		query = query + ` WHERE table_schema NOT IN ('performance_schema', 'information_schema', 'mysql', 'sys')`
 	}
+	query = query + `;`
 
 	return query, nil
 }
