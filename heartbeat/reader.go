@@ -199,7 +199,7 @@ func (r *BlipReader) Lag(_ context.Context) (Lag, error) {
 	r.Lock()
 	defer r.Unlock()
 	if !r.isRepl {
-		return Lag{Replica: false}, nil
+		return Lag{Replica: false, Milliseconds: -1}, nil
 	}
 	return Lag{Milliseconds: r.lag, LastTs: r.last, SourceId: r.srcId, SourceRole: r.srcRole, Replica: true}, nil
 }

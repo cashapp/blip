@@ -16,29 +16,32 @@ import (
 const (
 	DOMAIN = "repl.lag"
 
-	OPT_SOURCE_ID           = "source-id"
-	OPT_SOURCE_ROLE         = "source-role"
-	OPT_TABLE               = "table"
-	OPT_WRITER              = "writer"
-	OPT_REPL_CHECK          = "repl-check"
-	OPT_REPORT_NO_HEARTBEAT = "report-no-heartbeat"
-	OPT_NETWORK_LATENCY     = "network-latency"
+	OPT_SOURCE_ID            = "source-id"
+	OPT_SOURCE_ROLE          = "source-role"
+	OPT_TABLE                = "table"
+	OPT_WRITER               = "writer"
+	OPT_REPL_CHECK           = "repl-check"
+	OPT_REPORT_NO_HEARTBEAT  = "report-no-heartbeat"
+	OPT_REPORT_NOT_A_REPLICA = "report-not-a-replica"
+	OPT_NETWORK_LATENCY      = "network-latency"
 )
 
 type Lag struct {
-	db        *sql.DB
-	lagReader heartbeat.Reader
-	atLevel   map[string]bool
-	drop      map[string]bool
+	db              *sql.DB
+	lagReader       heartbeat.Reader
+	atLevel         map[string]bool
+	dropNoHeartbeat map[string]bool
+	dropNotAReplica map[string]bool
 }
 
 var _ blip.Collector = &Lag{}
 
 func NewLag(db *sql.DB) *Lag {
 	return &Lag{
-		db:      db,
-		atLevel: map[string]bool{},
-		drop:    map[string]bool{},
+		db:              db,
+		atLevel:         map[string]bool{},
+		dropNoHeartbeat: map[string]bool{},
+		dropNotAReplica: map[string]bool{},
 	}
 }
 
@@ -76,7 +79,7 @@ func (c *Lag) Help() blip.CollectorHelp {
 			},
 			OPT_REPL_CHECK: {
 				Name: OPT_REPL_CHECK,
-				Desc: "MySQL global variable to check if instance is a replica",
+				Desc: "MySQL global variable (without @@) to check if instance is a replica",
 			},
 			OPT_REPORT_NO_HEARTBEAT: {
 				Name:    OPT_REPORT_NO_HEARTBEAT,
@@ -85,6 +88,15 @@ func (c *Lag) Help() blip.CollectorHelp {
 				Values: map[string]string{
 					"yes": "Enabled: report no heartbeat as repl.lag.current = -1",
 					"no":  "Disabled: drop repl.lag.current if no heartbeat",
+				},
+			},
+			OPT_REPORT_NOT_A_REPLICA: {
+				Name:    OPT_REPORT_NOT_A_REPLICA,
+				Desc:    "Report not a replica as -1",
+				Default: "no",
+				Values: map[string]string{
+					"yes": "Enabled: report not a replica repl.lag.current = -1",
+					"no":  "Disabled: drop repl.lag.current if not a replica",
 				},
 			},
 			OPT_NETWORK_LATENCY: {
@@ -116,7 +128,8 @@ LEVEL:
 			table = blip.DEFAULT_HEARTBEAT_TABLE
 		}
 
-		c.drop[level.Name] = !blip.Bool(dom.Options[OPT_REPORT_NO_HEARTBEAT])
+		c.dropNoHeartbeat[level.Name] = !blip.Bool(dom.Options[OPT_REPORT_NO_HEARTBEAT])
+		c.dropNotAReplica[level.Name] = !blip.Bool(dom.Options[OPT_REPORT_NOT_A_REPLICA])
 
 		netLatency := 50 * time.Millisecond
 		if s, ok := dom.Options[OPT_NETWORK_LATENCY]; ok {
@@ -171,9 +184,10 @@ func (c *Lag) Collect(ctx context.Context, levelName string) ([]blip.MetricValue
 		return nil, err
 	}
 	if !lag.Replica {
-		return nil, nil
-	}
-	if lag.Milliseconds == -1 && c.drop[levelName] {
+		if c.dropNotAReplica[levelName] {
+			return nil, nil
+		}
+	} else if lag.Milliseconds == -1 && c.dropNoHeartbeat[levelName] {
 		return nil, nil
 	}
 	m := blip.MetricValue{
