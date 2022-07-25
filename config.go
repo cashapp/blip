@@ -921,9 +921,10 @@ func (c ConfigSinks) InterpolateMonitor(m *ConfigMonitor) {
 // --------------------------------------------------------------------------
 
 type ConfigTLS struct {
-	Cert string `yaml:"cert,omitempty"`
-	Key  string `yaml:"key,omitempty"`
-	CA   string `yaml:"ca,omitempty"`
+	Cert       string `yaml:"cert,omitempty"`
+	Key        string `yaml:"key,omitempty"`
+	CA         string `yaml:"ca,omitempty"`
+	SkipVerify *bool  `yaml:"skip-verify,omitempty"`
 }
 
 func DefaultConfigTLS() ConfigTLS {
@@ -944,6 +945,8 @@ func (c *ConfigTLS) ApplyDefaults(b Config) {
 	if c.CA == "" {
 		c.CA = b.TLS.CA
 	}
+
+	c.SkipVerify = setBool(c.SkipVerify, b.TLS.SkipVerify)
 }
 
 func (c *ConfigTLS) InterpolateEnvVars() {
@@ -964,6 +967,11 @@ func (c ConfigTLS) LoadTLS() (*tls.Config, error) {
 	}
 
 	tlsConfig := &tls.Config{}
+
+	// Skip TLS verification
+	if True(c.SkipVerify) {
+		tlsConfig.InsecureSkipVerify = true
+	}
 
 	// Root CA (optional)
 	if c.CA != "" {
