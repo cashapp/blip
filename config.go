@@ -984,7 +984,7 @@ func (c ConfigTLS) LoadTLS() (*tls.Config, error) {
 		}
 		tlsConfig.Certificates = []tls.Certificate{cert}
 		tlsConfig.BuildNameToCertificate()
-	} else {
+	} else if (c.Cert != "" && c.Key == "") || (c.Cert == "" && c.Key != "") {
 		return nil, fmt.Errorf("TLS cert or key not specififed; both are required")
 	}
 
