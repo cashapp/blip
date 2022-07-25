@@ -110,16 +110,23 @@ func (s *SignalFx) Send(ctx context.Context, m *blip.Metrics) error {
 				name = s.prefix + name
 			}
 
-			// Copy metric meta into tags (dimensions), if any
+			// Copy metric meta and groups into tags (dimensions), if any
 			var dim map[string]string
-			if len(metrics[i].Meta) == 0 {
+			if len(metrics[i].Meta) == 0 && len(metrics[i].Group) == 0 {
+				// Optimization: if no meta or group, then reuse pointer to
+				// s.dim which points to the tags--never modify s.dim!
 				dim = s.dim
 			} else {
-				dim = make(map[string]string, len(s.dim)+len(metrics[i].Meta))
-				for k, v := range s.dim { // tags (from config)
+				// There are meta or groups (or both), so we MUST COPY tags
+				// from s.dim and the rest into a new map
+				dim = make(map[string]string, len(s.dim)+len(metrics[i].Meta)+len(metrics[i].Group))
+				for k, v := range s.dim { // copy tags (from config)
 					dim[k] = v
 				}
 				for k, v := range metrics[i].Meta { // metric meta
+					dim[k] = v
+				}
+				for k, v := range metrics[i].Group { // metric groups
 					dim[k] = v
 				}
 			}
