@@ -1,0 +1,7 @@
+[client]
+user     = root
+password = foo
+ssl-mode = VERIFY_CA
+ssl-ca   = CA
+ssl-cert = CRT
+ssl-key  = KEY

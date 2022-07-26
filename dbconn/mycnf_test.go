@@ -27,8 +27,8 @@ func TestParseMyCnf(t *testing.T) {
 		Key:       "KEY",
 		MySQLMode: "PREFERRED",
 	}
-	assert.Equal(t, gotCfg, expectCfg)
-	assert.Equal(t, gotTLS, expectTLS)
+	assert.Equal(t, expectCfg, gotCfg)
+	assert.Equal(t, expectTLS, gotTLS)
 }
 
 func TestParseMyCnfSocketTLS(t *testing.T) {
@@ -44,6 +44,25 @@ func TestParseMyCnfSocketTLS(t *testing.T) {
 	expectTLS := blip.ConfigTLS{
 		MySQLMode: "PREFERRED",
 	}
-	assert.Equal(t, gotCfg, expectCfg)
-	assert.Equal(t, gotTLS, expectTLS)
+	assert.Equal(t, expectCfg, gotCfg)
+	assert.Equal(t, expectTLS, gotTLS)
+}
+
+func TestParseMyCnfTLSVerifyCA(t *testing.T) {
+	gotCfg, gotTLS, err := dbconn.ParseMyCnf("../test/mycnf/tls-verify-ca")
+	if err != nil {
+		t.Error(err)
+	}
+	expectCfg := blip.ConfigMySQL{
+		Username: "root",
+		Password: "foo",
+	}
+	expectTLS := blip.ConfigTLS{
+		CA:        "CA",
+		Cert:      "CRT",
+		Key:       "KEY",
+		MySQLMode: "VERIFY_CA",
+	}
+	assert.Equal(t, expectCfg, gotCfg)
+	assert.Equal(t, expectTLS, gotTLS)
 }
