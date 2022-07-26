@@ -58,6 +58,7 @@ func (f factory) Make(cfg blip.ConfigMonitor) (*sql.DB, string, error) {
 	// is specified in both, the default my.cnf username is ignored and the
 	// explicit cfg.Username is kept/used.
 	if cfg.MyCnf != "" {
+		blip.Debug("%s reads mycnf %s", cfg.MonitorId, cfg.MyCnf)
 		def, tls, err := ParseMyCnf(cfg.MyCnf)
 		if err != nil {
 			return nil, "", err
@@ -118,7 +119,7 @@ func (f factory) Make(cfg blip.ConfigMonitor) (*sql.DB, string, error) {
 	if net == "unix" && cfg.TLS.Set() && cfg.Hostname == "" && !blip.True(cfg.TLS.SkipVerify) {
 		b := true
 		cfg.TLS.SkipVerify = &b
-		blip.Debug("%s: auto-enabled skip-verify on socket with TLS but no hostname")
+		blip.Debug("%s: auto-enabled skip-verify on socket with TLS but no hostname", cfg.MonitorId)
 	}
 
 	// Load and register TLS, if any

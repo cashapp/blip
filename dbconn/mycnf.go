@@ -38,7 +38,7 @@ func ParseMyCnf(file string) (blip.ConfigMySQL, blip.ConfigTLS, error) {
 	// options: specify tls.Confg.ServerName _or_ .InsecureSkipVerify=true.
 	tls := mysqlTLS(file, mycnf, &cfg)
 
-	blip.Debug("mycnf %s: %s %s", file, cfg.Redacted(), tls)
+	blip.Debug("mycnf %s: %s %+v", file, cfg.Redacted(), tls)
 	return cfg, tls, nil
 }
 
