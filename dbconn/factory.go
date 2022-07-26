@@ -107,19 +107,29 @@ func (f factory) Make(cfg blip.ConfigMonitor) (*sql.DB, string, error) {
 	}
 
 	// ----------------------------------------------------------------------
-	// DSN params (including TLS)
+	// Load TLS
 
 	params := []string{"parseTime=true"}
 
+	// Go says "either ServerName or InsecureSkipVerify must be specified".
+	// This is a pathological case: socket and TLS but no hostname to verify
+	// and user didn't explicitly set skip-verify=true. So we set this latter
+	// automatically because Go will certainly error if we don't.
+	if net == "unix" && cfg.TLS.Set() && cfg.Hostname == "" && !blip.True(cfg.TLS.SkipVerify) {
+		b := true
+		cfg.TLS.SkipVerify = &b
+		blip.Debug("%s: auto-enabled skip-verify on socket with TLS but no hostname")
+	}
+
 	// Load and register TLS, if any
-	tlsConfig, err := cfg.TLS.LoadTLS(portSuffix.ReplaceAllString(addr, ""))
+	tlsConfig, err := cfg.TLS.LoadTLS(portSuffix.ReplaceAllString(cfg.Hostname, ""))
 	if err != nil {
 		return nil, "", err
 	}
 	if tlsConfig != nil {
 		mysql.RegisterTLSConfig(cfg.MonitorId, tlsConfig)
 		params = append(params, "tls="+cfg.MonitorId)
-		blip.Debug("TLS enabled for %s", cfg.MonitorId)
+		blip.Debug("%s: TLS enabled", cfg.MonitorId)
 	}
 
 	// Use built-in Amazon RDS CA if password is AWS IAM auth or Secrets Manager
@@ -132,18 +142,20 @@ func (f factory) Make(cfg blip.ConfigMonitor) (*sql.DB, string, error) {
 		!blip.True(cfg.AWS.DisableAutoTLS) &&
 		tlsConfig == nil {
 
-		blip.Debug("auto AWS TLS: using IAM auth or Secrets Manager")
+		blip.Debug("%s: auto AWS TLS: using IAM auth or Secrets Manager", cfg.MonitorId)
 		aws.RegisterRDSCA() // safe to call multiple times
 		params = append(params, "tls=rds")
 	}
 
 	if rdsAddr.MatchString(addr) && !blip.True(cfg.AWS.DisableAutoTLS) && tlsConfig == nil {
-		blip.Debug("auto AWS TLS: hostname has suffix .rds.amazonaws.com")
+		blip.Debug("%s: auto AWS TLS: hostname has suffix .rds.amazonaws.com", cfg.MonitorId)
 		aws.RegisterRDSCA() // safe to call multiple times
 		params = append(params, "tls=rds")
 	}
 
-	// IAM auto requires cleartext passwords (the auth token is already encrypted)
+	// ----------------------------------------------------------------------
+	// IAM auto requires cleartext passwords (the auth token is already encryopted)
+
 	if blip.True(cfg.AWS.AuthToken) {
 		params = append(params, "allowCleartextPasswords=true")
 	}

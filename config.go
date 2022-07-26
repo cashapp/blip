@@ -935,6 +935,7 @@ type ConfigTLS struct {
 	Cert       string `yaml:"cert,omitempty"` // ssl-cert
 	Key        string `yaml:"key,omitempty"`  // ssl-key
 	SkipVerify *bool  `yaml:"skip-verify,omitempty"`
+	Disable    *bool  `yaml:"disable,omitempty"`
 
 	// ssl-mode from a my.cnf (see dbconn.ParseMyCnf)
 	MySQLMode string `yaml:"-"`
@@ -945,7 +946,7 @@ func DefaultConfigTLS() ConfigTLS {
 }
 
 func (c ConfigTLS) Validate() error {
-	if c.Cert == "" && c.Key == "" && c.CA == "" {
+	if True(c.Disable) || (c.Cert == "" && c.Key == "" && c.CA == "") {
 		return nil // no TLS
 	}
 
@@ -991,7 +992,11 @@ func (c *ConfigTLS) ApplyDefaults(b Config) {
 	if c.CA == "" {
 		c.CA = b.TLS.CA
 	}
+	if c.MySQLMode == "" {
+		c.MySQLMode = b.TLS.MySQLMode
+	}
 	c.SkipVerify = setBool(c.SkipVerify, b.TLS.SkipVerify)
+	c.Disable = setBool(c.Disable, b.TLS.Disable)
 }
 
 func (c *ConfigTLS) InterpolateEnvVars() {
@@ -1006,25 +1011,27 @@ func (c *ConfigTLS) InterpolateMonitor(m *ConfigMonitor) {
 	c.CA = m.interpolateMon(c.CA)
 }
 
+// Set return true if TLS is not disabled and at least one file is specified.
+// If not set, Blip ignores the TLS config. If set, Blip validates, loads, and
+// registers the TLS config.
 func (c ConfigTLS) Set() bool {
-	return c.CA != "" || c.Cert != "" || c.Key != ""
+	return !True(c.Disable) && c.MySQLMode != "DISABLED" && (c.CA != "" || c.Cert != "" || c.Key != "")
 }
 
 func (c ConfigTLS) LoadTLS(server string) (*tls.Config, error) {
 	//  WARNING: ConfigTLS.Valid must be called first!
-
-	if c.Cert == "" && c.Key == "" && c.CA == "" {
+	Debug("TLS for %s: %+v", c, server)
+	if !c.Set() {
 		return nil, nil
 	}
-	Debug("%+v for %s", c, server)
 
 	// Either ServerName or InsecureSkipVerify is required else Go will
 	// return an error saying that
-	tlsConfig := &tls.Config{
-		ServerName: server,
-	}
+	tlsConfig := &tls.Config{}
 	if True(c.SkipVerify) {
 		tlsConfig.InsecureSkipVerify = true
+	} else {
+		tlsConfig.ServerName = server
 	}
 
 	// Root CA (optional)

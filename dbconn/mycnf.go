@@ -36,13 +36,13 @@ func ParseMyCnf(file string) (blip.ConfigMySQL, blip.ConfigTLS, error) {
 	//   https://dev.mysql.com/doc/refman/8.0/en/connection-options.html#option_general_ssl-mode
 	// But Go tls.Config (which is derived from blip.ConfigTLS) has only two
 	// options: specify tls.Confg.ServerName _or_ .InsecureSkipVerify=true.
-	tls := mysqlTLS(mycnf, &cfg)
+	tls := mysqlTLS(file, mycnf, &cfg)
 
-	blip.Debug("%s: %s", file, cfg.Redacted())
+	blip.Debug("mycnf %s: %s %s", file, cfg.Redacted(), tls)
 	return cfg, tls, nil
 }
 
-func mysqlTLS(mycnf *ini.File, cfg *blip.ConfigMySQL) (tls blip.ConfigTLS) {
+func mysqlTLS(file string, mycnf *ini.File, cfg *blip.ConfigMySQL) (tls blip.ConfigTLS) {
 	// USING IMPLICIT RETURN -----------------------------------^
 
 	tls.MySQLMode = strings.ToUpper(mycnf.Section("client").Key("ssl-mode").String())
@@ -52,6 +52,7 @@ func mysqlTLS(mycnf *ini.File, cfg *blip.ConfigMySQL) (tls blip.ConfigTLS) {
 
 	// Explicitly disabled = not TLS even if other vars set
 	if tls.MySQLMode == "DISABLED" {
+		blip.Debug("mycnf %s: ssl-mode=DISABLED", file)
 		return
 	}
 
@@ -59,7 +60,7 @@ func mysqlTLS(mycnf *ini.File, cfg *blip.ConfigMySQL) (tls blip.ConfigTLS) {
 	// "Connections over Unix socket files are not encrypted with a mode of PREFERRED.
 	//  To enforce encryption for Unix socket-file connections, use a mode of REQUIRED or stricter.
 	if cfg.Socket != "" && tls.MySQLMode == "PREFERRED" {
-		blip.Debug("ignoring TLS on socket %s", cfg.Socket)
+		blip.Debug("mycnf %s: ignoring TLS on socket %s", file, cfg.Socket)
 		return
 	}
 
@@ -68,6 +69,7 @@ func mysqlTLS(mycnf *ini.File, cfg *blip.ConfigMySQL) (tls blip.ConfigTLS) {
 	tls.Cert = mycnf.Section("client").Key("ssl-cert").String()
 	tls.Key = mycnf.Section("client").Key("ssl-key").String()
 	if !tls.Set() {
+		blip.Debug("mycnf %s: TLS not set", file)
 		return
 	}
 
