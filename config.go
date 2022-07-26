@@ -1026,12 +1026,11 @@ func (c ConfigTLS) LoadTLS(server string) (*tls.Config, error) {
 	}
 
 	// Either ServerName or InsecureSkipVerify is required else Go will
-	// return an error saying that
-	tlsConfig := &tls.Config{}
-	if True(c.SkipVerify) {
-		tlsConfig.InsecureSkipVerify = true
-	} else {
-		tlsConfig.ServerName = server
+	// return an error saying that. If both are set, Go seems to ignore
+	// ServerName.
+	tlsConfig := &tls.Config{
+		ServerName:         server,
+		InsecureSkipVerify: True(c.SkipVerify),
 	}
 
 	// Root CA (optional)
