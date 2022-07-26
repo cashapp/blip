@@ -127,6 +127,15 @@ func LoadConfig(filePath string, cfg Config, required bool) (Config, error) {
 	return cfg, nil
 }
 
+func fileExists(filePath string) bool {
+	file, err := filepath.Abs(filePath)
+	if err != nil {
+		return false
+	}
+	_, err = os.Stat(file)
+	return err != nil
+}
+
 // Config represents the Blip startup configuration.
 type Config struct {
 	// Blip server
@@ -347,6 +356,11 @@ type ConfigMonitor struct {
 
 	Meta map[string]string `yaml:"meta,omitempty"`
 }
+
+const (
+	DEFAULT_MONITOR_USERNAME        = "blip"
+	DEFAULT_MONITOR_TIMEOUT_CONNECT = "5s"
+)
 
 func DefaultConfigMonitor() ConfigMonitor {
 	return ConfigMonitor{
@@ -689,30 +703,19 @@ func (c *ConfigHighAvailability) InterpolateMonitor(m *ConfigMonitor) {
 
 // --------------------------------------------------------------------------
 
+// ConfigMySQL are monitor defaults for each MySQL connection.
 type ConfigMySQL struct {
+	Hostname       string `yaml:"hostname,omitempty"`
 	MyCnf          string `yaml:"mycnf,omitempty"`
-	Username       string `yaml:"username,omitempty"`
 	Password       string `yaml:"password,omitempty"`
 	PasswordFile   string `yaml:"password-file,omitempty"`
+	Socket         string `yaml:"socket,omitempty"`
 	TimeoutConnect string `yaml:"timeout-connect,omitempty"`
-
-	// Only from my.cnf:
-	Socket   string `yaml:"-"` // socket
-	Hostname string `yaml:"-"` // host
-	TLSCert  string `yaml:"-"` // ssl-cert
-	TLSKey   string `yaml:"-"` // ssl-key
-	TLSCA    string `yaml:"-"` // ssl-ca
+	Username       string `yaml:"username,omitempty"`
 }
 
-const (
-	DEFAULT_MONITOR_USERNAME        = "blip"
-	DEFAULT_MONITOR_TIMEOUT_CONNECT = "5s"
-)
-
 func DefaultConfigMySQL() ConfigMySQL {
-	return ConfigMySQL{
-		Username: DEFAULT_MONITOR_USERNAME,
-	}
+	return ConfigMySQL{}
 }
 
 func (c ConfigMySQL) Validate() error {
@@ -757,6 +760,13 @@ func (c *ConfigMySQL) InterpolateMonitor(m *ConfigMonitor) {
 	c.Password = m.interpolateMon(c.Password)
 	c.PasswordFile = m.interpolateMon(c.PasswordFile)
 	c.TimeoutConnect = m.interpolateMon(c.TimeoutConnect)
+}
+
+func (c ConfigMySQL) Redacted() string {
+	if c.Password != "" {
+		c.Password = "..."
+	}
+	return fmt.Sprintf("%+v", c)
 }
 
 // --------------------------------------------------------------------------
@@ -921,10 +931,13 @@ func (c ConfigSinks) InterpolateMonitor(m *ConfigMonitor) {
 // --------------------------------------------------------------------------
 
 type ConfigTLS struct {
-	Cert       string `yaml:"cert,omitempty"`
-	Key        string `yaml:"key,omitempty"`
-	CA         string `yaml:"ca,omitempty"`
+	CA         string `yaml:"ca,omitempty"`   // ssl-ca
+	Cert       string `yaml:"cert,omitempty"` // ssl-cert
+	Key        string `yaml:"key,omitempty"`  // ssl-key
 	SkipVerify *bool  `yaml:"skip-verify,omitempty"`
+
+	// ssl-mode from a my.cnf (see dbconn.ParseMyCnf)
+	MySQLMode string `yaml:"-"`
 }
 
 func DefaultConfigTLS() ConfigTLS {
@@ -932,7 +945,40 @@ func DefaultConfigTLS() ConfigTLS {
 }
 
 func (c ConfigTLS) Validate() error {
-	return nil
+	if c.Cert == "" && c.Key == "" && c.CA == "" {
+		return nil // no TLS
+	}
+
+	// Any files specified must exist
+	if c.CA != "" && !fileExists(c.CA) {
+		return fmt.Errorf("config.tls.ca: %s: file does not exist", c.CA)
+	}
+	if c.Cert != "" && !fileExists(c.Cert) {
+		return fmt.Errorf("config.tls.cert: %s: file does not exist", c.Cert)
+	}
+	if c.Key != "" && !fileExists(c.Key) {
+		return fmt.Errorf("config.tls.key: %s: file does not exist", c.Key)
+	}
+
+	// The three valid combination of files:
+	if c.CA != "" && (c.Cert == "" && c.Key == "") {
+		return nil // ca (only) e.g. Amazon RDS CA
+	}
+	if c.Cert != "" && c.Key != "" {
+		return nil // cert + key (using system CA)
+	}
+	if c.CA != "" && c.Cert != "" && c.Key != "" {
+		return nil // ca + cert + key (private CA)
+	}
+
+	if c.Cert == "" && c.Key != "" {
+		return fmt.Errorf("config.tls: missing cert (cert and key are mutually dependent)")
+	}
+	if c.Cert != "" && c.Key == "" {
+		return fmt.Errorf("config.tls: missing key (cert and key are mutually dependent)")
+	}
+
+	return fmt.Errorf("config.tls: invalid combination of files: %+v; valid combinations are: ca; cert and key; ca, cert, and key", c)
 }
 
 func (c *ConfigTLS) ApplyDefaults(b Config) {
@@ -945,7 +991,6 @@ func (c *ConfigTLS) ApplyDefaults(b Config) {
 	if c.CA == "" {
 		c.CA = b.TLS.CA
 	}
-
 	c.SkipVerify = setBool(c.SkipVerify, b.TLS.SkipVerify)
 }
 
@@ -961,14 +1006,23 @@ func (c *ConfigTLS) InterpolateMonitor(m *ConfigMonitor) {
 	c.CA = m.interpolateMon(c.CA)
 }
 
-func (c ConfigTLS) LoadTLS() (*tls.Config, error) {
+func (c ConfigTLS) Set() bool {
+	return c.CA != "" || c.Cert != "" || c.Key != ""
+}
+
+func (c ConfigTLS) LoadTLS(server string) (*tls.Config, error) {
+	//  WARNING: ConfigTLS.Valid must be called first!
+
 	if c.Cert == "" && c.Key == "" && c.CA == "" {
 		return nil, nil
 	}
+	Debug("%+v for %s", c, server)
 
-	tlsConfig := &tls.Config{}
-
-	// Skip TLS verification
+	// Either ServerName or InsecureSkipVerify is required else Go will
+	// return an error saying that
+	tlsConfig := &tls.Config{
+		ServerName: server,
+	}
 	if True(c.SkipVerify) {
 		tlsConfig.InsecureSkipVerify = true
 	}
@@ -992,8 +1046,6 @@ func (c ConfigTLS) LoadTLS() (*tls.Config, error) {
 		}
 		tlsConfig.Certificates = []tls.Certificate{cert}
 		tlsConfig.BuildNameToCertificate()
-	} else if (c.Cert != "" && c.Key == "") || (c.Cert == "" && c.Key != "") {
-		return nil, fmt.Errorf("TLS cert or key not specififed; both are required")
 	}
 
 	return tlsConfig, nil

@@ -19,7 +19,6 @@ func sysvar(db *sql.DB, name string) (string, error) {
 }
 
 // --------------------------------------------------------------------------
-
 func TestConnect(t *testing.T) {
 	// The most basic functionality: connect to the MySQL 5.6 instance in Docker
 	called := false
@@ -78,7 +77,7 @@ func TestMyCnf(t *testing.T) {
 
 	// Minimal config: username, password, and address with the special test port
 	cfg := blip.ConfigMonitor{
-		MyCnf: "../test/mycnf/full-dsn",
+		MyCnf: "../test/mycnf/rds-ca",
 	}
 
 	// Make makes the connection (sql.DB) or returns an error
