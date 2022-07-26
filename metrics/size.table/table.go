@@ -14,6 +14,8 @@ const (
 	DOMAIN = "size.table"
 
 	opt_total         = "total"
+	OPT_EXCLUDE       = "exclude"
+	OPT_INCLUDE       = "include"
 	OPT_SCHEMA_FILTER = "schema"
 )
 
@@ -57,19 +59,19 @@ func (t *Table) Help() blip.CollectorHelp {
 					"no":  "Excludes total size of all tables",
 				},
 			},
-			OPT_SCHEMA_FILTER: {
-				Name:    OPT_SCHEMA_FILTER,
-				Desc:    "Excludes performance_schema, information_schema, mysql, and sys",
-				Default: "yes",
-				Values: map[string]string{
-					"no":  "Exclude schemas, mysql, and sys",
-					"yes": "Include schemas, mysql, and sys",
-				},
+			OPT_INCLUDE: {
+				Name: OPT_INCLUDE,
+				Desc: "Comma-separate list of database or table names to include (overrides option " + OPT_EXCLUDE + ")",
+			},
+			OPT_EXCLUDE: {
+				Name:    OPT_EXCLUDE,
+				Desc:    "Comma-separate list of database or table names to exclude (ignored if " + OPT_EXCLUDE + " set)",
+				Default: "mysql.*,information_schema.*,performance_schema.*,sys.*",
 			},
 		},
 		Groups: []blip.CollectorKeyValue{
 			{Key: "db", Value: "the database name for the corresponding table size, or empty string for all dbs"},
-			{Key: "table", Value: "the table name for the corresponding table size, or empty string for all tables"},
+			{Key: "tbl", Value: "the table name for the corresponding table size, or empty string for all tables"},
 		},
 		Metrics: []blip.CollectorMetric{
 			{
@@ -89,8 +91,14 @@ LEVEL:
 		if !ok {
 			continue LEVEL // not collected in this level
 		}
+		if dom.Options == nil {
+			dom.Options = make(map[string]string)
+		}
+		if _, ok := dom.Options[OPT_EXCLUDE]; !ok {
+			dom.Options[OPT_EXCLUDE] = "mysql.*,information_schema.*,performance_schema.*,sys.*"
+		}
 
-		q, err := TableSizeQuery(dom.Options, t.Help())
+		q, err := TableSizeQuery(dom.Options)
 		if err != nil {
 			return nil, err
 		}
@@ -107,6 +115,7 @@ LEVEL:
 
 func (t *Table) Collect(ctx context.Context, levelName string) ([]blip.MetricValue, error) {
 	q, ok := t.query[levelName]
+
 	if !ok {
 		return nil, nil
 	}
@@ -133,7 +142,7 @@ func (t *Table) Collect(ctx context.Context, levelName string) ([]blip.MetricVal
 		m := blip.MetricValue{
 			Name:  "bytes",
 			Type:  blip.GAUGE,
-			Group: map[string]string{"db": dbName, "table": tblName},
+			Group: map[string]string{"db": dbName, "tbl": tblName},
 		}
 		var ok bool
 		m.Value, ok = sqlutil.Float64(val)
@@ -148,7 +157,7 @@ func (t *Table) Collect(ctx context.Context, levelName string) ([]blip.MetricVal
 		metrics = append(metrics, blip.MetricValue{
 			Name:  "bytes",
 			Type:  blip.GAUGE,
-			Group: map[string]string{"db": "", "table": ""},
+			Group: map[string]string{"db": "", "tbl": ""},
 			Value: total,
 		})
 	}
