@@ -1,0 +1,8 @@
+[client]
+socket = socketFile
+user = U
+password = P
+# TLS should be ignored on socket + (default) ssl-mode=PREFERRED
+ssl-ca   = CA
+ssl-cert = CERT
+ssl-key  = KEY

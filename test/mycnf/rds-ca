@@ -1,0 +1,7 @@
+[client]
+user     = U
+password = P
+host     = H
+port     = 33560
+ssl-ca   = ../test/amazon-rds-ca.pem
+# File path relative to dbconn/

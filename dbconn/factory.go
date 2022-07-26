@@ -21,7 +21,14 @@ import (
 	"github.com/cashapp/blip/aws"
 )
 
-var portRe = regexp.MustCompile(`rds\.amazonaws\.com(:\d+)?$`)
+// rdsAddr matches Amazon RDS hostnames with optional :port suffix.
+// It's used to automatically load the Amazon RDS CA and enable TLS,
+// unless config.aws.disable-auto-tls is true.
+var rdsAddr = regexp.MustCompile(`rds\.amazonaws\.com(:\d+)?$`)
+
+// portSuffix matches optional :port suffix on addresses. It's used to
+// strip the port suffix before passing the hostname to LoadTLS.
+var portSuffix = regexp.MustCompile(`:\d+$`)
 
 // factory is the internal implementation of blip.DbFactory.
 type factory struct {
@@ -51,14 +58,9 @@ func (f factory) Make(cfg blip.ConfigMonitor) (*sql.DB, string, error) {
 	// is specified in both, the default my.cnf username is ignored and the
 	// explicit cfg.Username is kept/used.
 	if cfg.MyCnf != "" {
-		def, err := ParseMyCnf(cfg.MyCnf)
+		def, tls, err := ParseMyCnf(cfg.MyCnf)
 		if err != nil {
 			return nil, "", err
-		}
-		tls := blip.ConfigTLS{
-			Cert: def.TLSCert, // ssl-cert in my.cnf
-			Key:  def.TLSKey,  // ssl-key in my.cnf
-			CA:   def.TLSCA,   // ssl-ca in my.cnf
 		}
 		cfg.ApplyDefaults(blip.Config{MySQL: def, TLS: tls})
 	}
@@ -110,12 +112,10 @@ func (f factory) Make(cfg blip.ConfigMonitor) (*sql.DB, string, error) {
 	params := []string{"parseTime=true"}
 
 	// Load and register TLS, if any
-	tlsConfig, err := cfg.TLS.LoadTLS()
-
+	tlsConfig, err := cfg.TLS.LoadTLS(portSuffix.ReplaceAllString(addr, ""))
 	if err != nil {
 		return nil, "", err
 	}
-
 	if tlsConfig != nil {
 		mysql.RegisterTLSConfig(cfg.MonitorId, tlsConfig)
 		params = append(params, "tls="+cfg.MonitorId)
@@ -137,7 +137,7 @@ func (f factory) Make(cfg blip.ConfigMonitor) (*sql.DB, string, error) {
 		params = append(params, "tls=rds")
 	}
 
-	if portRe.MatchString(addr) && !blip.True(cfg.AWS.DisableAutoTLS) && tlsConfig == nil {
+	if rdsAddr.MatchString(addr) && !blip.True(cfg.AWS.DisableAutoTLS) && tlsConfig == nil {
 		blip.Debug("auto AWS TLS: hostname has suffix .rds.amazonaws.com")
 		aws.RegisterRDSCA() // safe to call multiple times
 		params = append(params, "tls=rds")
@@ -235,7 +235,7 @@ func (f factory) Password(cfg blip.ConfigMonitor) (PasswordFunc, error) {
 	if cfg.MyCnf != "" {
 		blip.Debug("%s my.cnf password", cfg.MonitorId)
 		return func(context.Context) (string, error) {
-			cfg, err := ParseMyCnf(cfg.MyCnf)
+			cfg, _, err := ParseMyCnf(cfg.MyCnf)
 			if err != nil {
 				return "", err
 			}

@@ -32,8 +32,6 @@ func TestLevelCollector(t *testing.T) {
 	// every tick (1s normally), collect level 2 every 5th tick (5s normally),
 	// and collect level 3 every 10th tick (10s normally).
 
-	//blip.Debugging = true
-
 	// Create and register a mock blip.Collector that saves the level name
 	// every time it's called. This is quite deep within the call stack,
 	// which is what we want: LPC->engine->collector. By using a fake collector
@@ -171,9 +169,6 @@ func TestLevelCollectorChangePlan(t *testing.T) {
 	//   2.   LPC.changePlan (goroutine)
 	//   1. LPC.ChangePlan
 	//   0. test
-
-	//blip.Debugging = true
-	defer func() { blip.Debugging = false }()
 
 	// Create and register a mock blip.Collector that saves the level name
 	// every time it's called. This is quite deep within the call stack,
