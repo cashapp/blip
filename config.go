@@ -133,7 +133,7 @@ func fileExists(filePath string) bool {
 		return false
 	}
 	_, err = os.Stat(file)
-	return err != nil
+	return err == nil
 }
 
 // Config represents the Blip startup configuration.
