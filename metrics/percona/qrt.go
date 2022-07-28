@@ -6,11 +6,10 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"math"
-	"strconv"
 	"strings"
 
 	"github.com/cashapp/blip"
+	"github.com/cashapp/blip/metrics/util"
 	"github.com/cashapp/blip/sqlutil"
 )
 
@@ -184,7 +183,7 @@ func (c *QRT) Collect(ctx context.Context, levelName string) ([]blip.MetricValue
 			Name:  "response_time",
 			Value: value * 1000000, // convert seconds to microseconds for consistency with PFS quantiles
 			Meta: map[string]string{
-				metaKey(percentile): fmt.Sprintf("%.3f", actualPercentile),
+				util.FormatPercentile(percentile): fmt.Sprintf("%.3f", actualPercentile),
 			},
 		}
 		metrics = append(metrics, m)
@@ -226,39 +225,12 @@ func (c *QRT) prepareLevel(dom blip.Domain, level blip.Level) error {
 	percentilesList := strings.Split(strings.TrimSpace(percentilesStr), ",")
 
 	for _, percentileStr := range percentilesList {
-		percentileStr = strings.TrimSpace(percentileStr)
-		f, err := strconv.ParseFloat(percentileStr, 64)
+		percentile, err := util.ParsePercentileStr(percentileStr)
 		if err != nil {
-			return fmt.Errorf("%s: could not parse percentile value in qrt collector %s into a number", level.Name, percentileStr)
-		}
-
-		var percentile float64
-		if f < 1 {
-			// percentiles of the form 0.99, 0.999
-			percentile = f
-		} else if f >= 1 && f <= 100 {
-			// percentiles of the form 99, 99.9
-			percentile = f / 100.0
-		} else {
-			// f > 100
-			// percentiles of the form 999 (P99.9), 9999 (P99.99)
-			// To find the percentage as decimal, we want to convert this number into a float with no significant digits before decimal.
-			// we can do this with: f / (10 ^ (number of digits))
-			percentile = f / math.Pow10(len(percentileStr))
+			return err
 		}
 
 		c.percentiles[level.Name][percentile] = percentile
 	}
 	return nil
-}
-
-// metaKey coverts a percentile into the form pNNN
-// where NNN is the requested percentile upto 1 decimal point
-func metaKey(f float64) string {
-	percentile := f * 100
-	metaKey := fmt.Sprintf("%.1f", percentile)
-	metaKey = strings.Trim(metaKey, "0")
-	metaKey = strings.ReplaceAll(metaKey, ".", "")
-	metaKey = "p" + metaKey
-	return metaKey
 }
