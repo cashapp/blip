@@ -2,7 +2,7 @@
 layout: default
 title: "Quick Reference"
 parent: Configure
-nav_order: 10
+nav_order: 100
 ---
 
 # Quick Reference

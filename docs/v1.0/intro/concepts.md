@@ -1,6 +1,6 @@
 ---
 layout: default
-title: "Blip"
+title: "1. Blip"
 parent: Introduction
 nav_order: 1
 ---
@@ -55,20 +55,19 @@ An AWS collector, for example, collects related MySQL metrics from Amazon CloudW
 But most collectors collect metrics from various outputs of MySQL.
 
 Second, why a new abstraction&mdash;why "domains"?
-Because MySQL metrics are unorganized, and some metrics can be obtained from multiple outpus.
-For example, you can obtain the global system variable `max_connections` from three different outputs (or commands):
+Because MySQL metrics are unorganized, and metrics can be collected from multiple sources.
+For example, you can collect the global system variable `max_connections` from three different sources:
 
 * `SHOW GLOBAL VARIABLES LIKE 'max_connections';`
 * `SELECT @@GLOBAL.max_connections;`
 * `SELECT * FROM global_variables WHERE variable_name='max_connections';`
 
-That's a trivial exmaple.
-Metric domains become important&mdash;practically necessary&mdash;when you account for the MySQL [Performance Schema](https://dev.mysql.com/doc/refman/8.0/en/performance-schema) (and sometimes the MySQL [sys Schema](https://dev.mysql.com/doc/refman/8.0/en/sys-schema)), various command and output changes from MySQL 5.6 to 5.7 to 8.0, subtle differences between distributions (Oracle vs. Percona vs. MariaDB), and cloud providers (like Amazon RDS).
-Metric domains simplify _how_ metrics are collected.
+Domains are important&mdash;practically necessary&mdash;when you account for the MySQL [Performance Schema](https://dev.mysql.com/doc/refman/8.0/en/performance-schema) (and sometimes the MySQL [sys Schema](https://dev.mysql.com/doc/refman/8.0/en/sys-schema)), various command and output changes from MySQL 5.6 to 5.7 to 8.0, subtle differences between distributions (Oracle vs. Percona vs. MariaDB), and cloud providers (like Amazon RDS).
+Domains simplify _how_ metrics are collected.
 As a user, you shouldn't care how metrics are collected; you should only care _which_ metrics are collected.
 Domains and plans make that possible.
 
-A _level plan_ (or _plan_ for short) configures which metrics to collect&mdash;by domain.
+A _level plan_ (or _plan_ for short) specifies which metrics to collect by domain.
 Here's a snippet of a plan that collects two metrics every 5 seconds:
 
 ```yaml
@@ -86,7 +85,7 @@ In this example, the level name is `key-perf-indicators`, and its frequency (`fr
 It collects two metrics from the `status.global` domain: `Queries` and `Threads_running`.
 
 Real plans have several levels and tens (or hundreds) of metrics from various domains.
-For example, the built-in default plan has four levels and collects over 60 metrics.
+For example, the default plan has four levels and collects over 60 metrics.
 But here's a simpler example with two levels:
 
 ```yaml
@@ -112,7 +111,7 @@ Blip combines levels automatically: at 55 seconds, it collects only `key-perf-in
 In technical terms, Blip collects every level where `freq % T == 0`, where `T` is the number of seconds elapsed since the monitor started.
 
 <p class="note">
-You don't have to write a plan to use Blip because it has a built-in plan that collects the most common and important MySQL metrics, including meta-metrics like database sizes.
+You don't have to write a plan to use Blip because it has a Default plan that collects the most common and important MySQL metrics, including derived metrics like database sizes.
 Writing your own plan allows you to customize which metrics to collect and when (how frequently).
 </p>
 

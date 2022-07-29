@@ -1,66 +1,59 @@
 ---
 layout: default
-title: "Plans"
+title: "3. Plans"
 parent: Introduction
-nav_order: 3
+nav_order: 4
 ---
 
 # Plans
 
-A _level plan_ (or _plan_ for short) configures which metrics to collect.
-Plans solve three problems:
+A _level plan_ (or _plan_ for short) specifies which metrics to collect and how often.
 
-* Which metrics to collect?
-* How to collect those metrics?
-* How _often_ to collect those metrics?
+_How often_ is the main problem that plans were invented to solve.
+Consider metric `Queries` (used to calculate QPS) versus a metric to report database size.
+`Queries` should be collected every few seconds because QPS a key performance indicator (KPI), so higher resolution (more frequent collection) is better.
+But database size should be collect every few minutes because it does not change quickly, so lower resolution (less frequent collection) is better.
+Plans make it possible and easy to collect different metrics at different times.
+Here's how a plan looks for this example:
 
-The first problem arises because there are over 1,000 MySQL metrics but 0 standards for which metrics to collect.
-Some engineers collect nearly all metrics and use what they need in graphs.
-Some engineers collect as few metrics as possible due to costs.
-Some engineers don't know what to collect, relying on monitor defaults to be useful.
+```yaml
+kpi:                # level name
+  freq: 1s          # collection frequency
+  collect:
+    status.global:  # domain
+      metrics:
+        - queries   # metrics in domain
+size:
+  freq: 5m
+  collect:
+    size.database:
+      # Defaults
+```
 
-Plans help solve the first problem by not hard-coding which metrics to collect.
-Write a plan to collect only the metrics you need.
+Each unique frequency in a plan is a _level_.
+The plan snippet above has two levels: `kpi` and `size`.
+The metrics listed (by domain) for each level are collect at the specified (`freq`): `kpi` every 1 second, and `data` every 5 minutes.
+Through a combination of levels, domains, and metrics Blip can collect any metrics at any frequency, which allows for maximum efficiency when collecting, reporting, and storing metrics.
 
 <div class="note">
-Blip has a built-in default plan that collects more than 60 of the most important MySQL metrics, which might be all you need.
+Blip has a default plan that collects more than 60 of the most important MySQL metrics.
 </div>
 
-The second problem arises because there are many versions and distributions of MySQL, which makes some metrics a moving target.
-For example: where do you collect a MySQL replication lag metric?
-The oldest and perhaps still most common source is `Seconds_Behind_Master` in the `SHOW SLAVE STATUS` output.
-But those two changed to `Seconds_Behind_Source` and `SHOW REPLICA STATUS`, respectively.
-And what if you don't use those and, instead, use [pt-heartbeat](https://www.percona.com/doc/percona-toolkit/LATEST/pt-heartbeat) or the Blip built-in heartbeat?
-Or what if you're running [MySQL Group Replication](https://dev.mysql.com/doc/refman/8.0/en/group-replication)?
-Or what if you run MySQL in the cloud and the cloud provider emits its own replication lag metric?
-
-Plans help solve the second problem by using _metric domains_ (or _domains_ for short) to name logically-related group of MySQL metrics.
-Probably the most well known group is `SHOW GLOBAL STATUS`, to which Blip gives the domain name `status.global`.
-A replication lag metric is scoped within the `repl` domain (short for "replication"), which abstracts way the technical details of how it's collected.
-When you write a plan that collects replication lag, the plan works everywhere because domains specify _which_ metrics to collect, not necessarily _how_ to collect them.
-
-The third problem arises from cost and storage limits: if everything was fast and free, you would collect all metrics every 1 second.
-But this is (almost) never done because it requires significant storage and processing, which lead to significant costs.
-Instead, the norm is collecting all metrics every 10, 20, or 30 seconds.
-But even 10 seconds is too long for a busy database because, for example, at only 5,000 QPS, that resolution averages out the metrics for 50,000 queries.
-
-Plans help solve the third problem by allowing you to collect different metrics at different frequencies&mdash;which is the "level" in the full term: "level plan".
-It helps to remember as: "Higher the level, higher the wait (time between collection)."
-For example, imagine three levels as shown below.
+When level collection times overlap, Blip automatically collects all metrics in the overlapping levels.
+This is called _leveling up_ because levels are sorted ascending by frequency and Blip calculates the highest level to collect.
+For example, suppose a plan specifies three levels:
 
 ![Three Levels](/blip/assets/img/three-levels.png)
 
-Level 1, the base level, is collected frequently (shortest wait time): every 5 seconds.
-Level 2 is collected less frequently: every 20 seconds.
-Level 3, the highest level, is collected the most infrequently (longest wait time): every 30 seconds.
-
-Blip automatically combines levels when they overlap and collects all metrics at that time.
+When these level overlap in time (measured in seconds since Blip started collecting metrics for this plan), Blip collects each overlapping level:
 
 ![Three Levels](/blip/assets/img/level-times.png)
 
-At 20 seconds (since Blip started collecting metrics for this plan), Blip collects metrics for both levels 1 and 2 because `20 mod 5 = 0` and `20 mod 20 = 0`, respectively.
+At 5, 10, and 15 seconds, Blip collects only level 1.
+At 20 seconds , Blip collects metrics for both levels 1 and 2 because `20 mod 5 = 0` and `20 mod 20 = 0`, respectively.
 At 30 seconds, Blip collects metrics for both levels 1 and 3 because `30 mod 5 = 0` and `30 mod 20 = 0`, respectively.
 And at 60 seconds, Blip collects metrics for all three levels because `60 mod freq = 0`.
+Then the cycle repeats: at time 65 seconds, Blip collects only level 1 again, and so forth.
 
 Blip plans can do more, but for this introduction it's sufficient to know that they allow you to fine-tune metrics collection, which increases the quality of monitoring while reducing costs.
 

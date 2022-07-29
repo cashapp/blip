@@ -1,6 +1,6 @@
 ---
 layout: default
-title: "Monitors"
+title: "2. Monitors"
 parent: Introduction
 nav_order: 2
 ---
@@ -41,70 +41,69 @@ monitors:
   - socket: /tmp/mysql.sock
     username: blip
     password-file: /dev/shm/metrics-password
+
   - hostname: 10.1.1.53
     username: metrics
     password: foo
+
   - hostname: db3.us-east-1.amazonaws.com
     aws-rds:
       auth-token: true
 ```
 
-The first instance is local: Blip connects using socket file `/tmp/mysql.sock`.
-The second instance is remote: Blip connects to IP `10.1.1.53`.
-The third instance is an Amazon RDS for MySQL instance, and Blip uses [IAM authentication](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/UsingWithRDS.IAMDBAuth).
+The first monitor is a local MySQL instance: Blip connects using socket file `/tmp/mysql.sock`.
+The second monitor is a remove MySQL instance: Blip connects to IP `10.1.1.53`.
+The third monitor is an Amazon RDS for MySQL instance, and Blip uses [IAM authentication](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/UsingWithRDS.IAMDBAuth).
 
-The point of these contrived examples is: Blip can monitor _any_ MySQL instance anywhere it's running.
-(If you have a case where this is not true, please file an issue.)
+The point of this contrived example is that _Blip supports all types of MySQL instances_.
+If you have a case where Blip does not work, please file an issue.
 
 By default, Blip first attempts to load monitors from its config file (which is `blip.yaml` in the current working directory, by default).
 But the config file can specify other ways to load monitors:
 
 ```yaml
 monitor-loader:
-  freq: 60s
   files: [monitors1.yaml, monitors2.yaml]
 ```
 
-In short, that config snippet makes Blip load (read) monitor configuration from files `monitors1.yaml` and `monitors2.yaml` every 60 seconds.
-(Blip can dynamically load [add] and unload [remove] monitors while running.)
+That config snippet makes Blip load (read) monitor configuration from files `monitors1.yaml` and `monitors2.yaml`.
+(Blip can also dynamically load and unload monitors while running through [API](../api) calls.)
 The `monitor-load` config is optional; by default, Blip loads monitors from the `monitors` section in its config file.
 
-To further ensure that Blip can monitory _any_ MySQL instance, loading monitors is an optional plugin with this callback signature:
+To further ensure that Blip can monitory _all_ types of MySQL instance, loading monitors is an optional plugin with this callback signature:
 
 ```go
 LoadMonitors func(Config) ([]ConfigMonitor, error)
 ```
 
-Hopefully, built-in features cover every use case, but if you have particular requirements (filtering out certain MySQL instances, for example), you can plug in your own code to load monitors.
+The default (built-in) monitor load covers most cases, but if you have a very particular environment, you can completely override the default monitor loader with plugin code.
 
-In addition to basic MySQL configuration&mdash;how to connect to MySQL: hostname, username, and password, and so forth&mdash;monitors have other optional features and configuration, summarized briefly in the following table.
+In addition to basic MySQL configuration&mdash;how to connect to MySQL: hostname, username, and password, and so forth&mdash;monitors have other optional features and configuration, summarized in the following table.
 
-|Monitor Confg|Feature|
-|-------------|-------|
+|Monitor Config|Feature|
+|:-------------|:------|
 |`aws`|Amazon RDS authentication|
-|`exporter`|Prometheus mysqld_exporter emulation|
-|`ha`|High availability (not implemented yet)|
+|`exporter`|Emulate Prometheus mysqld_exporter|
 |`heartbeat`|Heartbeat to measure replication lag|
 |`meta`|User-defined key-value data|
-|`plans`|Monitor-specific plans for metrics collection|
-|`sinks`|Monitors-specific sinks for sending metrics|
+|`plans`|Monitor-scoped plans for metrics collection|
+|`sinks`|Monitor-specific sinks for sending metrics|
 |`tags`|Monitor-specific key-value data passed to sinks|
 |`tls`|TLS configuration|
 
-That's a lot of information, but the point is a lot simpler: Blip monitors can do almost anything.
 For the most part, these features support Blip in large, automated environments.
-If you don't need a feature, you can forget about it: Blip is simple (and fully automatic) by default.
+If you don't need a feature, you can forget about it: Blip is simple by default.
 When you need a feature, Blip most likely already supports it.
 
 One last helpful tip:
 
 ```sh
-$ blip --print-moniotrs --run=false
+blip --print-monitors --run=false
 ```
 
 The command line above starts (but does not run) Blip so that it loads monitors and prints them, then exits.
-This can help debug monitor loading and configuration.
+This helps debug monitor loading and configuration.
 
 ---
 
-Why stop now; keep learning: [Plans&nbsp;&darr;](plans)
+Now the fun part: [Metrics&nbsp;&darr;](metrics)

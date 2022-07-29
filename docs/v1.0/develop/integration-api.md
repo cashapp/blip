@@ -1,11 +1,10 @@
 ---
 layout: default
-title: Integrate
-nav_order: 140
-permalink: /v1.0/integrate
+parent: Develop
+title: Integration API
 ---
 
-# Integrate
+# Integration API
 
 Integration allows you to customize every major aspect of Blip without modifying its core code.
 That makes it easy and safe to tailor Blip to meet any requirements and work in any environment.

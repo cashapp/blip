@@ -1,6 +1,6 @@
 ---
 layout: default
-parent: Monitors
+parent: "Monitors"
 title: "Error Handling"
 ---
 

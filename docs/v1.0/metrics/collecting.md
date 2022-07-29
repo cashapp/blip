@@ -2,169 +2,193 @@
 layout: default
 parent: Metrics
 title: Collecting
-nav_order: 2
+nav_order: 1
 ---
 
 # Collecting
 {: .no_toc }
 
+[Introduction > Metrics](../intro/metrics) and [Introduction > Plans](../intro/plans) briefly describe how Blip collects metrics.
+TL;DR: _you specify metrics (by domain) in a plan_.
+
+This page details how Blip collects metrics and how to customize metrics collection.
+After reading this page, be sure to read the next, [Reporting](reporting), to learn how Blip reports metrics.
+
+Understanding Blip metrics collection begins with domains.
+
 * TOC
 {:toc}
 
-Blip collects only the domains and metrics specified in [plans](../plans/).
-For example, Blip does _not_ collect all `SHOW GLOBAL STATUS` metrics by default because the majority of MySQL metrics are not generally useful, and some are not even metrics.
-Moreover, different users collect different metrics&mdash;no single set of metrics works for everyone.
-As a result, you typically specify the metrics to collect for each domain, like:
+## Domains
+
+Blip organizes _all_ metrics into [domains](domains).
+Domains are a Blip invention; they are not inherent to MySQL or other monitoring tools.
+Blip uses domains for organization and consistency because MySQL metrics lack both, which makes it nearly impossible to read or write coherently about MySQL metrics.
+
+Each domain uses one or more _source_: a MySQL command or table from which Blip collects metrics for the domain.
+Most domains map very closely to the source of MySQL metrics that they represent.
+For example, domain [`var.global`](domains#varglobal) uses source `SHOW GLOBAL VARIABLES`.
+
+To collect a specific metric, find the [domain](domains) that uses the source of the metric, the add the domain and metric to the [plan](../plans/).
+For example, to collect global system variable [`max_connections`](https://dev.mysql.com/doc/refman/8.0/en/server-system-variables.html#sysvar_max_connections):
 
 ```yaml
-level:
+sysvars:
+  freq: 1h
+  collect:
+    var.global:
+      metrics:
+        - max_connections
+```
+
+That plan is only a snippet, but it demonstrates the basic concepts that apply to collecting all metrics (by domain).
+
+### Reusing
+
+Recall from [Introduction / Plans](../intro/plans) that Blip automatically levels up: when level collection times overlap, Blip automatically collects all metrics in the overlapping levels.
+Leveling up occurs because domains can be reused at different levels (domains are unique per level).
+This is important because it's both common and necessary for collecting different metrics at different frequencies&mdash;which is the main benefit of level plans.
+For example, [`status.global`](domains#statusglobal) collects metrics from `SHOW GLOBAL STATUS` (the primary source of MySQL metrics), and it's used to collect different metrics at different frequencies:
+
+```yaml
+kpi:
   freq: 5s
   collect:
     status.global:
       metrics:
-        - threads_running
         - queries
+
+standard:
+  freq: 20s
+  collect:
+    status.global:
+      metrics:
+        - bytes_sent
+        - bytes_received
 ```
 
-That plan snippet collects two metrics from the [`status.global`](#statusglobal) domain: `Threads_running` and `Queries`.
+The `kpi` level every 1 second collects metric `Queries` to calculate true QPS.
+The `standard` level every 20 seconds collects metrics `Bytes_sent` and `Bytes_receive` to calculate network throughput, which doesn't need 1-second resolution.
+Every 20 seconds, Blip automatically levels up to collect all metrics in both levels because 20 overlaps 5.
+(_Overlap_ means a higher level `H` overlaps a lower level `L` when `H` is a multiple of `L`; or more simply: `H mod L = 0`.)
+Therefore, you should not reuse _metrics_; each metric (per domain) should appear in only one level.
 
-## Conventions
+<p class="note">
+Reuse domains but not metrics.
+Blip automatically collects all metrics in overlapping lower levels.
+</p>
 
-Blip conventions provide consistency and structure to make writing plans and reporting metrics easier.
-Although the [built-in sinks](../sinks/) report fully-qualified metric names (`status.global.threads_running`), your [custom sink](../sinks/custom) can rename and report metrics however you want.
-For example, your sink could ignore Blip domains completely and report only metric names (`threads_running`), or report a simpler custom prefix (`mysql.threads_running`).
+### Options
 
-### Metrics
+Each domain has its own options that are documented in the [domain reference](domains) and printed by running:
 
-#### Naming
+```sh
+blip --print-domains
+```
 
-Blip strives to report MySQL metric names as-is&mdash;no modifications&mdash;so that what you see in MySQL is what you get in Blip.
+Since domains are unique per plan level, their options are unique per level, too.
+See [Configure / Collectors](../config/collectors).
 
-However, MySQL metric names are very inconsistent:
+## Metrics
 
-* `Foo_bar` (most common)
-* `Foo_Bar` (replica status)
-* `foo_bar` (InnoDB metrics)
-* `foo_bar_count` (type suffix)
-* `foo_bar_usec` (unit suffix)
+Metrics to collect are listed under `metrics` for each domain in a plan:
 
-For consistency, Blip metric names have three requirements:
+```yaml
+standard:
+  freq: 20s
+  collect:
+    status.global:
+      metrics:
+        - Queries
+        - Threads_running
+    var.global:
+      metrics:
+        - Max_connections
+```
 
-1. Only `snake_case`
-1. Always lowercase
-1. No prefixes or suffixes
+A few domains have options to collect all metrics from the MySQL source, but most require explicitly listing the metrics to collect.
+This seems tedious when writing a plan, but it's necessary because almost every MySQL metric source includes non-metrics.
+For example, `SHOW GLOBAL STATUS` includes many strings, like `Innodb_buffer_pool_dump_status = "Dumping of buffer pool not started"`&mdash;clearly not a metric.
+Listing metrics to collect results in remarkably better metrics collection&mdash;it's an investment with a very high return.
 
-A fully-qualified metric name includes a domain: `status.global.threads_running`.
-The metric name is always the last field (split on `.`).
+### MySQL Metrics
 
-#### Types
+MySQL metrics are straight from MySQL and listed in a plan with the exact same name as they appear in MySQL.
+If you want to collect these metrics from [`status.global`](domains#statusglobal),
 
-Blip metric types are standard:
+```
+mysql> SHOW GLOBAL STATUS;
++--------------------------------+---------+
+| Variable_name                  | Value   |
++--------------------------------+---------+
+| Aborted_clients                | 44      |
+| Aborted_connects               | 38      |
+| Binlog_cache_disk_use          | 0       |
+| Binlog_cache_use               | 5       |
+| Binlog_stmt_cache_disk_use     | 0       |
+| Binlog_stmt_cache_use          | 0       |
+| Bytes_received                 | 93451   |
+| Bytes_sent                     | 2361896 |
+```
 
-* UNKNOWN
-* COUNTER
-* GAUGE
-* BOOL
-* EVENT
+then specify those metrics in a plan:
 
-Most metrics are counters; a few are gauges.
-Blip, like MySQL, does not distinguish between "counter" and "cumulative counter".
-Blip counter metrics can reset to zero if MySQL is restarted; otherwise, the value only increases.
+```yaml
+standard:
+  freq: 20s
+  collect:
+    status.global:
+      metrics:
+        - Aborted_clients
+        - Aborted_connects
+        - Binlog_cache_disk_use
+        - Binlog_cache_use
+        - Binlog_stmt_cache_disk_use
+        - Binlog_stmt_cache_use
+        - Bytes_received
+        - Bytes_sent
+```
 
-Currently, Blip does not report bool or event metrics, but these are reserved for future use.
+Blip only collects the metrics listed in the plan.
 
-The unknown type is used only for error detection.
+### Derived Metrics
 
-#### Values
+_Derived metrics_ are metrics that Blip creates (derives) from MySQL metrics.
+Domain [`size.database`](domains#sizedatabase) is a canonical example: MySQL does not provide a single database size metric; tools like Blip derive the metric from various MySQL tables and values.
+That domain collects a derived metric called `bytes`.
 
-All values, regardless of type, are `float64`.
-
-#### Units
-
-MySQL metrics use a variety of units&mdash;from picoseconds to seconds.
-When the MySQL metric unit is documented and consistent, Blip reports the value as-is.
-For example, `innodb.buffer_flush_avg_time` is documented as "Avg time (ms) spent for flushing recently.", therefore Blip reports the value as-is: as milliseconds.
-
-When the MySQL metric unit is variable, Blip uses the following units:
-
-|Metric Type|Unit|
-|-----------|----|
-|Query time|microseconds (μs)
-|Lock time|microseconds (μs)
-|Wait time|microseconds (μs)
-|Replication (lag)|milliseconds (ms)
-|Data size|bytes
-
-For example, query response time ranges from nanoseconds to seconds (with microsecond precision) depending on the source.
-But regardless of the source, Blip reports `query.*.response_time` as _microseconds (μs)_.
-
-{: .note}
-To convert units, use the [TransformMetrics plugin](../integrate#transformmetrics) or write a [custom sink](../sinks/custom).
-
-Blip does _not_ suffix metric names with units, and it does not strip the few MySQL metrics that have unit suffixes.
-
-## Collector Metrics
-
-Most metrics are MySQL metrics: Blip simply reports the MySQL metric (after making it lowercase).
-For example, MySQL metric `Threads_running` is simply `threads_running`, and InnoDB metric `trx_rseg_history_len` is simply `trx_rseg_history_len`.
-Even in cases like `trx_rseg_history_len`, Blip never renames MySQL metrics to something more friendly, like `history_list_length`, which the MySQL metric really represents.
-
-{: .note}
-Blip never renames MySQL metrics.
-
-**MySQL metrics are _not_ listed in [Domains](domains); see the listed MySQL sources for metrics.**
-
-_Collector metrics_ are metrics created by the collector, usually derived from MySQL metrics.
-For example, the [`repl.lag` collector](domains#repllag) reports a metric named `lag`.
-There is no MySQL metric by that name; it's created by the collector.
-
-To rename metrics, use the [TransformMetrics plugin](../integrate#transformmetrics) or write a [custom sink](../sinks/custom).
-
-## Domain Naming
-
-Blip metric domain names have three requirements:
-
-1. Always lowercase
-1. One word: `[a-z]+`
-1. Singular noun: "size" not "sizes"; "query" not "queries"
-
-Common abbreviation and acrynomym are prefered, especially when they match MySQL usage: "thd" not "thread"; "pfs" not "performanceschema"; and so on.
-
-{: .note }
-Currently, domain names fit this convention, but if a need arises to allow hyphenation ("domain-name"), it might be allowed.
-Snake case ("domain_name") and camel case ("domainName") are not allowed: the former is used by metrics, and the latter is not Blip style.
-
-### Sub-domains
-
-Blip uses sub-domains for two purposes: MySQL-grouped metrics, or metrics that are related but different.
-
-The [`error` domain](domains#error) is an exmaple of metrics that are related by different.
-[`error.query`](domains#errorquery) and [`error.repl`](domains#errorepl) both comprise error-related metrics, hence the common root domain, but the specific metrics for each are different.
-
-The[`status` domain](domains#status) is an example of MySQL-grouped metrics.
-MySQL provides status metrics grouped by account, global, host, thread, and user.
-(_Global_ is the most common, as in `SHOW GLOBAL STATUS`.)
-Blip has a sub-domain for each group&mdash;`status.account`, `status.global`, and so on&mdash;that makes advacned plans like the following possible:
+Derived metrics are _not_ automatically collected; they must be explicitly listed in the plan like MySQL metrics.
+For example:
 
 ```yaml
 level:
   collect:
-    status.global:
-      options:
-        all: yes
-    status.host:
-      options:
-        host: 10.1.1.1
+    size.database:
       metrics:
-        - queries
-        - threads_running
+        - bytes  # derived metric
 ```
 
-The plan snippet above collects all global status metrics (`status.global`) but only two status metrics for host 10.1.1.1 (`status.host`).
+The [domain reference](domains) documents derived metrics for each domain.
 
-MySQL-grouped metrics are an _explicit group_: `status.host` explicitly groups by `host`.
-See [Reporting > Groups](reporting#groups) for more details.
+### Renaming
 
-{: .note}
-For simplicitly, sub-domains are called "domains" in the rest of the docs.
-The term is only used here to clarify the distinction and usage.
+Blip never renames MySQL metrics on collection.
+Even in cases like `trx_rseg_history_len` (a metric from the [`innodb`](domains#innodb) domain), Blip never renames MySQL metrics.
+(That metric is a gauge for InnoDB history list length.)
+
+Metrics can be renamed _after_ collection by using the [TransformMetrics plugin](../develop/integration-api#plugins) or writing a [custom sink](../develop/sinks).
+See [Reporting](reporting) to understand how metrics are reported post-collection, which provides a consistent and programmatic basis for the plugin or sink.
+
+## Collectors
+
+_Collectors_ (short for _metric collectors_) are low-level components that collect metrics for [domains](domains).
+Collectors and domains are one-to-one: one domain uses one collector to collect the metrics from the MySQL source.
+
+Since collectors are low-level, this documentation refers more frequently to domains, which are user-level.
+The distinction is made when necessary, like [Configure / Collectors](../config/collectors), but generally collectors and domains are synonymous since they're are one-to-one.
+
+See [Develop / Collectors](../develop/collectors) to learn how to create new collectors (and domains) to make Blip collect new metrics.
+
+## Defaults
+
+Blip uses a [default plan](../plans/defaults) to collect over 70 of the most important MySQL metrics by default.

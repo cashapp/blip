@@ -11,8 +11,7 @@ nav_order: 2
 
 # Config File
 
-Blip configuration is specified in a single YAML file (see [Specifying a Config File](blip#specifying-a-config-file)).
-Concetpually, the Blip config file has three parts as shown and defined below.
+Blip configuration is specified in a single [config file](blip#config-file) that has three logical sections:
 
 ```yaml
 ---
@@ -23,29 +22,45 @@ Concetpually, the Blip config file has three parts as shown and defined below.
 # Monitors
 monitors: []
 ```
+<br>
 
 _Server config_
-: Top-level sections that configure the `blip` instance, which is called the "server": API, monitor loading, and so forth
+: Server config is top-level sections that configure the Blip binary (`blip`), which is called the _server_ because it runs the monitors and has an external [API](../api).
+Server config is optional.
 
 _Monitor defaults_
-: Top-level sections that provide default values for each monitor: hostname, username, and so on
+: Monitor defaults are top-level sections that configure default values for each monitor: hostname, username, and so on.
+Monitor defaults are commonly configured to avoid repeating the same config for each monitor.
 
 _Monitors_
-: List items under the `monitors` section, one for each MySQL instance to monitor: hostname, username, and so on
+: Monitors are a list of MySQL instances to monitor.
+Each monitor in the list inherits config from the monitor defaults.
+For example, if a monitor does not explicitly set the MySQL hostname, it inherits the value from monitor defaults if set.
 
-A simple Blip config file for monitoring a single MySQL instance looks like:
+<br>
+The simplest possible Blip config for monitoring a single MySQL instance looks like:
 
 ```yaml
 monitors:
   - hostname: db.local
-    username: metrics
-    password: "myVerySecurePassword"
+    username: blip
+    password: "foo"
 ```
 
-Since no server config is specified, `blip` uses  built-in defaults (see [Zero Config](blip#zero-config)), which is probably fine for the server.
+That uses the [default plan](../plans/defaults) to collect metrics.
+You will likely write your own custom plan, which is configured like:
 
-{: .src }
-// [config.go](https://github.com/cashapp/blip/blob/main/config.go)
+```yaml
+plans:
+  files: my-plan.yaml
+monitors:
+  - hostname: db.local
+    username: blip
+    password: "bar"
+```
+
+In this case, the monitor inherits the only plan.
+See [Plans / Loading](../plans/loading) for details on how plans are loaded and shared.
 
 # Conventions
 
@@ -55,97 +70,24 @@ To reference sections, subsections, and specific user-configurable variables wit
 : Any top-level section. For example: `api`, `plans`, and `monitors`.
 
 `SECTION[.SUB...].VAR`
-: A user-configurable variable in the `SECTION` with optional subections (`SUB`). For example: `mysql.username` (section = `mysql`, variable = `username`), or `monitors.heartbeat.freq` (section = 'monitors', subsection = 'heartbeat', variable = 'freq`).
+: A user-configurable variable in the `SECTION` with optional subections (`SUB`). For example: `mysql.username` (section = `mysql`, variable = `username`), or `monitors.heartbeat.freq` (section = `monitors`, subsection = `heartbeat`, variable = `freq`).
 
 Note the difference between `heartbeat` and `monitors.heartbeat`: the former is the top-level [monitor default](#monitor-defaults); the latter is a [monitor config](#monitors) that inherts the monitor defaults, if any.
 
-Outside this section of the docs, we prefix all config references with `config.`.
-For example, elsewhere in the docs, we write `config.api` to make it clear that we're refering to the `api` section of the Blip config file.
-
-All section and variable names are `lowercase-and-hyphenated`.
-(But string values that you specifiy can by anything you want.)
+In the Blip documentation outside this page, config file references begin with `config.`.
+For example, `config.api` refers to the [`api`](#api) server config section of the Blip config file.
 
 `disable` and `disable-auto-...` are used to disable features.
 There are no "enable" prefixes or variables.
 Instead, some features of either off or auto by default.
 If off by default, the feature is enabled by specifying a variable noted in the docs.
-For example, `heartbeat` is off by default and enabled when `heartbeat.freq` is specififed.
+For example, `heartbeat` is off by default and enabled when `heartbeat.freq` is specified.
 If auto by default, the feature is disabled by specifying `disable-auto-FEATURE: true`, where `FEATURE` is the feature name.
 For example, `aws.disable-auto-region: true` to disable auto-detecting the AWS region.
 
-<br><br><br>
+Blip uses `lowercase-kebab-case` for all sections and variable names.
 
-# Interpolation
-
-Blip automatically interploates environment variables and monitor variables in the config file _and_ plans.
-
-Environment variable
-: `${FOO}`
-
-Environment variable with default value
-: `${FOO:-default}`
-
-Monitor variable
-: `%{monitor.VAR}`
-
-{: .note }
-**NOTE**: `${}` and `%{}` are always required.
-
-Environment variable interpolation is a simple implementation of the shell standard.
-In Blip, only the two cases shown above are supported, and `default` must be a literal value (it cannot be another `${}`).
-
-Monitor variables are scoped to (only work within) a single monitor.
-For example:
-
-```yaml
-monitors:
-  - hostname: db.local
-    username: metrics
-    tags:
-      hostname: %{monitor.hostname}
-```
-
-The result is `monitors.tags.hostname = "db.local"` because `%{monitor.hostname}` refers to the local `monitors.hostname` variable.
-Blip is remarkably flexible, so this works the other way, too:
-
-```yaml
-monitors:
-  - hostname: %{monitor.tags.hostname}
-    username: metrics
-    tags:
-      hostname: db.local
-```
-
-The result is `monitors.hostname = "db.local"` because `%{monitor.tags.hostname}` refers to the local `monitrs.tags.hostname` variable.
-
-{: .note }
-Singular "monitor" in `%{monitor.VAR}`, not plural, to emphasize that the reference is only to the single monitor in which it appears
-
-`%{monitor.VAR}` references outside [monitors](#monitors) or [monitor defaults](#monitor-defaults) are ignored and reuslt in the literal string: "%{monitor.VAR}".
-
-You can use both in a single value, like:
-
-```yaml
-tls:
-  ca: "${SECRETS_DIR}/%{monitor.hostname}"
-
-monitors:
-  - hostname: db1
-  - hostname: db2
-```
-
-Top-level `tls.ca` specifies a monitor default that applies to all monitors that don't explicily set the varaible.
-If `SECRETS_DIR = /secrets`, the result is:
-
-```yaml
-monitors:
-  - hostname: db1
-    tls:
-      ca: /secrets/db1
-  - hostname: db2
-    tls:
-      ca: /secrets/db2
-```
+---
 
 # Server Config
 
@@ -173,7 +115,7 @@ The `bind` variable sets the interface address and port that the API listens on.
 
 {: .var-table }
 |**Type**|bool|
-|**Valid values**|`true`, `false`|
+|**Valid values**|`true` or `false`|
 |**Default value**|`false`|
 
 The `disable` variable disables the Blip API.
@@ -240,6 +182,8 @@ The `local` subsection has only two variables:
 |**Default value**||
 
 The `stop-loss` variable enables the [stop-lost feature](../server/monitor-loader#stop-loss).
+
+---
 
 # Monitor Defaults
 
@@ -362,7 +306,7 @@ The `flag` variable is a key-value map of strings for certain Prometheus mysqld_
 |**Valid values**|`dual` or `legacy`|
 |**Default value**||
 
-The `mode` variables enables the [Prometheus emualation feature](../prometheus/).
+The `mode` variables enables [Prometheus emulation](../prometheus).
 When set to `dual`, Blip runs normally _and_ emulates Prometheus.
 When set to `legacy`, Blip runs _only_ emulates Prometheus.
 The feature is disabled by default.
@@ -370,7 +314,7 @@ The feature is disabled by default.
 {: .config-section-title}
 ## heartbeat
 
-The `heartbeat` section configures the [Blip heartbeat](../heartbeat/).
+The `heartbeat` section configures the [Blip heartbeat](../heartbeat).
 
 ```yaml
 heartbeat:
@@ -405,7 +349,7 @@ To disable heartbeat, remove `freq` or set to an empty string (zero is not a val
 The `role` variable sets the role that the monitor reports in the [heartbeat table](../heartbeat#table).
 For example, this might be a region like "us-east-1".
 
-See [Heartbeat > Topology](../heartbeat#topology) to learn how `role` and `source-id` are used.
+See [Heartbeat > Topology](../heartbeat#replication-topology) to learn how `role` and `source-id` are used.
 
 ### `source-id`
 
@@ -417,7 +361,7 @@ See [Heartbeat > Topology](../heartbeat#topology) to learn how `role` and `sourc
 The `source-id` variable sets the source ID that the monitor reports in the [heartbeat table](../heartbeat#table).
 This overrides the default value, which is often necessary in the cloud where MySQL instances do not have user-defined hostnames, especially with respect to replication.
 
-See [Heartbeat > Topology](../heartbeat#topology) to learn how `role` and `source-id` are used.
+See [Heartbeat > Topology](../heartbeat#replication-topology) to learn how `role` and `source-id` are used.
 
 ### `table`
 
@@ -432,8 +376,6 @@ The default database is `blip` if the table name is not database-qualified like 
 The table must already exist; Blip does not create the table.
 See [Heartbeat > Table](../heartbeat#table) for details.
 
-
-
 {: .config-section-title}
 ## mysql
 
@@ -446,12 +388,22 @@ mysql:
   password: ""
   password-file: ""
   socket: ""
-  timeout-connect: "5s"
+  timeout-connect: "10s"
   username: "blip"
 ```
 
-This is the most important and common seciton since it configures how Blip connects to MySQL.
-It's also the only section that becomes top-level in each [monitor config](#monitors): in a monitor config, omit `mysql:` and configure these variables at the top level.
+As monitor defaults, this section is specified as shown above: top-level with the variables specified under `mysql:`.
+For each monitor in the [`monitors`](#monitors) section, these variables are top-level (omit the `mysql:` header).
+For example:
+
+```yaml
+monitors:
+  - hostname: ""
+    mycnf: ""
+    # Other mysql section variables
+```
+
+_These are the only variables the become top-level in [`monitors`](#monitors)._
 
 ### `hostname`
 
@@ -482,6 +434,7 @@ Blip reads the `[client]` section of the my.cnf file:
 |ssl-ca|[`tls.ca`](#ca)|
 |ssl-cert|[`tls.cert`](#cert)|
 |ssl-key|[`tls.key`](#key)|
+|ssl-mode|(Special handling)|
 |user|[`username`](#username)|
 
 ### `username`
@@ -536,7 +489,9 @@ The `plans` section configures the source of [plans](../plans/).
 
 ```yaml
 plans:
-  files: ["plan.yaml"]
+  files:
+    - plan1.yaml
+    - plan2.yaml
   table: "blip.plans"
   monitor: {}
   adjust:
@@ -659,7 +614,7 @@ It discards all metrics, which is useful for testing end-to-end metrics collecti
 ##  tags
 
 The `tags` section sets user-defined key-value pairs (as strings) that are passed to each sink.
-For example (using [interpolation](#interpolation)):
+For example (using [interpolation](interpolation)):
 
 ```yaml
 tags:
@@ -672,8 +627,8 @@ Blip calls these "tags", but each sink might have a different term for the same 
 For example, with SignalFx these are called "dimensions".
 But the concept is the same: metadata (usually string key-value pairs) attached to metrics that describe or annotate the metrics for grouping, aggregation, or filtering when display in graphs/charts.
 
-The [built-in metrics sinks](../metrics/sinks#built-in) automatically send all tags with metrics.
-For example, the `signalfx` sink sends the tags as SingalFx dimensions.
+The [default sinks](../sinks) automatically send all tags with metrics.
+For example, the [`signalfx` sink](../sinks/signalfx) sends all tags as SignalFx dimensions.
 
 {: .config-section-title}
 ## tls
@@ -685,6 +640,8 @@ tls:
   ca: ""
   cert: ""
   key: ""
+  disable: false
+  skip-verify: false
 ```
 
 You can specify only `tls.ca`, or `tls.cert` and `tls.key`, or all three; any other combination is invalid.
@@ -718,6 +675,25 @@ The `cert` variables sets the public certificate file.
 |**Default value**||
 
 The `key` variables sets the private key file.
+
+### `disable`
+
+{: .var-table }
+|**Type**|bool|
+|**Valid values**|`true` or `false`|
+|**Default value**|`false`|
+
+The `disable` variable disables TLS even if configured.
+`ssl-mode=DISABLED` in a [`mycnf`](#mycnf) file also disables TLS.
+
+### `skip-verify`
+
+{: .var-table }
+|**Type**|bool|
+|**Valid values**|`true` or `false`|
+|**Default value**|`false`|
+
+Do not verify the server address (MySQL hostname).
 
 # Monitors
 
@@ -788,45 +764,11 @@ Therefore, do not rely on them outside of Blip for truly stable, unique MySQL in
 |**Valid values**|any strings|
 |**Default value**||
 
-The `meta` variable is a map of key-value strings extrensic to Blip.
+The `meta` variable is a map of key-value strings for user-defined monitor metadata.
 
-"Extrensic to Blip" is a fancy but succinct way of saying that `meta` data is not used by Blip, but it can be used by you.
-For example by contrast, all other variables are used by Blip in some way, for some purpose.
-But not `meta`.
-However, you can still reference `meta` in the config file and [plans](../plans/): `%{monitor.meta.KEY}`.
+No part of Blip uses or requires monitor metadata.
+Unlike [`tags`](#tags) and [_metric_ metadata](../metrics/reporting#meta), Blip does not copy or send monitor metadata.
+This makes monitor metadata useful for advanced or automated configurations because it allows you to add custom configuration and reference it with [interpolation](interpolation).
 
-`meta` solves at least one problem: passing the source DSN for a replica from monitor config to plan.
-Imagine you have two MySQL instances: `source.db` and `replica.db`, where the latter replicates from the former.
-Problem is: there is no configuration section to define the source MySQL instance.
-
-{: .note}
-Configuring replication sources in Blip is not an easy problem to solve because replication topologies change when replicas are used for high availability, and [MySQL Group Replication](https://dev.mysql.com/doc/refman/8.0/en/group-replication) has different requirements.
-
-To solve this problem, you configure the source DSN in `meta`:
-
-```yaml
-monitors:
-  - hostname: replica.db
-    meta:
-      source-host: source.db
-      source-user: repl
-      source-pass: pleaseDontLag
-```
-
-You could configure it in [`tags`](#tags), too, but tags are copied to sinks whereas metadata is not.
-Therefore, this configuration is better placed in `meta` than `tags`.
-
-Then in the plan, reference the metadata:
-
-```yaml
-replication:
-  freq: 5s
-  collect:
-    repl:
-      options:
-        source-host: %{monitor.meta.source-host}
-        source-user: %{monitor.meta.source-user}
-        source-pass: %{monitor.meta.source-pass}
-      metrics:
-        - lag
-```
+Monitor metadata is optional.
+When useful, the Blip documentation will shown to use it.

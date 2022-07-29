@@ -1,14 +1,12 @@
 ---
 layout: default
 parent: Monitors
-title: "Level Plan Adjuster"
+title: "Plan Adjuster"
 ---
 
-# Level Plan Adjuster
+# Plan Adjuster
 
-
-## Connection States
-
+The plan adjuster changes the plan based on the state of MySQL.
 
 |State|Connected to MySQL|Collecting Metrics|Description|
 |-----|------------------|------------------|-----------|

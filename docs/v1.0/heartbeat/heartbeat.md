@@ -17,7 +17,7 @@ Consequently, external replication heartbeats are an industry norm because they 
 Presuming one source MySQL instance and one read-only replica, the minimal configuration is:
 
 1. Create the [heartbeat table](#table) on the source.
-2. Grant the Blip MySQL user these privileges:<br/>&bull; [`REPLICATION CLIENT ON *.*`](https://dev.mysql.com/doc/refman/en/privileges-provided.html#priv_replication-client)<br/>&bull; `SELECT, INSERT, UPDATE, DELETE, DROP ON blip.heartbeat`
+2. Grant the Blip MySQL user these privileges:<br/>&bull; [`REPLICATION CLIENT ON *.*`](https://dev.mysql.com/doc/refman/en/privileges-provided.html#priv_replication-client)<br/>&bull; `SELECT, INSERT, UPDATE, DELETE ON blip.heartbeat`
 3. Enable the heartbeat in the Blip config:
   ```yaml
 heartbeat:

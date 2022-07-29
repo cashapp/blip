@@ -1,8 +1,8 @@
 ---
 layout: default
-title: "Sinks"
+title: "5. Sinks"
 parent: Introduction
-nav_order: 4
+nav_order: 5
 ---
 
 # Sinks
