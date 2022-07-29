@@ -13,10 +13,9 @@ import (
 const (
 	DOMAIN = "size.table"
 
-	opt_total         = "total"
-	OPT_EXCLUDE       = "exclude"
-	OPT_INCLUDE       = "include"
-	OPT_SCHEMA_FILTER = "schema"
+	opt_total   = "total"
+	OPT_EXCLUDE = "exclude"
+	OPT_INCLUDE = "include"
 )
 
 // Table collects table sizes for domain size.table.
@@ -106,8 +105,6 @@ LEVEL:
 
 		if dom.Options[opt_total] == "yes" {
 			t.total[level.Name] = true
-		} else {
-			t.total[level.Name] = false
 		}
 	}
 	return nil, nil
@@ -115,25 +112,24 @@ LEVEL:
 
 func (t *Table) Collect(ctx context.Context, levelName string) ([]blip.MetricValue, error) {
 	q, ok := t.query[levelName]
-
 	if !ok {
 		return nil, nil
 	}
+
 	rows, err := t.db.QueryContext(ctx, q)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
-	metrics := []blip.MetricValue{}
-
 	var (
+		metrics []blip.MetricValue
 		dbName  string
 		tblName string
 		val     string
 	)
-
 	total := float64(0)
+
 	for rows.Next() {
 		if err = rows.Scan(&dbName, &tblName, &val); err != nil {
 			return nil, err
