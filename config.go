@@ -359,7 +359,7 @@ type ConfigMonitor struct {
 
 const (
 	DEFAULT_MONITOR_USERNAME        = "blip"
-	DEFAULT_MONITOR_TIMEOUT_CONNECT = "5s"
+	DEFAULT_MONITOR_TIMEOUT_CONNECT = "10s"
 )
 
 func DefaultConfigMonitor() ConfigMonitor {

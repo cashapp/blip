@@ -16,14 +16,13 @@ type Options struct {
 	Config        string `arg:"env:BLIP_CONFIG"`
 	Debug         bool   `arg:"env:BLIP_DEBUG"`
 	Help          bool
-	Plans         string `arg:"env:BLIP_PLANS"`
-	Log           bool   `arg:"--log"`
-	PrintConfig   bool   `arg:"--print-config"`
-	PrintDomains  bool   `arg:"--print-domains"`
-	PrintMonitors bool   `arg:"--print-monitors"`
-	PrintPlans    bool   `arg:"--print-plans"`
-	Run           bool   `arg:"env:BLIP_RUN" default:"true"`
-	Version       bool   `arg:"-v"`
+	Log           bool `arg:"env:BLIP_LOG"`
+	PrintConfig   bool `arg:"--print-config"`
+	PrintDomains  bool `arg:"--print-domains"`
+	PrintMonitors bool `arg:"--print-monitors"`
+	PrintPlans    bool `arg:"--print-plans"`
+	Run           bool `arg:"env:BLIP_RUN" default:"true"`
+	Version       bool `arg:"-v"`
 }
 
 // CommandLine represents options (--addr, etc.) and args: entity type, return
@@ -68,7 +67,6 @@ func printHelp() {
 		"  --debug          Print debug to stderr\n"+
 		"  --help           Print help and exit\n"+
 		"  --log            Log info events to STDOUT\n"+
-		"  --plans          Plans files (default: %s)\n"+
 		"  --print-config   Print config on boot\n"+
 		"  --print-domains  Print metric domains\n"+
 		"  --print-monitors Print monitors on boot\n"+
