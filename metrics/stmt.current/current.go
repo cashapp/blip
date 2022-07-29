@@ -61,7 +61,7 @@ func (c *Current) Help() blip.CollectorHelp {
 			{
 				Name: "slowest",
 				Type: blip.GAUGE,
-				Desc: "The length of the oldest active query in seconds",
+				Desc: "The length of the oldest active query in microseconds",
 			},
 			{
 				Name: "slow",
@@ -89,10 +89,8 @@ LEVEL:
 			switch name {
 			case "slowest":
 				m.slowest = true
-				// c.slowest[level.Name] = true
 			case "slow":
 				m.slow = true
-				// c.slow[level.Name] = true
 			default:
 				return nil, fmt.Errorf("invalid collector metric: %s (run 'blip --print-domains' to list collector metrics)", name)
 			}
@@ -156,7 +154,7 @@ func (c *Current) Collect(ctx context.Context, levelName string) ([]blip.MetricV
 	}
 
 	if m.slow {
-		// Count of statements with duration greater than or equal to 30 seconds (in microseconds)
+		// Count of statements with duration greater than or equal to threshold
 		count := len(times) - sort.SearchFloat64s(times, m.threshold)
 
 		values = append(values, blip.MetricValue{
