@@ -15,7 +15,7 @@ const (
 	query  = `SELECT TIMER_WAIT FROM performance_schema.events_statements_current 
 		WHERE END_EVENT_ID IS NULL 
 		AND EVENT_NAME NOT LIKE ('statement/com/Binlog%')`
-	optThreshold = "THRESHOLD"
+	optThreshold = "threshold"
 )
 
 type currentMetrics struct {
