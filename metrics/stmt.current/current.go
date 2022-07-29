@@ -15,7 +15,7 @@ const (
 	query  = `SELECT TIMER_WAIT FROM performance_schema.events_statements_current 
 		WHERE END_EVENT_ID IS NULL 
 		AND EVENT_NAME NOT LIKE ('statement/com/Binlog%')`
-	optThreshold = "threshold"
+	OPT_THRESHOLD = "threshold"
 )
 
 type currentMetrics struct {
@@ -51,8 +51,8 @@ func (c *Current) Help() blip.CollectorHelp {
 		Domain:      DOMAIN,
 		Description: "Statement metrics",
 		Options: map[string]blip.CollectorHelpOption{
-			optThreshold: {
-				Name:    optThreshold,
+			OPT_THRESHOLD: {
+				Name:    OPT_THRESHOLD,
 				Desc:    "The length of time (in microseconds) that a query must be active to be considered slow",
 				Default: "30000000",
 			},
@@ -98,12 +98,12 @@ LEVEL:
 			}
 		}
 
-		threshold, ok := dom.Options[level.Name]
+		threshold, ok := dom.Options[OPT_THRESHOLD]
 		if !ok {
-			threshold = c.Help().Options[optThreshold].Default
+			threshold = c.Help().Options[OPT_THRESHOLD].Default
 		}
 		t, err := strconv.ParseFloat(threshold, 64)
-		if err == nil {
+		if err != nil {
 			t = 0
 		}
 		m.threshold = t
@@ -157,7 +157,7 @@ func (c *Current) Collect(ctx context.Context, levelName string) ([]blip.MetricV
 
 	if m.slow {
 		// Count of statements with duration greater than or equal to 30 seconds (in microseconds)
-		count := len(times) - sort.SearchFloat64s(times, 30e6)
+		count := len(times) - sort.SearchFloat64s(times, m.threshold)
 
 		values = append(values, blip.MetricValue{
 			Name:  "slow",
