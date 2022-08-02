@@ -157,7 +157,6 @@ func (c *Repl) Collect(ctx context.Context, levelName string) ([]blip.MetricValu
 		if len(replStatus) == 0 {
 			// no SHOW SLAVE|REPLICA STATUS output = not a replica
 			running = float64(NOT_A_REPLICA)
-			fmt.Printf("WH repl.running is -1\n")
 		} else if (replStatus["Slave_IO_Running"] == "Yes" || replStatus["Replica_IO_Running"] == "Yes") &&
 			(replStatus["Slave_SQL_Running"] == "Yes" || replStatus["Replica_SQL_Running"] == "Yes") && replStatus["Last_Errno"] == "0" {
 			// running if a replica and those ^ 3 conditions are true
