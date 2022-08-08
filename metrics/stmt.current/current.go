@@ -5,7 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"sort"
-	"strconv"
+	"time"
 
 	"github.com/cashapp/blip"
 )
@@ -15,7 +15,9 @@ const (
 	query  = `SELECT TIMER_WAIT FROM performance_schema.events_statements_current 
 		WHERE END_EVENT_ID IS NULL 
 		AND EVENT_NAME NOT LIKE ('statement/com/Binlog%')`
-	OPT_THRESHOLD = "threshold"
+	OPT_THRESHOLD = "slow-threshold"
+	// Minimum accepted value for slow-threshold in microseconds
+	min_threshold = 1
 )
 
 type currentMetrics struct {
@@ -53,15 +55,15 @@ func (c *Current) Help() blip.CollectorHelp {
 		Options: map[string]blip.CollectorHelpOption{
 			OPT_THRESHOLD: {
 				Name:    OPT_THRESHOLD,
-				Desc:    "The length of time (in microseconds) that a query must be active to be considered slow",
-				Default: "30000000",
+				Desc:    "The duration (as a duration string) that a query must be active to be considered slow",
+				Default: "1.0s",
 			},
 		},
 		Metrics: []blip.CollectorMetric{
 			{
 				Name: "slowest",
 				Type: blip.GAUGE,
-				Desc: "The length of the oldest active query in microseconds",
+				Desc: "The duration of the oldest active query in microseconds",
 			},
 			{
 				Name: "slow",
@@ -100,11 +102,15 @@ LEVEL:
 		if !ok {
 			threshold = c.Help().Options[OPT_THRESHOLD].Default
 		}
-		t, err := strconv.ParseFloat(threshold, 64)
+		d, err := time.ParseDuration(threshold)
 		if err != nil {
-			t = 0
+			return nil, fmt.Errorf("invalid %s value '%s': %v", OPT_THRESHOLD, threshold, err)
 		}
-		m.threshold = t
+		t := d.Microseconds()
+		if t < min_threshold {
+			return nil, fmt.Errorf("invalid %s value '%s': must be greater than or equal to 1us", OPT_THRESHOLD, threshold)
+		}
+		m.threshold = float64(t)
 
 		c.atLevel[level.Name] = m
 	}
