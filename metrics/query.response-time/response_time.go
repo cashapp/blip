@@ -29,26 +29,31 @@ const (
 	TRUNCATE_QUERY = "TRUNCATE TABLE performance_schema.events_statements_histogram_global"
 )
 
+type percentile struct {
+	formatted string // p95
+	query     string
+}
+
+type qrtConfig struct {
+	percentiles []percentile
+	setMeta     bool
+	truncate    bool
+	stop        bool
+	errPolicy   map[string]*errors.Policy
+}
+
 type ResponseTime struct {
 	db *sql.DB
 	// --
-	query         map[string]map[float64]string        // keyed on level: level -> percentile -> query
-	setMeta       map[string]bool                      // keyed on level
-	truncateTable map[string]bool                      // keyed on level
-	errPolicy     map[string]map[string]*errors.Policy // keyed on level
-	stop          map[string]bool                      // keyed on level
+	atLevel map[string]*qrtConfig // keyed on level
 }
 
 var _ blip.Collector = &ResponseTime{}
 
 func NewResponseTime(db *sql.DB) *ResponseTime {
 	return &ResponseTime{
-		db:            db,
-		query:         map[string]map[float64]string{},
-		setMeta:       map[string]bool{},
-		truncateTable: map[string]bool{},
-		errPolicy:     map[string]map[string]*errors.Policy{},
-		stop:          map[string]bool{},
+		db:      db,
+		atLevel: map[string]*qrtConfig{},
 	}
 }
 
@@ -106,16 +111,17 @@ LEVEL:
 			continue LEVEL // not collected at this level
 		}
 
+		config := &qrtConfig{}
 		if rp, ok := dom.Options[OPT_REAL_PERCENTILES]; ok && rp == "no" {
-			c.setMeta[level.Name] = false
+			config.setMeta = false
 		} else {
-			c.setMeta[level.Name] = true // default
+			config.setMeta = true // default
 		}
 
 		if truncate, ok := dom.Options[OPT_TRUNCATE_TABLE]; ok && truncate == "no" {
-			c.truncateTable[level.Name] = false
+			config.truncate = false
 		} else {
-			c.truncateTable[level.Name] = true // default
+			config.truncate = true // default
 		}
 
 		var percentilesStr string
@@ -125,23 +131,31 @@ LEVEL:
 			percentilesStr = DEFAULT_PERCENTILE_OPTION
 		}
 
-		c.query[level.Name] = map[float64]string{}
+		var percentiles []percentile
 		percentilesList := strings.Split(strings.TrimSpace(percentilesStr), ",")
 		for _, percentileStr := range percentilesList {
-			percentile, err := util.ParsePercentileStr(percentileStr)
+			p, err := util.ParsePercentileStr(percentileStr)
 			if err != nil {
 				return nil, err
 			}
 
-			where := fmt.Sprintf(" WHERE bucket_quantile >= %f ORDER BY bucket_quantile LIMIT 1", percentile)
+			where := fmt.Sprintf(" WHERE bucket_quantile >= %f ORDER BY bucket_quantile LIMIT 1", p)
 			query := BASE_QUERY + where
-			c.query[level.Name][percentile] = query
+
+			percentile := percentile{
+				formatted: util.FormatPercentile(p),
+				query:     query,
+			}
+			percentiles = append(percentiles, percentile)
 		}
+		config.percentiles = percentiles
 
 		// Apply custom error policies, if any
-		c.errPolicy[level.Name] = map[string]*errors.Policy{}
-		c.errPolicy[level.Name][ERR_NO_TABLE] = errors.NewPolicy(dom.Errors[ERR_NO_TABLE])
-		blip.Debug("error policy: %s=%s", ERR_NO_TABLE, c.errPolicy[level.Name][ERR_NO_TABLE])
+		config.errPolicy = map[string]*errors.Policy{}
+		config.errPolicy[ERR_NO_TABLE] = errors.NewPolicy(dom.Errors[ERR_NO_TABLE])
+		blip.Debug("error policy: %s=%s", ERR_NO_TABLE, config.errPolicy[ERR_NO_TABLE])
+
+		c.atLevel[level.Name] = config
 	}
 
 	return nil, nil
@@ -149,35 +163,34 @@ LEVEL:
 
 // Collect collects metrics at the given level.
 func (c *ResponseTime) Collect(ctx context.Context, levelName string) ([]blip.MetricValue, error) {
-	if c.stop[levelName] {
+	if c.atLevel[levelName].stop {
 		blip.Debug("stopped by previous error")
 		return nil, nil
 	}
 
 	var metrics []blip.MetricValue
-	for percentile, query := range c.query[levelName] {
-		metricName := util.FormatPercentile(percentile)
+	for _, percentile := range c.atLevel[levelName].percentiles {
 		var p float64
 		var us float64
-		err := c.db.QueryRowContext(ctx, query).Scan(&p, &us)
+		err := c.db.QueryRowContext(ctx, percentile.query).Scan(&p, &us)
 		if err != nil {
-			return c.collectError(err, levelName, metricName)
+			return c.collectError(err, levelName, percentile.formatted)
 		}
 
 		m := blip.MetricValue{
 			Type:  blip.GAUGE,
-			Name:  metricName,
+			Name:  percentile.formatted,
 			Value: us,
 		}
-		if c.setMeta[levelName] {
+		if c.atLevel[levelName].setMeta {
 			m.Meta = map[string]string{
-				metricName: fmt.Sprintf("%.1f", p),
+				percentile.formatted: fmt.Sprintf("%.1f", p),
 			}
 		}
 		metrics = append(metrics, m)
 	}
 
-	if c.truncateTable[levelName] {
+	if c.atLevel[levelName].truncate {
 		_, err := c.db.Exec(TRUNCATE_QUERY)
 		if err != nil {
 			return nil, err
@@ -191,7 +204,7 @@ func (c *ResponseTime) collectError(err error, levelName string, metricName stri
 	var ep *errors.Policy
 	switch myerr.MySQLErrorCode(err) {
 	case 1146:
-		ep = c.errPolicy[levelName][ERR_NO_TABLE]
+		ep = c.atLevel[levelName].errPolicy[ERR_NO_TABLE]
 	default:
 		return nil, err
 	}
@@ -200,7 +213,7 @@ func (c *ResponseTime) collectError(err error, levelName string, metricName stri
 	// future calls to Collect; don't return yet because we need to check
 	// the metric policy: drop or zero. If zero, we must report one zero val.
 	if ep.Retry == errors.POLICY_RETRY_NO {
-		c.stop[levelName] = true
+		c.atLevel[levelName].stop = true
 	}
 
 	// Report
