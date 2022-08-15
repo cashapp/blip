@@ -5,6 +5,7 @@ package sink
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -29,14 +30,11 @@ func (s logSink) Send(ctx context.Context, m *blip.Metrics) error {
 	for domain, values := range m.Values {
 		for i := range values {
 			metricStr := fmt.Sprintf("%s.%s = %d", domain, values[i].Name, int64(values[i].Value))
-			var metaKVs []string
-			for metaKey, metaValue := range values[i].Meta {
-				metaKV := fmt.Sprintf("%s=%s", metaKey, metaValue)
-				metaKVs = append(metaKVs, metaKV)
+			if len(values[i].Group) > 0 {
+				metricStr = fmt.Sprintf("%s (group: %s)", metricStr, sortedTuples(values[i].Group))
 			}
-			metaStr := strings.Join(metaKVs, ",")
-			if len(metaKVs) > 0 {
-				metricStr = fmt.Sprintf("%s (meta: %s)", metricStr, metaStr)
+			if len(values[i].Meta) > 0 {
+				metricStr = fmt.Sprintf("%s (meta: %s)", metricStr, sortedTuples(values[i].Meta))
 			}
 			fmt.Println(metricStr)
 		}
@@ -51,4 +49,23 @@ func (s logSink) Status() string {
 
 func (s logSink) Name() string {
 	return "log"
+}
+
+func sortedTuples(m map[string]string) string {
+	// Tuples sorted by keys to avoid this:
+	//  size.table.bytes = 32768 (group: db=test,tbl=t2)
+	//  size.table.bytes = 16384 (group: tbl=q1,db=test)
+	//  size.table.bytes = 32768 (group: db=test,tbl=t3)
+	var tuples []string
+	keys := make([]string, len(m))
+	i := 0
+	for k := range m {
+		keys[i] = k
+		i++
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		tuples = append(tuples, fmt.Sprintf("%s=%s", k, m[k]))
+	}
+	return strings.Join(tuples, ",")
 }
