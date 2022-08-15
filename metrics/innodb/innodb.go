@@ -100,6 +100,7 @@ LEVEL:
 		default:
 			c.query[level.Name] = baseQuery + " WHERE name IN (" + sqlutil.INList(dom.Metrics, "'") + ")"
 		}
+		blip.Debug("%s: innodb metrics at %s: %s", plan.MonitorId, level.Name, c.query[level.Name])
 	}
 	return nil, nil
 }
@@ -138,6 +139,7 @@ func (c *InnoDB) Collect(ctx context.Context, levelName string) ([]blip.MetricVa
 
 		m.Value, ok = sqlutil.Float64(val)
 		if !ok {
+			blip.Debug("innodb: cannot convert %v = %v", name, val)
 			continue
 		}
 

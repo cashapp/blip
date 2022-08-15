@@ -1,8 +1,10 @@
-package util
+package sqlutil_test
 
 import (
 	"math"
 	"testing"
+
+	"github.com/cashapp/blip/sqlutil"
 )
 
 func TestParsePercentileStr(t *testing.T) {
@@ -14,7 +16,7 @@ func TestParsePercentileStr(t *testing.T) {
 	}
 
 	for percentileStr, expectedResult := range testCases {
-		actualResult, err := ParsePercentileStr(percentileStr)
+		actualResult, err := sqlutil.ParsePercentileStr(percentileStr)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -32,7 +34,7 @@ func TestFormatPercentile(t *testing.T) {
 	}
 
 	for percentile, expectedFormat := range testCases {
-		actualFormat := FormatPercentile(percentile)
+		actualFormat := sqlutil.FormatPercentile(percentile)
 		if actualFormat != expectedFormat {
 			t.Errorf("Expected format %s for FormatPercentile(%f) but got %s", expectedFormat, percentile, actualFormat)
 		}

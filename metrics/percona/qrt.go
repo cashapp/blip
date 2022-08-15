@@ -9,7 +9,6 @@ import (
 	"strings"
 
 	"github.com/cashapp/blip"
-	"github.com/cashapp/blip/metrics/util"
 	"github.com/cashapp/blip/sqlutil"
 )
 
@@ -183,7 +182,7 @@ func (c *QRT) Collect(ctx context.Context, levelName string) ([]blip.MetricValue
 			Name:  "response_time",
 			Value: value * 1000000, // convert seconds to microseconds for consistency with PFS quantiles
 			Meta: map[string]string{
-				util.FormatPercentile(percentile): fmt.Sprintf("%.3f", actualPercentile),
+				sqlutil.FormatPercentile(percentile): fmt.Sprintf("%.3f", actualPercentile),
 			},
 		}
 		metrics = append(metrics, m)
@@ -225,7 +224,7 @@ func (c *QRT) prepareLevel(dom blip.Domain, level blip.Level) error {
 	percentilesList := strings.Split(strings.TrimSpace(percentilesStr), ",")
 
 	for _, percentileStr := range percentilesList {
-		percentile, err := util.ParsePercentileStr(percentileStr)
+		percentile, err := sqlutil.ParsePercentileStr(percentileStr)
 		if err != nil {
 			return err
 		}
