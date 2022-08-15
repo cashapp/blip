@@ -12,7 +12,7 @@ import (
 
 	"github.com/cashapp/blip"
 	"github.com/cashapp/blip/errors"
-	"github.com/cashapp/blip/metrics/util"
+	"github.com/cashapp/blip/sqlutil"
 )
 
 const (
@@ -141,7 +141,7 @@ LEVEL:
 		var percentiles []percentile
 		percentilesList := strings.Split(strings.TrimSpace(percentilesStr), ",")
 		for _, percentileStr := range percentilesList {
-			p, err := util.ParsePercentileStr(percentileStr)
+			p, err := sqlutil.ParsePercentileStr(percentileStr)
 			if err != nil {
 				return nil, err
 			}
@@ -150,7 +150,7 @@ LEVEL:
 			query := BASE_QUERY + where
 
 			percentile := percentile{
-				formatted: util.FormatPercentile(p),
+				formatted: sqlutil.FormatPercentile(p),
 				query:     query,
 			}
 			percentiles = append(percentiles, percentile)

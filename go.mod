@@ -1,6 +1,6 @@
 module github.com/cashapp/blip
 
-go 1.17
+go 1.18
 
 require (
 	github.com/alexflint/go-arg v1.4.2

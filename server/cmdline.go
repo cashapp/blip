@@ -75,7 +75,7 @@ func printHelp() {
 		"  --version        Print version and exit\n"+
 		"\n"+
 		"blip %s\n",
-		blip.DEFAULT_CONFIG_FILE, blip.DEFAULT_PLANS_FILES, blip.VERSION,
+		blip.DEFAULT_CONFIG_FILE, blip.VERSION,
 	)
 }
 
