@@ -279,6 +279,10 @@ func InternalLevelPlan() Plan {
 						Name: "size.database",
 						// All databases by default
 					},
+					"size.table": {
+						Name: "size.table",
+						// All tables by default
+					},
 					"size.binlog": {
 						Name: "size.binlog",
 						// No metrics, there's only one: size.binlog.bytes
