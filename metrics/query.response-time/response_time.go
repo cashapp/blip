@@ -92,6 +92,13 @@ func (c *ResponseTime) Help() blip.CollectorHelp {
 				},
 			},
 		},
+		Metrics: []blip.CollectorMetric{
+			{
+				Name: "pN",
+				Type: blip.GAUGE,
+				Desc: "N is the requested percentile listed in options",
+			},
+		},
 		Errors: map[string]blip.CollectorHelpError{
 			ERR_NO_TABLE: {
 				Name:    ERR_NO_TABLE,
