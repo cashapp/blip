@@ -11,6 +11,7 @@ import (
 	"github.com/cashapp/blip/metrics/aws.rds"
 	"github.com/cashapp/blip/metrics/innodb"
 	"github.com/cashapp/blip/metrics/percona"
+	"github.com/cashapp/blip/metrics/query.response-time"
 	"github.com/cashapp/blip/metrics/repl"
 	"github.com/cashapp/blip/metrics/repl.lag"
 	"github.com/cashapp/blip/metrics/size.binlog"
@@ -257,6 +258,8 @@ func (f *factory) Make(domain string, args blip.CollectorFactoryArgs) (blip.Coll
 		return innodb.NewInnoDB(args.DB), nil
 	case "percona.response-time":
 		return percona.NewQRT(args.DB), nil
+	case "query.response-time":
+		return queryresponsetime.NewResponseTime(args.DB), nil
 	case "repl":
 		return repl.NewRepl(args.DB), nil
 	case "repl.lag":
@@ -285,6 +288,7 @@ var builtinCollectors = []string{
 	"aws.rds",
 	"innodb",
 	"percona.response-time",
+	"query.response-time",
 	"repl",
 	"repl.lag",
 	"size.binlog",
