@@ -124,6 +124,9 @@ func (s *SignalFx) Send(ctx context.Context, m *blip.Metrics) error {
 					dim[k] = v
 				}
 				for k, v := range metrics[i].Meta { // metric meta
+					if k == "ts" { // avoid time series explosion: ts is high cardinality
+						continue
+					}
 					dim[k] = v
 				}
 				for k, v := range metrics[i].Group { // metric groups
