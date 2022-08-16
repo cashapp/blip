@@ -70,7 +70,7 @@ To reference sections, subsections, and specific user-configurable variables wit
 : Any top-level section. For example: `api`, `plans`, and `monitors`.
 
 `SECTION[.SUB...].VAR`
-: A user-configurable variable in the `SECTION` with optional subections (`SUB`). For example: `mysql.username` (section = `mysql`, variable = `username`), or `monitors.heartbeat.freq` (section = `monitors`, subsection = `heartbeat`, variable = `freq`).
+: A user-configurable variable in the `SECTION` with optional subsections (`SUB`). For example: `mysql.username` (section = `mysql`, variable = `username`), or `monitors.heartbeat.freq` (section = `monitors`, subsection = `heartbeat`, variable = `freq`).
 
 Note the difference between `heartbeat` and `monitors.heartbeat`: the former is the top-level [monitor default](#monitor-defaults); the latter is a [monitor config](#monitors) that inherts the monitor defaults, if any.
 
@@ -207,7 +207,7 @@ The default `username` and `password` are applied to the 10 monitors because non
 If a monitor explicitly sets one of the variables, then its explicit value is used instead of the default value.
 
 {: .note }
-Monitor defaults are convenient, but explicit monitor configuraiton is more clear, so use monitor defatuls sparingly.
+Monitor defaults are convenient, but explicit monitor configuration is more clear, so use monitor defaults sparingly.
 The intended use case is for variables that _must_ be consistent for all monitors.
 For example, if Blip monitors Amazon RDS instances in region `us-east-1`, then setting monitor default `aws.region: "us-east-1"` makes sense.
 
@@ -241,7 +241,7 @@ The `disable-auto-region` variable enables/disables automatic detection of the A
 |**Valid values**|`true` or `false`|
 |**Default value**|`false`|
 
-The `disable-auto-tls` variables enables/disables automatic use of the Amazon RDS certifcate authority (CA).
+The `disable-auto-tls` variables enables/disables automatic use of the Amazon RDS certificate authority (CA).
 By default, Blip uses the 2019 AWS RDS CA, which is built-in (you don't need to configure anything).
 See [AWS](../cloud/aws) for details.
 
@@ -500,7 +500,7 @@ plans:
 
 ### adjust
 
-The `adjust` subection of the `plan` section configures the [Level Plan Adjuster (LPA) feature](../monitor/level-adjuster.hmtml).
+The `adjust` subsection of the `plan` section configures the [Level Plan Adjuster (LPA) feature](../monitor/level-adjuster.hmtml).
 
 ```yaml
 plans:
@@ -554,7 +554,7 @@ If plan files are explicitly configured, Blip only reads those plan files.
 ### `monitor`
 
 {: .var-table }
-|**Type**|dictonary|
+|**Type**|dictionary|
 |**Valid values**|[Monitor](#monitors)|
 |**Default value**||
 
@@ -754,7 +754,7 @@ monitors:
 Since tags are passed to sinks (which report metrics), all sinks will receive the monitor ID.
 (Sinks receive the monitor ID at the code-level too, so technically this example is not necessary.)
 
-Monitor IDs are not garuanteed to be stable&mdash;they might change between Blip versions.
+Monitor IDs are not guaranteed to be stable&mdash;they might change between Blip versions.
 Therefore, do not rely on them outside of Blip for truly stable, unique MySQL instance identification.
 
 ### `meta`

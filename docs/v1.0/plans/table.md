@@ -19,14 +19,14 @@ CREATE TABLE plans (
 ```
 
 ```
--- Defalut single state plan (DSSP)
+-- Default single state plan (DSSP)
 ("default", "{...}", NULL)
 
 -- Default multi-state plans
 ("readonly", "{...}", NULL)
 ("active", "{...}", NULL)
 
--- Per-moitor single state plans
+-- Per-monitor single state plans
 ("mon1", "{...}", "mon1")
 ("mon2", "{...}", "mon2")
 

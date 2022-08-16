@@ -15,7 +15,7 @@ The rest are reserved for future use.
 
 |Domain|Metrics|Blip Version|
 |:-----|:------|:-----------|
-|accesss|Access statistics||
+|access|Access statistics||
 |access.index|Index access statistics (`sys.schema_index_statistics`)||
 |access.table|Table access statistics (`sys.schema_table_statistics`)||
 |aria|MariaDB Aria storage engine||
@@ -66,7 +66,7 @@ The rest are reserved for future use.
 |status.thread|Status by thread||
 |status.user|Status by user||
 |stmt|Statements||
-|[`stmt.current`](collectors#stmtcurrent)|Current statments|v1.0.0|
+|[`stmt.current`](collectors#stmtcurrent)|Current statements|v1.0.0|
 |stmt.history|Historical statements||
 |thd|Threads||
 |tls|TLS (SSL) status and configuration||

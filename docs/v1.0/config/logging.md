@@ -7,7 +7,7 @@ nav_order: 4
 
 # Logging
 
-Blip uses pseduo-logging based on internal events that are either "info" or error.
+Blip uses pseudo-logging based on internal events that are either "info" or error.
 By default, Blip prints only errors to `STDERR`.
 Start `blip` with the [`--log`](blip#--log) option to print info events to `STDOUT`.
 

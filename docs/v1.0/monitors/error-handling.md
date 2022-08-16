@@ -25,9 +25,9 @@ If no error policy is defined, the collector returns the error immediately to th
 The engine tries to collect all metrics.
 If one collector returns an error, it does not affect other collectors.
 The engine saves errors and reports them per-collector in its status.
-It returns a varible success to the LPC: no errors (all metrics collected), some collected, none collected.
+It returns a variable success to the LPC: no errors (all metrics collected), some collected, none collected.
 
-The LPC reports an error unless the engine reeport no errors.
+The LPC reports an error unless the engine reports no errors.
 It keeps trying all metric collect as usual at the next interval.
 
 ## MySQL Connection

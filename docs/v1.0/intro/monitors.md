@@ -16,7 +16,7 @@ But there is more to a monitor than its MySQL instance.
 </div>
 
 Monitors are usually specified in the [Blip config file](../config/config-file), but they can be loaded various ways&mdash;more on this later.
-For now, it's only necessary to know that monitors are listed in the YAML config file under the aptly named section `moniotrs`.
+For now, it's only necessary to know that monitors are listed in the YAML config file under the aptly named section `monitors`.
 The most basic Blip monitor is a simple hostname, username, and password:
 
 ```yaml
