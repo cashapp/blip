@@ -12,11 +12,11 @@ Order:
 2. Configure
 3. Deploy
 
-Presuming a standard MySQL insstance runs on your laptop, first create a `blip` user:
+Presuming a standard MySQL instance runs on your laptop, first create a `blip` user:
 
 ```sql
 CREATE USER IF NOT EXISTS 'blip' IDENTIFIED BY '';    -- no password
-GRANT SELECT ON `performance_schema`.* TO 'blip'@'%'; -- no privlieges
+GRANT SELECT ON `performance_schema`.* TO 'blip'@'%'; -- no privileges
 ```
 
 Then run `blip` (after compiling it in `bin/blip/`, of course):

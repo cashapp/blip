@@ -46,7 +46,7 @@ monitors:
       hostname: db.local
 ```
 
-The result is `monitors.hostname = "db.local"` because `%{monitor.tags.hostname}` refers to the local `monitrs.tags.hostname` variable.
+The result is `monitors.hostname = "db.local"` because `%{monitor.tags.hostname}` refers to the local `monitors.tags.hostname` variable.
 
 {: .note }
 Singular "monitor" in `%{monitor.VAR}`, not plural, to emphasize that the reference is only to the single monitor in which it appears
@@ -62,7 +62,7 @@ monitors:
   - hostname: db2
 ```
 
-Top-level `tls.ca` specifies a monitor default that applies to all monitors that don't explicily set the varaible.
+Top-level `tls.ca` specifies a monitor default that applies to all monitors that don't explicitly set the variable.
 If `SECRETS_DIR = /secrets`, the result is:
 
 ```yaml

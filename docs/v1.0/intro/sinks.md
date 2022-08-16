@@ -20,7 +20,7 @@ Blip has built-in support for these three use cases.
 
 Blip ships with built-in and automatic support for almost everything, but the one thing we (the Blip developers) cannot know is where you (the user) will send metrics.
 Consequently, you might need to develop a Blip metric sink to translate and send Blip metrics to your metrics store or metrics graphing solution.
-Don't worry: Bilp was intentionally designed to make this easy.
+Don't worry: Blip was intentionally designed to make this easy.
 This brief introduction shows the high-level process of developing a new Blip metric sink.
 
 The following presumes that you're an experienced [Go programmer](https://go.dev/).
@@ -39,7 +39,7 @@ The vast majority of work to implement a new sink is this one method.
 More on this in a moment.
 
 Blip calls the `Status` method to report real-time status of the sink (along with all other parts in the monitor).
-The reported status can be anything you think is useful to know; for exmaple, the last error sending metrics (if any).
+The reported status can be anything you think is useful to know; for example, the last error sending metrics (if any).
 
 Let's presume, for a moment, that you have implement a new sink.
 To allow Blip to make (instantiate) that sink, you implement one last interface:

@@ -79,10 +79,10 @@ _Global Query Response Time_
 |MySQL config|yes|
 |Sources|MySQL 8.0 [p_s.events_statements_histogram_global](https://dev.mysql.com/doc/refman/8.0/en/performance-schema-statement-histogram-summary-tables.html), Percona Server 5.7 [RTD plugin](https://www.percona.com/doc/percona-server/5.7/diagnostics/response_time_distribution.html)|
 |Meta key-values|&bull; `pN=pA`: where `pN` is configured percentile (default: `p999`) and `pA` is actual percentile (see note 1)|
-|Derived metrics|&bull; `reponse_time` (gauge)<br>|
+|Derived metrics|&bull; `response_time` (gauge)<br>|
 
 The `query.global` domain includes metrics for all queries, which is currently only response time.
-By default, it reports the P999 (99.9th percentile) reponse time using either MySQL 8.0 [performance_schema.events_statements_histogram_global](https://dev.mysql.com/doc/refman/8.0/en/performance-schema-statement-histogram-summary-tables.html) or Percona Server 5.7 [Response Time Distribution plugin](https://www.percona.com/doc/percona-server/5.7/diagnostics/response_time_distribution.html).
+By default, it reports the P999 (99.9th percentile) response time using either MySQL 8.0 [performance_schema.events_statements_histogram_global](https://dev.mysql.com/doc/refman/8.0/en/performance-schema-statement-histogram-summary-tables.html) or Percona Server 5.7 [Response Time Distribution plugin](https://www.percona.com/doc/percona-server/5.7/diagnostics/response_time_distribution.html).
 
 Multiple percentiles can be collected&mdash;`p95`, `p99`, and `p999` for example.
 The metric for each percentile is denoted by meta key `pN`.
@@ -101,7 +101,7 @@ The true percentile might be slightly more or less depending on how the histogra
 #### Notes
 {: .no_toc }
 
-1. MySQL (and Percona Server) use histograms with varible bucket ranges.
+1. MySQL (and Percona Server) use histograms with variable bucket ranges.
 Therefore, the P99 might actually be P98.9 or P99.2.
 Meta key `pN` indicates the configured percentile, and its value `pA` indicates the actual percentile that was used.
 
@@ -126,7 +126,7 @@ The `repl` domain reports a few gauges metrics from the output of `SHOW SLAVE ST
 |Seconds_Behind_Master  |&#10003;|
 |Auto_Position          |&#10003;|
 
-Although the output has many more fields, most fields are not metric counters or guages, which is why Blip does not collect them.
+Although the output has many more fields, most fields are not metric counters or gauges, which is why Blip does not collect them.
 
 #### Derived metrics
 {: .no_toc }
@@ -318,7 +318,7 @@ _MySQL System Variables_
 |Sources|`SHOW GLOBAL VARIABLES`, `SELECT @@GLOBAL.<var>`, Performance Schema|
 |MySQL config|no|
 
-`var.global` collects global MySQL system variables ("syvars").
+`var.global` collects global MySQL system variables ("sysvars").
 
 These are not technically metrics, but some are required to calculate utilization percentages.
 For example, it's common to report `max_connections` to gauge the percentage of max connections used: `Max_used_connections / max_connections * 100`, which would be `status.global.max_used_connections / var.global.max_connections * 100` in Blip metric naming convention.
