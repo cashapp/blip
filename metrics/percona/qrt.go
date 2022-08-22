@@ -46,7 +46,7 @@ const (
 	OPT_FLUSH_QRT             = "flush"
 	default_percentile_option = "999"
 
-	ERR_UNKNOWN_TABLE = "table-is-unknown"
+	ERR_UNKNOWN_TABLE = "unknown-table"
 )
 
 const (
