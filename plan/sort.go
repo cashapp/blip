@@ -78,9 +78,17 @@ func Sort(p *blip.Plan) []SortedLevel {
 					higherDomain = blip.Domain{
 						Name:    domain,
 						Metrics: []string{},
+						Options: map[string]string{},
+						Errors:  map[string]string{},
 					}
 				}
 				higherDomain.Metrics = append(higherDomain.Metrics, lower.Collect[domain].Metrics...)
+				for k, v := range lower.Collect[domain].Options {
+					higherDomain.Options[k] = v
+				}
+				for k, v := range lower.Collect[domain].Errors {
+					higherDomain.Errors[k] = v
+				}
 				higher.Collect[domain] = higherDomain
 			}
 		}
