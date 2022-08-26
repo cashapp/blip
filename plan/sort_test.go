@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/go-test/deep"
+
 	"github.com/stretchr/testify/assert"
 
 	"github.com/cashapp/blip"
@@ -135,6 +136,104 @@ func TestSort(t *testing.T) {
 	gotLevels = plan.Sort(&p)
 	assert.Equal(t, expectLevels, gotLevels)
 	assert.Equal(t, expectPlan, p)
+
+	// A plan for options and errors: 2 levels, same domain
+	p = blip.Plan{
+		Name: "test1",
+		Levels: map[string]blip.Level{
+			"L1": blip.Level{
+				Name: "L1",
+				Freq: "5s",
+				Collect: map[string]blip.Domain{
+					"D1": blip.Domain{
+						Name: "D1",
+						Metrics: []string{
+							"M1",
+						},
+						Options: map[string]string{
+							"option1": "1",
+							"option2": "2",
+						},
+						Errors: map[string]string{
+							"error1": "1",
+							"error2": "2",
+						},
+					},
+				},
+			},
+			"L2": blip.Level{
+				Name: "L2",
+				Freq: "10s",
+				Collect: map[string]blip.Domain{
+					"D1": blip.Domain{
+						Name: "D1",
+						Metrics: []string{
+							"M2",
+						},
+						Options: map[string]string{
+							"option1": "1-1",
+						},
+						Errors: map[string]string{
+							"error1": "1-1",
+						},
+					},
+				},
+			},
+		},
+	}
+	expectPlan = blip.Plan{
+		Name: "test1",
+		Levels: map[string]blip.Level{
+			"L1": blip.Level{
+				Name: "L1",
+				Freq: "5s",
+				Collect: map[string]blip.Domain{
+					"D1": blip.Domain{
+						Name: "D1",
+						Metrics: []string{
+							"M1",
+						},
+						Options: map[string]string{
+							"option1": "1",
+							"option2": "2",
+						},
+						Errors: map[string]string{
+							"error1": "1",
+							"error2": "2",
+						},
+					},
+				},
+			},
+			"L2": blip.Level{
+				Name: "L2",
+				Freq: "10s",
+				Collect: map[string]blip.Domain{
+					"D1": blip.Domain{
+						Name: "D1",
+						Metrics: []string{
+							"M2",
+							"M1",
+						},
+						Options: map[string]string{
+							"option1": "1-1", // Use option in L2
+							"option2": "2",
+						},
+						Errors: map[string]string{
+							"error1": "1-1", // Use error in L2
+							"error2": "2",
+						},
+					},
+				},
+			},
+		},
+	}
+	expectLevels = []plan.SortedLevel{
+		{Freq: 5, Name: "L1"},
+		{Freq: 10, Name: "L2"},
+	}
+	gotLevels = plan.Sort(&p)
+	assert.Equal(t, expectLevels, gotLevels)
+	assert.Equal(t, expectPlan, p)
 }
 
 func TestSortComplex(t *testing.T) {
@@ -150,6 +249,8 @@ func TestSortComplex(t *testing.T) {
 						Metrics: []string{
 							"D1_M1",
 						},
+						Options: map[string]string{},
+						Errors:  map[string]string{},
 					},
 				},
 			},
@@ -162,6 +263,8 @@ func TestSortComplex(t *testing.T) {
 						Metrics: []string{
 							"D1_M2",
 						},
+						Options: map[string]string{},
+						Errors:  map[string]string{},
 					},
 				},
 			},
@@ -174,6 +277,8 @@ func TestSortComplex(t *testing.T) {
 						Metrics: []string{
 							"D2_M1",
 						},
+						Options: map[string]string{},
+						Errors:  map[string]string{},
 					},
 				},
 			},
@@ -185,6 +290,12 @@ func TestSortComplex(t *testing.T) {
 						Name: "D3",
 						Metrics: []string{
 							"D3_M1",
+						},
+						Options: map[string]string{
+							"option1": "1",
+						},
+						Errors: map[string]string{
+							"error1": "1",
 						},
 					},
 				},
@@ -198,6 +309,8 @@ func TestSortComplex(t *testing.T) {
 						Metrics: []string{
 							"D4_M1",
 						},
+						Options: map[string]string{},
+						Errors:  map[string]string{},
 					},
 				},
 			},
@@ -215,6 +328,8 @@ func TestSortComplex(t *testing.T) {
 						Metrics: []string{
 							"D1_M1",
 						},
+						Options: map[string]string{},
+						Errors:  map[string]string{},
 					},
 				},
 			},
@@ -228,6 +343,8 @@ func TestSortComplex(t *testing.T) {
 							"D1_M2", // This level
 							"D1_M1", // L1
 						},
+						Options: map[string]string{},
+						Errors:  map[string]string{},
 					},
 				},
 			},
@@ -240,12 +357,16 @@ func TestSortComplex(t *testing.T) {
 						Metrics: []string{
 							"D2_M1",
 						},
+						Options: map[string]string{},
+						Errors:  map[string]string{},
 					},
 					"D1": { // L1, not L2 because this level 30s mod L2 20s != 0
 						Name: "D1",
 						Metrics: []string{
 							"D1_M1",
 						},
+						Options: map[string]string{},
+						Errors:  map[string]string{},
 					},
 				},
 			},
@@ -258,6 +379,12 @@ func TestSortComplex(t *testing.T) {
 						Metrics: []string{
 							"D3_M1",
 						},
+						Options: map[string]string{
+							"option1": "1",
+						},
+						Errors: map[string]string{
+							"error1": "1",
+						},
 					},
 					"D1": { // L1 + L2
 						Name: "D1",
@@ -265,12 +392,16 @@ func TestSortComplex(t *testing.T) {
 							"D1_M2",
 							"D1_M1",
 						},
+						Options: map[string]string{},
+						Errors:  map[string]string{},
 					},
 					"D2": { // L3 (30s)
 						Name: "D2",
 						Metrics: []string{
 							"D2_M1",
 						},
+						Options: map[string]string{},
+						Errors:  map[string]string{},
 					},
 				},
 			},
@@ -283,6 +414,8 @@ func TestSortComplex(t *testing.T) {
 						Metrics: []string{
 							"D4_M1",
 						},
+						Options: map[string]string{},
+						Errors:  map[string]string{},
 					},
 					"D1": { // L1 + L2
 						Name: "D1",
@@ -290,17 +423,27 @@ func TestSortComplex(t *testing.T) {
 							"D1_M2",
 							"D1_M1",
 						},
+						Options: map[string]string{},
+						Errors:  map[string]string{},
 					},
 					"D2": { // L3 (30s)
 						Name: "D2",
 						Metrics: []string{
 							"D2_M1",
 						},
+						Options: map[string]string{},
+						Errors:  map[string]string{},
 					},
 					"D3": { // L4 (60s)
 						Name: "D3",
 						Metrics: []string{
 							"D3_M1",
+						},
+						Options: map[string]string{
+							"option1": "1",
+						},
+						Errors: map[string]string{
+							"error1": "1",
 						},
 					},
 				},
