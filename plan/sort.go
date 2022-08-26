@@ -84,10 +84,14 @@ func Sort(p *blip.Plan) []SortedLevel {
 				}
 				higherDomain.Metrics = append(higherDomain.Metrics, lower.Collect[domain].Metrics...)
 				for k, v := range lower.Collect[domain].Options {
-					higherDomain.Options[k] = v
+					if _, ok := higherDomain.Options[k]; !ok {
+						higherDomain.Options[k] = v
+					}
 				}
 				for k, v := range lower.Collect[domain].Errors {
-					higherDomain.Errors[k] = v
+					if _, ok := higherDomain.Errors[k]; !ok {
+						higherDomain.Errors[k] = v
+					}
 				}
 				higher.Collect[domain] = higherDomain
 			}

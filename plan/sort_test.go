@@ -136,6 +136,104 @@ func TestSort(t *testing.T) {
 	gotLevels = plan.Sort(&p)
 	assert.Equal(t, expectLevels, gotLevels)
 	assert.Equal(t, expectPlan, p)
+
+	// A plan for options and errors: 2 levels, same domain
+	p = blip.Plan{
+		Name: "test1",
+		Levels: map[string]blip.Level{
+			"L1": blip.Level{
+				Name: "L1",
+				Freq: "5s",
+				Collect: map[string]blip.Domain{
+					"D1": blip.Domain{
+						Name: "D1",
+						Metrics: []string{
+							"M1",
+						},
+						Options: map[string]string{
+							"option1": "1",
+							"option2": "2",
+						},
+						Errors: map[string]string{
+							"error1": "1",
+							"error2": "2",
+						},
+					},
+				},
+			},
+			"L2": blip.Level{
+				Name: "L2",
+				Freq: "10s",
+				Collect: map[string]blip.Domain{
+					"D1": blip.Domain{
+						Name: "D1",
+						Metrics: []string{
+							"M2",
+						},
+						Options: map[string]string{
+							"option1": "1-1",
+						},
+						Errors: map[string]string{
+							"error1": "1-1",
+						},
+					},
+				},
+			},
+		},
+	}
+	expectPlan = blip.Plan{
+		Name: "test1",
+		Levels: map[string]blip.Level{
+			"L1": blip.Level{
+				Name: "L1",
+				Freq: "5s",
+				Collect: map[string]blip.Domain{
+					"D1": blip.Domain{
+						Name: "D1",
+						Metrics: []string{
+							"M1",
+						},
+						Options: map[string]string{
+							"option1": "1",
+							"option2": "2",
+						},
+						Errors: map[string]string{
+							"error1": "1",
+							"error2": "2",
+						},
+					},
+				},
+			},
+			"L2": blip.Level{
+				Name: "L2",
+				Freq: "10s",
+				Collect: map[string]blip.Domain{
+					"D1": blip.Domain{
+						Name: "D1",
+						Metrics: []string{
+							"M2",
+							"M1",
+						},
+						Options: map[string]string{
+							"option1": "1-1", // Use option in L2
+							"option2": "2",
+						},
+						Errors: map[string]string{
+							"error1": "1-1", // Use error in L2
+							"error2": "2",
+						},
+					},
+				},
+			},
+		},
+	}
+	expectLevels = []plan.SortedLevel{
+		{Freq: 5, Name: "L1"},
+		{Freq: 10, Name: "L2"},
+	}
+	gotLevels = plan.Sort(&p)
+	assert.Equal(t, expectLevels, gotLevels)
+	assert.Equal(t, expectPlan, p)
 }
 
 func TestSortComplex(t *testing.T) {
