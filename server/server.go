@@ -52,7 +52,9 @@ type httpClientFactory struct {
 }
 
 func (f httpClientFactory) MakeForSink(sinkName, monitorId string, opts, tags map[string]string) (*http.Client, error) {
-	client := &http.Client{}
+	client := &http.Client{
+		Timeout: 5 * time.Second,
+	}
 	if f.cfg.Proxy != "" {
 		proxyFunc := func(req *http.Request) (url *url.URL, err error) {
 			return url.Parse(f.cfg.Proxy)
