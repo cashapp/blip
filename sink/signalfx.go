@@ -173,7 +173,13 @@ func (s *SignalFx) Send(ctx context.Context, m *blip.Metrics) error {
 
 	// Send metrics to SFX. The SFX client handles everything; we just pass
 	// it data points.
-	return s.sfxSink.AddDatapoints(ctx, dp[0:n])
+	err := s.sfxSink.AddDatapoints(ctx, dp[0:n])
+	if err != nil {
+		blip.Debug("error sending data points to SignalFx: %s", err)
+		s.sfxSink.Client.CloseIdleConnections()
+	}
+
+	return err
 }
 
 func (s *SignalFx) Name() string {
