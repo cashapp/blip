@@ -28,10 +28,11 @@ import (
 
 // Monitor monitors one MySQL instance. The monitor is a high-level component
 // that runs (and keeps running) four monitor subsystems:
-//   * Level plan collector (LPC)
-//   * Level plan adjuster (LPA)
-//   * Blip heartbeat writer
-//   * Exporter (Prometheus)
+//   - Level plan collector (LPC)
+//   - Level plan adjuster (LPA)
+//   - Blip heartbeat writer
+//   - Exporter (Prometheus)
+//
 // Each subsystem is optional based on the config, but LPC runs by default
 // because it contains the Engine component that does actual metrics collection.
 // If any subsystem crashes (returns for any reason or panics), the monitor
@@ -280,8 +281,8 @@ func (m *Monitor) startup() error {
 		}
 		select {
 		case <-m.runLoopChan:
-		default:
 			return nil // runLoop stopped (Stop called)
+		default:
 		}
 		status.Monitor(m.monitorId, "monitor", "error making DB/DSN, sleep and retry: %s", err)
 		time.Sleep(m.retry.NextBackOff())
