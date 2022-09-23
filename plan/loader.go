@@ -508,7 +508,7 @@ func ValidatePlans(plans []blip.Plan) error {
 					// a collectory factory error, then the domain is invalid/
 					// doesn't exist
 					var err error
-					mc, err = metrics.Make(domainName, blip.CollectorFactoryArgs{Validate: true})
+					mc, err = metrics.Make(domainName, blip.CollectorFactoryArgs{Validate: true}, 0)
 					if err != nil {
 						errMsgs = append(errMsgs, fmt.Sprintf("invalid plan: %s: at %s/%s: %s",
 							plans[i].Name, levelName, domainName, err))

@@ -56,7 +56,7 @@ type MetricValue struct {
 	// Boolean values are reported as 0 and 1.
 	Value float64
 
-	// Type is the metric type: COUNTER, COUNTER, and other const.
+	// Type is the metric type: GAUGE, COUNTER, and other const.
 	Type byte
 
 	// Group is the set of name-value pairs that determine the group to which
@@ -65,6 +65,10 @@ type MetricValue struct {
 
 	// Meta is optional key-value pairs that annotate or describe the metric value.
 	Meta map[string]string
+
+	// The frequency that this metric is collected at. Some sinks need this value
+	// to properly process COUNTER type metrics.
+	Frequency int
 }
 
 // Sink sends metrics to an external destination.

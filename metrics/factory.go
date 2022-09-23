@@ -75,7 +75,7 @@ func Exists(domain string) bool {
 // Make makes a metric collector for the domain using a previously registered factory.
 //
 // See types in the blip package for more details.
-func Make(domain string, args blip.CollectorFactoryArgs) (blip.Collector, error) {
+func Make(domain string, args blip.CollectorFactoryArgs, frequency int) (blip.Collector, error) {
 	r.Lock()
 	defer r.Unlock()
 	f, ok := r.factory[domain]
@@ -83,7 +83,14 @@ func Make(domain string, args blip.CollectorFactoryArgs) (blip.Collector, error)
 		return nil, fmt.Errorf("invalid domain: %s (no factory registered)", domain)
 
 	}
-	return f.Make(domain, args)
+
+	c, err := f.Make(domain, args)
+
+	if err != nil {
+		return nil, err
+	}
+
+	return blip.NewCollectorFrequencyWrapper(c, frequency), nil
 }
 
 func PrintDomains() string {
@@ -97,7 +104,7 @@ func PrintDomains() string {
 
 	out := ""
 	for _, domain := range domains {
-		mc, _ := Make(domain, blip.CollectorFactoryArgs{Validate: true})
+		mc, _ := Make(domain, blip.CollectorFactoryArgs{Validate: true}, 0)
 		help := mc.Help()
 		out += fmt.Sprintf("%s\n\t%s\n\n",
 			help.Domain, help.Description,

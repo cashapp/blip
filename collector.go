@@ -133,3 +133,48 @@ type CollectorFactoryArgs struct {
 type CollectorFactory interface {
 	Make(domain string, args CollectorFactoryArgs) (Collector, error)
 }
+
+// Utility function to wrap collectors in the CollectorFrequencyWrapper type
+func NewCollectorFrequencyWrapper(c Collector, f int) Collector {
+	return &collectorFrequencyWrapper{
+		collector: c,
+		frequency: f,
+	}
+}
+
+// Wrapper for Collector types. Updates the MetricValue
+// returned by a collector to include the frequency that
+// the metric is collected at. This value is needed by some
+// sinks and is transparent to the underlying collector.
+type collectorFrequencyWrapper struct {
+	frequency int
+	collector Collector
+}
+
+var _collectorFrequencyWrapper Collector = &collectorFrequencyWrapper{}
+
+func (c *collectorFrequencyWrapper) Domain() string {
+	return c.collector.Domain()
+}
+
+func (c *collectorFrequencyWrapper) Help() CollectorHelp {
+	return c.collector.Help()
+}
+
+func (c *collectorFrequencyWrapper) Prepare(ctx context.Context, plan Plan) (func(), error) {
+	return c.collector.Prepare(ctx, plan)
+}
+
+func (c *collectorFrequencyWrapper) Collect(ctx context.Context, levelName string) ([]MetricValue, error) {
+	m, err := c.collector.Collect(ctx, levelName)
+
+	if err != nil {
+		return nil, err
+	}
+
+	for i := range m {
+		m[i].Frequency = c.frequency
+	}
+
+	return m, nil
+}

@@ -174,6 +174,10 @@ func (e *Engine) Prepare(ctx context.Context, plan blip.Plan, before, after func
 	for levelName, level := range plan.Levels {
 		for domain, _ := range level.Collect {
 
+			// Parse the frequency string so we can pass can associate it
+			// with the collector
+			frequency, _ := time.ParseDuration(level.Freq)
+
 			// Make collector if needed
 			mc, ok := mcNew[domain]
 			if !ok {
@@ -186,6 +190,7 @@ func (e *Engine) Prepare(ctx context.Context, plan blip.Plan, before, after func
 						DB:        e.db,
 						MonitorId: e.monitorId,
 					},
+					int(frequency.Seconds()),
 				)
 				if err != nil {
 					lerr = fmt.Errorf("while making %s collector: %s", domain, err)
