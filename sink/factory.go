@@ -153,7 +153,7 @@ func (f *factory) Make(args blip.SinkFactoryArgs) (blip.Sink, error) {
 		if err != nil {
 			return nil, err
 		}
-		retryArgs.Sink, err = NewDataDog(args.MonitorId, args.Options, args.Tags, httpClient)
+		retryArgs.Sink, err = NewDatadog(args.MonitorId, args.Options, args.Tags, httpClient)
 		if err != nil {
 			return nil, err
 		}

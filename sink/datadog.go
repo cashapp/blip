@@ -17,9 +17,9 @@ import (
 )
 
 // SignalFx sends metrics to SignalFx.
-type DataDog struct {
+type Datadog struct {
 	monitorId string
-	dim       []string            // monitor.tags (dimensions)
+	tags      []string            // monitor.tags (dimensions)
 	tr        tr.DomainTranslator // datadog.metric-translator
 	prefix    string              // datadog.metric-prefix
 	// --
@@ -28,7 +28,7 @@ type DataDog struct {
 	appKeyAuth string
 }
 
-func NewDataDog(monitorId string, opts, tags map[string]string, httpClient *http.Client) (*DataDog, error) {
+func NewDatadog(monitorId string, opts, tags map[string]string, httpClient *http.Client) (*Datadog, error) {
 	c := datadog.NewConfiguration()
 	c.HTTPClient = httpClient
 	metricsApi := datadogV2.NewMetricsApi(datadog.NewAPIClient(c))
@@ -39,9 +39,9 @@ func NewDataDog(monitorId string, opts, tags map[string]string, httpClient *http
 		tagList = append(tagList, fmt.Sprintf("%s:%s", k, v))
 	}
 
-	d := &DataDog{
+	d := &Datadog{
 		monitorId:  monitorId,
-		dim:        tagList,
+		tags:       tagList,
 		metricsApi: metricsApi,
 	}
 
@@ -97,7 +97,7 @@ func NewDataDog(monitorId string, opts, tags map[string]string, httpClient *http
 	return d, nil
 }
 
-func (s *DataDog) Send(ctx context.Context, m *blip.Metrics) error {
+func (s *Datadog) Send(ctx context.Context, m *blip.Metrics) error {
 	status.Monitor(s.monitorId, s.Name(), "sending metrics")
 
 	// On return, set monitor status for this sink
@@ -136,28 +136,28 @@ func (s *DataDog) Send(ctx context.Context, m *blip.Metrics) error {
 			}
 
 			// Copy metric meta and groups into tags (dimensions), if any
-			var dim []string
+			var tags []string
 			if len(metrics[i].Meta) == 0 && len(metrics[i].Group) == 0 {
 				// Optimization: if no meta or group, then reuse pointer to
-				// s.dim which points to the tags--never modify s.dim!
-				dim = s.dim
+				// s.tags which points to the tags--never modify s.tags!
+				tags = s.tags
 			} else {
 				// There are meta or groups (or both), so we MUST COPY tags
-				// from s.dim and the rest into a new map
-				dim = make([]string, 0, len(s.dim)+len(metrics[i].Meta)+len(metrics[i].Group))
-				for _, v := range s.dim { // copy tags (from config)
-					dim = append(dim, v)
+				// from s.tags and the rest into a new map
+				tags = make([]string, 0, len(s.tags)+len(metrics[i].Meta)+len(metrics[i].Group))
+				for _, v := range s.tags { // copy tags (from config)
+					tags = append(tags, v)
 				}
 
 				for k, v := range metrics[i].Meta { // metric meta
 					if k == "ts" { // avoid time series explosion: ts is high cardinality
 						continue
 					}
-					dim = append(dim, fmt.Sprintf("%s:%s", k, v))
+					tags = append(tags, fmt.Sprintf("%s:%s", k, v))
 				}
 
 				for k, v := range metrics[i].Group { // metric groups
-					dim = append(dim, fmt.Sprintf("%s:%s", k, v))
+					tags = append(tags, fmt.Sprintf("%s:%s", k, v))
 				}
 			}
 
@@ -177,7 +177,7 @@ func (s *DataDog) Send(ctx context.Context, m *blip.Metrics) error {
 
 			var frequency int = metrics[i].Frequency
 
-			// Convert Blip metric type to DataDog metric type
+			// Convert Blip metric type to Datadog metric type
 			switch metrics[i].Type {
 			case blip.COUNTER:
 				dp[n] = datadogV2.MetricSeries{
@@ -189,7 +189,7 @@ func (s *DataDog) Send(ctx context.Context, m *blip.Metrics) error {
 							Timestamp: datadog.PtrInt64(timestamp),
 						},
 					},
-					Tags:     dim,
+					Tags:     tags,
 					Interval: datadog.PtrInt64(int64(frequency)),
 				}
 			case blip.GAUGE:
@@ -202,7 +202,7 @@ func (s *DataDog) Send(ctx context.Context, m *blip.Metrics) error {
 							Timestamp: datadog.PtrInt64(timestamp),
 						},
 					},
-					Tags: dim,
+					Tags: tags,
 				}
 			default:
 				// datadog doesn't support this Blip metric type, so skip it
@@ -213,9 +213,9 @@ func (s *DataDog) Send(ctx context.Context, m *blip.Metrics) error {
 		} // metric
 	} // domain
 
-	// This shouldn't happen: >0 Blip metrics in but =0 DataDog data points out
+	// This shouldn't happen: >0 Blip metrics in but =0 Datadog data points out
 	if n == 0 {
-		return fmt.Errorf("no DataDog data points after processing %d Blip metrics", len(m.Values))
+		return fmt.Errorf("no Datadog data points after processing %d Blip metrics", len(m.Values))
 	}
 
 	ddCtx := context.WithValue(
@@ -235,17 +235,17 @@ func (s *DataDog) Send(ctx context.Context, m *blip.Metrics) error {
 		Series: dp,
 	}
 
-	// Send metrics to DataDog. The DataDog client handles everything; we just pass
+	// Send metrics to Datadog. The Datadog client handles everything; we just pass
 	// it data points.
 	_, r, err := s.metricsApi.SubmitMetrics(ddCtx, payload, *datadogV2.NewSubmitMetricsOptionalParameters())
 	if err != nil {
-		blip.Debug("error sending data points to DataDog: %s", err)
-		blip.Debug("error sending data points to DataDog: Http Response - %s", r)
+		blip.Debug("error sending data points to Datadog: %s", err)
+		blip.Debug("error sending data points to Datadog: Http Response - %s", r)
 	}
 
 	return err
 }
 
-func (s *DataDog) Name() string {
+func (s *Datadog) Name() string {
 	return "datadog"
 }
