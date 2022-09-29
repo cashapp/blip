@@ -307,7 +307,9 @@ func (e *Engine) Collect(ctx context.Context, levelName string) (*blip.Metrics, 
 			// Collect metrics in this domain. This is where metrics collection
 			// happens: this domain-specific blip.Collector queries MySQL and
 			// returns blip.Metrics at this level.
-			vals, err := mc.Collect(ctx, levelName)
+			dbctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+			defer cancel()
+			vals, err := mc.Collect(dbctx, levelName)
 			// **************************************************************
 
 			mux.Lock()
