@@ -84,13 +84,7 @@ func Make(domain string, args blip.CollectorFactoryArgs, frequency int) (blip.Co
 
 	}
 
-	c, err := f.Make(domain, args)
-
-	if err != nil {
-		return nil, err
-	}
-
-	return blip.NewCollectorFrequencyWrapper(c, frequency), nil
+	return f.Make(domain, args)
 }
 
 func PrintDomains() string {

@@ -65,10 +65,6 @@ type MetricValue struct {
 
 	// Meta is optional key-value pairs that annotate or describe the metric value.
 	Meta map[string]string
-
-	// The frequency that this metric is collected at. Some sinks need this value
-	// to properly process COUNTER type metrics.
-	Frequency int
 }
 
 // Sink sends metrics to an external destination.

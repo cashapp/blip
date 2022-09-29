@@ -175,8 +175,6 @@ func (s *Datadog) Send(ctx context.Context, m *blip.Metrics) error {
 				}
 			}
 
-			var frequency int = metrics[i].Frequency
-
 			// Convert Blip metric type to Datadog metric type
 			switch metrics[i].Type {
 			case blip.COUNTER:
@@ -189,8 +187,7 @@ func (s *Datadog) Send(ctx context.Context, m *blip.Metrics) error {
 							Timestamp: datadog.PtrInt64(timestamp),
 						},
 					},
-					Tags:     tags,
-					Interval: datadog.PtrInt64(int64(frequency)),
+					Tags: tags,
 				}
 			case blip.GAUGE:
 				dp[n] = datadogV2.MetricSeries{
