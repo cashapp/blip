@@ -157,6 +157,9 @@ func (c *lpc) Run(stopChan, doneChan chan struct{}) error {
 				<-c.changePlanDoneChan   // wait for changePlan goroutine
 			default:
 			}
+
+			// Stop the engine and clean up metrics
+			c.engine.Stop()
 			return nil
 		default: // no
 		}

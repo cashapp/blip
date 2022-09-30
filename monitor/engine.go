@@ -356,3 +356,21 @@ func (e *Engine) Collect(ctx context.Context, levelName string) (*blip.Metrics, 
 	atomic.AddUint64(&e.collectFail, 1)
 	return nil, fmt.Errorf("failed to collect %s/%s", e.plan.Name, levelName)
 }
+
+// Stop the engine and cleanup any metrics associated with it.
+func (e *Engine) Stop() {
+	blip.Debug("Stopping engine...")
+	e.planMux.Lock()
+	defer e.planMux.Unlock()
+
+	e.mcMux.Lock()
+	defer e.mcMux.Unlock()
+
+	// Clean up the monitors
+	for _, mc := range e.mcList {
+		if mc.cleanup != nil {
+			blip.Debug("%s cleanup", mc.c.Domain())
+			mc.cleanup()
+		}
+	}
+}
