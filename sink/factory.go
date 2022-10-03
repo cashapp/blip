@@ -65,6 +65,7 @@ var noop = noopSink{}
 // --------------------------------------------------------------------------
 
 func init() {
+	Register("datadog", f)
 	Register("chronosphere", f)
 	Register("signalfx", f)
 	Register("log", f)
@@ -144,6 +145,15 @@ func (f *factory) Make(args blip.SinkFactoryArgs) (blip.Sink, error) {
 			return nil, err
 		}
 		retryArgs.Sink, err = NewSignalFx(args.MonitorId, args.Options, args.Tags, httpClient)
+		if err != nil {
+			return nil, err
+		}
+	case "datadog":
+		httpClient, err := f.HTTPClient.MakeForSink("datadog", args.MonitorId, args.Options, args.Tags)
+		if err != nil {
+			return nil, err
+		}
+		retryArgs.Sink, err = NewDatadog(args.MonitorId, args.Options, args.Tags, httpClient)
 		if err != nil {
 			return nil, err
 		}

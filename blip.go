@@ -56,7 +56,7 @@ type MetricValue struct {
 	// Boolean values are reported as 0 and 1.
 	Value float64
 
-	// Type is the metric type: COUNTER, COUNTER, and other const.
+	// Type is the metric type: GAUGE, COUNTER, and other const.
 	Type byte
 
 	// Group is the set of name-value pairs that determine the group to which
