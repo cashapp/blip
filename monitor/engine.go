@@ -40,7 +40,6 @@ type Engine struct {
 	monitorId string
 	// --
 	event event.MonitorReceiver
-	sem   chan bool // semaphore for CollectParallel
 
 	planMux *sync.RWMutex
 	plan    blip.Plan
@@ -58,18 +57,12 @@ type Engine struct {
 }
 
 func NewEngine(cfg blip.ConfigMonitor, db *sql.DB) *Engine {
-	sem := make(chan bool, CollectParallel)
-	for i := 0; i < CollectParallel; i++ {
-		sem <- true
-	}
-
 	return &Engine{
 		cfg:       cfg,
 		db:        db,
 		monitorId: cfg.MonitorId,
 		// --
 		event: event.MonitorReceiver{MonitorId: cfg.MonitorId},
-		sem:   sem,
 
 		planMux: &sync.RWMutex{},
 		atLevel: map[string][]blip.Collector{},
@@ -280,13 +273,17 @@ func (e *Engine) Collect(ctx context.Context, levelName string) (*blip.Metrics, 
 	errs := map[string]error{}
 
 	// Collect metrics for each domain in parallel (limit: CollectParallel)
+	sem := make(chan bool, CollectParallel) // semaphore for CollectParallel
+	for i := 0; i < CollectParallel; i++ {
+		sem <- true
+	}
 	var wg sync.WaitGroup
 	for i := range collectors {
-		<-e.sem
+		<-sem
 		wg.Add(1)
 		go func(mc blip.Collector) {
 			defer func() {
-				e.sem <- true
+				sem <- true
 				wg.Done()
 
 				// Handle collector panic
