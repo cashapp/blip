@@ -128,6 +128,7 @@ func (c *Current) Collect(ctx context.Context, levelName string) ([]blip.MetricV
 	if err != nil {
 		return nil, fmt.Errorf("%s failed: %s", query, err)
 	}
+	defer rows.Close()
 
 	var times []float64
 	for rows.Next() {
