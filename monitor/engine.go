@@ -358,6 +358,12 @@ func (e *Engine) Collect(ctx context.Context, levelName string) (*blip.Metrics, 
 }
 
 // Stop the engine and cleanup any metrics associated with it.
+// TODO: There is a possible race condition when this is called. Since
+// Engine.Collect is called as a go-routine, we could have an invocation
+// of the function block waiting for Engine.Stop to runlock planMux,
+// after which Collect would run after cleanup has been called.
+// This could result in a panic, though that should be caught and logged.
+// Since the monitor is stopping anyway this isn't a huge issue.
 func (e *Engine) Stop() {
 	blip.Debug("Stopping engine...")
 	e.planMux.Lock()
