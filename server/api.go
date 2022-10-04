@@ -3,6 +3,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"html"
@@ -40,6 +41,7 @@ func NewAPI(cfg blip.ConfigAPI, ml *monitor.Loader) *API {
 	mux.HandleFunc("/registered", api.registered)
 	mux.HandleFunc("/monitors/stop", api.monitorsStop)
 	mux.HandleFunc("/monitors/start", api.monitorsStart)
+	mux.HandleFunc("/monitors/reload", api.monitorsReload)
 
 	api.httpServer = &http.Server{
 		Addr:    cfg.Bind,
@@ -133,6 +135,18 @@ func (api *API) monitorsStart(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, errMsg, http.StatusConflict)
 		return
 	}
+	w.WriteHeader(http.StatusOK)
+}
+
+func (api *API) monitorsReload(w http.ResponseWriter, r *http.Request) {
+	blip.Debug("Reloading monitors")
+	if err := api.monitorLoader.Load(context.Background()); err != nil {
+		errMsg := html.EscapeString(fmt.Sprintf("Error reloading monitors: %s", err))
+		http.Error(w, errMsg, http.StatusConflict)
+		return
+	}
+
+	api.monitorLoader.StartMonitors()
 	w.WriteHeader(http.StatusOK)
 }
 

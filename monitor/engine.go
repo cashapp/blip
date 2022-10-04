@@ -353,3 +353,27 @@ func (e *Engine) Collect(ctx context.Context, levelName string) (*blip.Metrics, 
 	atomic.AddUint64(&e.collectFail, 1)
 	return nil, fmt.Errorf("failed to collect %s/%s", e.plan.Name, levelName)
 }
+
+// Stop the engine and cleanup any metrics associated with it.
+// TODO: There is a possible race condition when this is called. Since
+// Engine.Collect is called as a go-routine, we could have an invocation
+// of the function block waiting for Engine.Stop to runlock planMux,
+// after which Collect would run after cleanup has been called.
+// This could result in a panic, though that should be caught and logged.
+// Since the monitor is stopping anyway this isn't a huge issue.
+func (e *Engine) Stop() {
+	blip.Debug("Stopping engine...")
+	e.planMux.Lock()
+	defer e.planMux.Unlock()
+
+	e.mcMux.Lock()
+	defer e.mcMux.Unlock()
+
+	// Clean up the monitors
+	for _, mc := range e.mcList {
+		if mc.cleanup != nil {
+			blip.Debug("%s cleanup", mc.c.Domain())
+			mc.cleanup()
+		}
+	}
+}
