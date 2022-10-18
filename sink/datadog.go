@@ -6,6 +6,7 @@ import (
 	"io/ioutil"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/DataDog/datadog-api-client-go/v2/api/datadog"
@@ -175,6 +176,24 @@ func (s *Datadog) Send(ctx context.Context, m *blip.Metrics) error {
 				}
 			}
 
+			// If we have a "host" tag, we should include a resource definition for host
+			// so that metrics are properly associated with infrastructure in Datadog
+			var resources []datadogV2.MetricResource = nil
+
+			for _, tag := range s.tags {
+				if strings.Index(tag, "host:") == 0 {
+					if pos := strings.Index(tag, ":"); pos > 0 {
+						resources = []datadogV2.MetricResource{
+							{
+								Name: datadog.PtrString(tag[pos+1:]),
+								Type: datadog.PtrString("host"),
+							},
+						}
+						break
+					}
+				}
+			}
+
 			// Convert Blip metric type to Datadog metric type
 			switch metrics[i].Type {
 			case blip.COUNTER:
@@ -187,7 +206,8 @@ func (s *Datadog) Send(ctx context.Context, m *blip.Metrics) error {
 							Timestamp: datadog.PtrInt64(timestamp),
 						},
 					},
-					Tags: tags,
+					Tags:      tags,
+					Resources: resources,
 				}
 			case blip.GAUGE:
 				dp[n] = datadogV2.MetricSeries{
@@ -199,7 +219,8 @@ func (s *Datadog) Send(ctx context.Context, m *blip.Metrics) error {
 							Timestamp: datadog.PtrInt64(timestamp),
 						},
 					},
-					Tags: tags,
+					Tags:      tags,
+					Resources: resources,
 				}
 			default:
 				// datadog doesn't support this Blip metric type, so skip it
