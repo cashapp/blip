@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io/fs"
 	"io/ioutil"
+	"log"
 	"os"
 	"os/exec"
 	"regexp"
@@ -53,6 +54,11 @@ func (f factory) Make(cfg blip.ConfigMonitor) (*sql.DB, string, error) {
 	// ----------------------------------------------------------------------
 	// my.cnf
 
+	// Make a copy of the config before modifying it so that it can be used later,
+	// specifically for reloading TLS where we need to determine where the updates
+	// should come from
+	originalCfg := cfg
+
 	// Set values in cfg blip.ConfigMonitor from values in my.cnf. This does
 	// not overwrite any values in cfg already set. For exmaple, if username
 	// is specified in both, the default my.cnf username is ignored and the
@@ -82,29 +88,29 @@ func (f factory) Make(cfg blip.ConfigMonitor) (*sql.DB, string, error) {
 	// ----------------------------------------------------------------------
 	// Pasword reload func
 
-	// Blip presumes that passwords are rotated for security. So we create
-	// a callback that relaods the password based on its method: static, file,
+	// Blip presumes that credentials are rotated for security. So we create
+	// a callback that relaods the credentials based on its method: static, file,
 	// Amazon IAM auth token, etc. The special mysql-hotswap-dsn driver (below)
 	// calls this func when MySQL returns an authentication error.
-	passwordFunc, err := f.Password(cfg)
+	credentialFunc, err := f.Credentials(cfg)
 	if err != nil {
 		return nil, "", err
 	}
 
-	// Test the password reload func, i.e. get the current password, which
-	// might just be a static password in the Blip config file or another file,
+	// Test the credentials reload func, i.e. get the current credentials, which
+	// might just be a static credentials in the Blip config file or another file,
 	// but it could be something dynamic like an Amazon IAM auth token.
 	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 	defer cancel()
-	password, err := passwordFunc(ctx)
+	credentials, err := credentialFunc(ctx)
 	if err != nil {
 		return nil, "", err
 	}
 
 	// Credentials are username:password--part of the DSN created below
-	cred := cfg.Username
-	if password != "" {
-		cred += ":" + password
+	cred := credentials.Username
+	if credentials.Password != "" {
+		cred += ":" + credentials.Password
 	}
 
 	// ----------------------------------------------------------------------
@@ -127,10 +133,54 @@ func (f factory) Make(cfg blip.ConfigMonitor) (*sql.DB, string, error) {
 	if err != nil {
 		return nil, "", err
 	}
+
 	if tlsConfig != nil {
 		mysql.RegisterTLSConfig(cfg.MonitorId, tlsConfig)
 		params = append(params, "tls="+cfg.MonitorId)
 		blip.Debug("%s: TLS enabled", cfg.MonitorId)
+
+		// TLS is configured, so make sure we reload it when the credentials are reloaded in case
+		// it was changed
+		origCredentialFunc := credentialFunc
+		credentialFunc = func(ctx context.Context) (Credentials, error) {
+			creds, err := origCredentialFunc(ctx)
+			if err != nil {
+				return creds, err
+			}
+
+			// Get a copy of the original configuration and apply the
+			// TLS configuration to it as a default value. If blipConfig
+			// already has TLS settings in place then creds.TLS is ignored
+			blipConfig := originalCfg
+			blipConfig.ApplyDefaults(blip.Config{TLS: creds.TLS})
+
+			// Determine if we need to set SkipVerify
+			if blipConfig.Socket != "" && blipConfig.TLS.Set() && blipConfig.Hostname == "" && !blip.True(blipConfig.TLS.SkipVerify) {
+				b := true
+				blipConfig.TLS.SkipVerify = &b
+				blip.Debug("%s: auto-enabled skip-verify on socket with TLS but no hostname", blipConfig.MonitorId)
+			}
+
+			tlsConfig, err := blipConfig.TLS.LoadTLS(portSuffix.ReplaceAllString(blipConfig.Hostname, ""))
+			if err != nil {
+				// Don't interrupt the password reload if we have an error loading TLS.
+				// If there was a change we will get an error when trying to re-connect
+				// so log the error and continue
+				log.Printf("Error reloading TLS settings: %v", err)
+
+				return creds, nil
+			}
+
+			// Register then TLS config, if we have any. If the user previously specified TLS settings
+			// then they should still exist now. If they don't we will leave the old settings in place,
+			// which may generate an error when Blip tries to reconnect.
+			if tlsConfig != nil {
+				mysql.RegisterTLSConfig(blipConfig.MonitorId, tlsConfig)
+				blip.Debug("%s: Re-registring TLS", blipConfig.MonitorId)
+			}
+
+			return creds, nil
+		}
 	}
 
 	// Use built-in Amazon RDS CA if password is AWS IAM auth or Secrets Manager
@@ -184,10 +234,10 @@ func (f factory) Make(cfg blip.ConfigMonitor) (*sql.DB, string, error) {
 	// Valid db/DSN, do not return error past here
 	// ======================================================================
 
-	// Now that we know the DSN/DB are valid, registry the password reload func.
+	// Now that we know the DSN/DB are valid, register the credential reload func.
 	// Don't do this earlier becuase there's no way to unregister it, which is
 	// probably a bug/leak if/when Blip allows dyanmically unloading monitors.
-	Repo.Add(addr, passwordFunc)
+	Repo.Add(addr, credentialFunc)
 
 	// Limit Blip to 3 MySQL conn by default: 1 or 2 for metrics, and 1 for
 	// LPA, heartbeat, etc. Since all metrics are supposed to collect in a
@@ -203,12 +253,12 @@ func (f factory) Make(cfg blip.ConfigMonitor) (*sql.DB, string, error) {
 	return db, RedactedDSN(dsn), nil
 }
 
-// Password creates a password reload function (callback) based on the
-// configured password method. This function is used by the mysql-hotswap-dsn
+// Credentials creates a credentials reload function (callback) based on the
+// configured credential method. This function is used by the mysql-hotswap-dsn
 // driver (see reload_password.go). For a consistent abstraction, all
-// passwords are fetched via a reload func, even a static password specified
+// credentials are fetched via a reload func, even a static credential specified
 // in the Blip config file.
-func (f factory) Password(cfg blip.ConfigMonitor) (PasswordFunc, error) {
+func (f factory) Credentials(cfg blip.ConfigMonitor) (CredentialFunc, error) {
 
 	// Amazon IAM auth token (valid 15 min)
 	if blip.True(cfg.AWS.AuthToken) {
@@ -218,7 +268,17 @@ func (f factory) Password(cfg blip.ConfigMonitor) (PasswordFunc, error) {
 			return nil, err
 		}
 		token := aws.NewAuthToken(cfg.Username, cfg.Hostname, awscfg)
-		return token.Password, nil
+		return func(ctx context.Context) (Credentials, error) {
+			passwd, err := token.Password(ctx)
+			if err != nil {
+				return Credentials{}, err
+			}
+
+			return Credentials{
+				Password: passwd,
+				Username: cfg.Username,
+			}, nil
+		}, nil
 	}
 
 	// Amazon Secrets Manager, could be rotated
@@ -229,41 +289,63 @@ func (f factory) Password(cfg blip.ConfigMonitor) (PasswordFunc, error) {
 			return nil, err
 		}
 		secret := aws.NewSecret(cfg.AWS.PasswordSecret, awscfg)
-		return secret.Password, nil
+		return func(ctx context.Context) (Credentials, error) {
+			passwd, err := secret.Password(ctx)
+
+			if err != nil {
+				return Credentials{}, err
+			}
+
+			return Credentials{
+				Password: passwd,
+				Username: cfg.Username,
+			}, nil
+		}, nil
 	}
 
 	// Password file, could be "rotated" (new password written to file)
 	if cfg.PasswordFile != "" {
 		blip.Debug("%s: password file", cfg.MonitorId)
-		return func(context.Context) (string, error) {
+		return func(context.Context) (Credentials, error) {
 			bytes, err := ioutil.ReadFile(cfg.PasswordFile)
 			if err != nil {
-				return "", err
+				return Credentials{}, err
 			}
-			return string(bytes), err
+			return Credentials{
+				Password: string(bytes),
+				Username: cfg.Username,
+			}, err
 		}, nil
 	}
 
-	// Static password in my.cnf file, could be rotated (like password file)
+	// Credentials in my.cnf file, could be rotated (username and/or password, along with TLS config)
 	if cfg.MyCnf != "" {
-		blip.Debug("%s my.cnf password", cfg.MonitorId)
-		return func(context.Context) (string, error) {
-			cfg, _, err := ParseMyCnf(cfg.MyCnf)
+		blip.Debug("%s my.cnf credentials", cfg.MonitorId)
+		return func(context.Context) (Credentials, error) {
+			cfg, tlscfg, err := ParseMyCnf(cfg.MyCnf)
 			if err != nil {
-				return "", err
+				return Credentials{}, err
 			}
-			return cfg.Password, err
+			return Credentials{
+				Password: cfg.Password,
+				Username: cfg.Username,
+				TLS:      tlscfg,
+			}, err
 		}, nil
 	}
 
 	// Static password in Blip config file, not rotated
 	if cfg.Password != "" {
-		blip.Debug("%s: static password", cfg.MonitorId)
-		return func(context.Context) (string, error) { return cfg.Password, nil }, nil
+		blip.Debug("%s: static password credentials", cfg.MonitorId)
+		return func(context.Context) (Credentials, error) {
+			return Credentials{Password: cfg.Password, Username: cfg.Username}, nil
+		}, nil
 	}
 
 	blip.Debug("%s: no password", cfg.MonitorId)
-	return func(context.Context) (string, error) { return "", nil }, nil
+	return func(context.Context) (Credentials, error) {
+		return Credentials{Password: "", Username: cfg.Username}, nil
+	}, nil
 }
 
 // --------------------------------------------------------------------------
