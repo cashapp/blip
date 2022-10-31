@@ -6,6 +6,14 @@ title: retry
 
 # Retry Sink
 
+The retry sink is a pseudo-sink that provides buffering, serialization, and retry for real sinks.
+The built-in sinks, except [`log`](./log), use a retry sink to handle those three complexities.
+
+The retry sink uses a LIFO queue (a stack) to prioritize sending the latest metrics.
+During a long outage of the real sink, the retry sink drops the oldest metrics and keeps the latest metrics, up to its buffer size, which is configurable.
+
+## Quick Reference
+
 ```yaml
 sinks:
   retry:
@@ -13,9 +21,3 @@ sinks:
     send-timeout: 5s
     send-retry-wait: 200ms
 ```
-
-Retry is a pseudo-sink that provides buffering, serialization, and retry for a real sink.
-The built-in sinks, except [`log`](./log), use Retry to handle those three complexities.
-
-Retry uses a LIFO queue (a stack) to prioritize sending the latest metrics.
-This means that, during a long outage of the real sink, Retry drops the oldest metrics and keeps the latest metrics, up to its buffer size, which is configurable.

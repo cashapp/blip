@@ -1,6 +1,6 @@
 ---
 layout: default
-title: "4. Metrics"
+title: "3. Metrics"
 parent: Introduction
 nav_order: 3
 ---
@@ -9,44 +9,48 @@ nav_order: 3
 
 Blip collects the most important MySQL metrics by default.
 If you're not a MySQL expert or DBA, then all you have to do is configure a sink to report them.
-([Sinks](sinks) are explained later.)
+(Sink are explained in the [fifth part](sinks) of the introduction.)
 However, Blip is also designed for experts and DBA who know that MySQL metrics are vast and unorganized.
 To manage the complexity of MySQL metrics, Blip organizes metrics into domains.
 
 A Blip _metric domain_ (or _domain_ for short) is a logical group of MySQL metrics.
-Most domains map very closely to the source of MySQL metrics that they represent.
+Most domains map intuitively to the source of MySQL metrics that they represent.
 For example, the [`status.global`](../metrics/domains#statusglobal) domain represents metrics from `SHOW GLOBAL STATUS`.
 
-What source of MySQL metrics do you think the [`repl`](../metrics/domains#repl) domain represents?
-You're probably thinking `SHOW SLAVE STATUS`, and you're probably right.
-However, that source was renamed as of MySQL 8.0.22; it's now `SHOW REPLICA STATUS`, and some of its metrics were renamed, too.
-But wait, there's more...
+Blip metric domains are a necessary abstraction because MySQL metrics are unorganized, inconsistent, and different for each MySQL distribution and version.
+In addition to that, metrics can be collected from different sources.
+For example, there are three sources for InnoDB metrics: `SHOW ENGINE INNODB STATUS`, `SHOW GLOBAL STATUS`, and `information_schema.innodb_metrics`.
+And among those sources, the metrics differ in subtle (and sometimes not-so-subtle) ways.
+Even MySQL experts struggle with all this complexity.
 
-The [`innodb`](../metrics/domains#innodb) domain represents InnoDB metrics, but MySQL has three difference sources for InnoDB metrics: `SHOW ENGINE INNODB STATUS`, `SHOW GLOBAL STATUS`, and `information_schema.innodb_metrics`.
-The [domain documentation](../metrics/domains) specifies which source is used because some domains use multiple sources. (Whenever possible, Blip automatically choose the best source.)
+Blip domains simplify and hide (most of) the complexity.
+For example again, the [`innodb`](../metrics/domains#innodb) domain represents InnoDB metrics regardless of the varying details&mdash;most of which Blip tries to detect automatically and use the best source.
 
-Familiarity with Blip domains is the first step to customizing metrics collection.
-The second step is specifying which metrics in the domain to collect.
-Here's a tiny [plan](plans) that collects `Threads_running` and `Queries` from the [`status.global`](../metrics/domains#statusglobal) domain every 5 seconds:
+Every metric belongs to a Blip domain.
+The first step to customizing Blip metrics collection is to familiarize yourself with the [Blip metric domains](../metrics/domains).
+The second step is specifying which metrics to collect (by domain) in a plan.
+(Plans are explained in the [next part](plans) of the introduction.)
+Here's a tiny plan that collects two metrics, `Threads_running` and `Queries`, from the [`status.global`](../metrics/domains#statusglobal) domain every 5 seconds:
 
 ```yaml
 level:
   freq: 5s
   collect:
-    status.global:
+    status.global: # domain
       metrics:
         - threads_running
         - queries
 ```
 
-Ignore the plan syntax for now; it's covered next.
-
-_To customize metrics collection, specify the domains and metrics in those domains, as shown on lines 4 through 7._
+In the tiny plan above, the domain is specified on line 4: `status.global`.
+The metrics to collect in that domain are specified on lines 5, 6, and 7.
+When Blip boots, it loads the metrics collector plugin for the domain, which does the actual metrics collection when called from the monitor engine.
+(These concepts are explained in the [first part](concepts) of the introduction.)
 
 Blip collects only the metrics that you specify, nothing else.
-This allows for very precise and efficient metrics collection, which is necessary because the vast majority of MySQL metrics are not generally useful (or, they're esoteric such that few people use them except deep MySQL experts.)
+This allows for very precise and efficient metrics collection, which is necessary because the vast majority of MySQL metrics are not generally useful.
 For example, `SHOW GLOBAL STATUS` dumps over 400 metrics as of MySQL 8.0, but less than 100 are generally useful&mdash;and some aren't even metrics, like `Rsa_public_key`.
-Alas, although MySQL metrics are a mess, Blip helps reign in the chaos with domains and explicit metric collection.
+Although MySQL metrics are a mess, Blip helps rein in the chaos with plans that specify which metrics to collect and how often.
 
 ---
 

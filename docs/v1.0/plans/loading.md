@@ -2,7 +2,6 @@
 layout: default
 parent: Plans
 title: "Loading"
-nav_order: 5
 ---
 
 # Loading
@@ -80,13 +79,4 @@ monitors:
       table: blip.plans # WHERE monitorId=host1
       #default: WHERE monitorId=host1 ORDER BY name ASC LIMIT 1
 
-```
-
-## Combining Levels
-
-Levels are combined by the LPC (call stack):
-
-```
-sortedLevels()
-changePlan()
 ```

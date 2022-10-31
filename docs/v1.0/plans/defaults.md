@@ -2,7 +2,6 @@
 layout: default
 parent: Plans
 title: "Defaults"
-nav_order: 1
 ---
 
 # Default Plans

@@ -2,7 +2,6 @@
 layout: default
 parent: Configure
 title: Collectors
-nav_order: 5
 ---
 
 # Collectors

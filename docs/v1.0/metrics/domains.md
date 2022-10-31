@@ -2,7 +2,6 @@
 layout: default
 parent: Metrics
 title: Domains
-nav_order: 3
 ---
 
 # Domains

@@ -2,7 +2,6 @@
 layout: default
 title: "Config File"
 parent: Configure
-nav_order: 2
 ---
 
 {: .floating-toc }
@@ -11,7 +10,7 @@ nav_order: 2
 
 # Config File
 
-Blip configuration is specified in a single [config file](blip#config-file) that has three logical sections:
+Blip configuration is specified in a single [config file](blip#config-file) that has three sections:
 
 ```yaml
 ---
@@ -494,17 +493,17 @@ plans:
     - plan2.yaml
   table: "blip.plans"
   monitor: {}
-  adjust:
+  change:
     # See below
 ```
 
-### adjust
+### change
 
-The `adjust` subsection of the `plan` section configures the [Level Plan Adjuster (LPA) feature](../monitor/level-adjuster.hmtml).
+The `change` subsection of the `plan` section configures [plan changes](../plans/changing) based on the state of MySQL.
 
 ```yaml
 plans:
-  adjust:
+  change:
     offline:
       after: ""
       plan: ""
@@ -519,7 +518,7 @@ plans:
       plan: ""
 ```
 
-Each of the four sections (corresponding to the four [connection states](../monitor/level-adjuster#connection-states)) have the same two variables:
+Each of the four sections&mdash;`offline`, `standby`, `read-only`, and `active`&mdash;have the same two variables:
 
 #### `after`
 

@@ -2,13 +2,12 @@
 layout: default
 parent: Metrics
 title: Collecting
-nav_order: 1
 ---
 
 # Collecting
 {: .no_toc }
 
-[Introduction > Metrics](../intro/metrics) and [Introduction > Plans](../intro/plans) briefly describe how Blip collects metrics.
+[Introduction / Metrics](../intro/metrics) and [Introduction / Plans](../intro/plans) briefly describe how Blip collects metrics.
 TL;DR: _you specify metrics (by domain) in a plan_.
 
 This page details how Blip collects metrics and how to customize metrics collection.

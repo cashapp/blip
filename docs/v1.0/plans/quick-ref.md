@@ -2,7 +2,6 @@
 layout: default
 parent: Plans
 title: "Quick Reference"
-nav_order: 10
 ---
 
 # Quick Reference

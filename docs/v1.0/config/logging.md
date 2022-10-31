@@ -2,7 +2,6 @@
 layout: default
 parent: Configure
 title: Logging
-nav_order: 4
 ---
 
 # Logging

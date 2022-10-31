@@ -2,7 +2,6 @@
 layout: default
 parent: Configure
 title: MySQL User
-nav_order: 3
 ---
 
 # MySQL User
@@ -11,7 +10,7 @@ Minimum privileges:
 
 * `SELECT ON performance_schema.*`
 
-Recommend privileges in addition to minimum:
+Recommend privileges:
 
 * `SELECT ON *.*`
 * `REPLICATION CLIENT ON *.*`
