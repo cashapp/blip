@@ -26,6 +26,8 @@ type Datadog struct {
 	metricsApi *datadogV2.MetricsApi
 	apiKeyAuth string
 	appKeyAuth string
+
+	resources []datadogV2.MetricResource
 }
 
 func NewDatadog(monitorId string, opts, tags map[string]string, httpClient *http.Client) (*Datadog, error) {
@@ -34,15 +36,28 @@ func NewDatadog(monitorId string, opts, tags map[string]string, httpClient *http
 	metricsApi := datadogV2.NewMetricsApi(datadog.NewAPIClient(c))
 
 	tagList := make([]string, 0, len(tags))
+	var resources []datadogV2.MetricResource = nil
 
 	for k, v := range tags {
 		tagList = append(tagList, fmt.Sprintf("%s:%s", k, v))
+
+		// If we have a "host" tag, we should include a resource definition for host
+		// so that metrics are properly associated with infrastructure in Datadog
+		if k == "host" {
+			resources = []datadogV2.MetricResource {
+				{
+					Name: datadog.PtrString(v),
+					Type: datadog.PtrString("host"),
+				},
+			}
+		}
 	}
 
 	d := &Datadog{
 		monitorId:  monitorId,
 		tags:       tagList,
 		metricsApi: metricsApi,
+		resources: resources,
 	}
 
 	for k, v := range opts {
@@ -187,7 +202,8 @@ func (s *Datadog) Send(ctx context.Context, m *blip.Metrics) error {
 							Timestamp: datadog.PtrInt64(timestamp),
 						},
 					},
-					Tags: tags,
+					Tags:      tags,
+					Resources: s.resources,
 				}
 			case blip.GAUGE:
 				dp[n] = datadogV2.MetricSeries{
@@ -199,7 +215,8 @@ func (s *Datadog) Send(ctx context.Context, m *blip.Metrics) error {
 							Timestamp: datadog.PtrInt64(timestamp),
 						},
 					},
-					Tags: tags,
+					Tags:      tags,
+					Resources: s.resources,
 				}
 			default:
 				// datadog doesn't support this Blip metric type, so skip it
