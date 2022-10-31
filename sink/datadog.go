@@ -6,7 +6,6 @@ import (
 	"io/ioutil"
 	"net/http"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/DataDog/datadog-api-client-go/v2/api/datadog"
@@ -27,6 +26,8 @@ type Datadog struct {
 	metricsApi *datadogV2.MetricsApi
 	apiKeyAuth string
 	appKeyAuth string
+
+	resources []datadogV2.MetricResource
 }
 
 func NewDatadog(monitorId string, opts, tags map[string]string, httpClient *http.Client) (*Datadog, error) {
@@ -35,15 +36,28 @@ func NewDatadog(monitorId string, opts, tags map[string]string, httpClient *http
 	metricsApi := datadogV2.NewMetricsApi(datadog.NewAPIClient(c))
 
 	tagList := make([]string, 0, len(tags))
+	var resources []datadogV2.MetricResource = nil
 
 	for k, v := range tags {
 		tagList = append(tagList, fmt.Sprintf("%s:%s", k, v))
+
+		// If we have a "host" tag, we should include a resource definition for host
+		// so that metrics are properly associated with infrastructure in Datadog
+		if k == "host" {
+			resources = []datadogV2.MetricResource {
+				{
+					Name: datadog.PtrString(v),
+					Type: datadog.PtrString("host"),
+				},
+			}
+		}
 	}
 
 	d := &Datadog{
 		monitorId:  monitorId,
 		tags:       tagList,
 		metricsApi: metricsApi,
+		resources: resources,
 	}
 
 	for k, v := range opts {
@@ -176,24 +190,6 @@ func (s *Datadog) Send(ctx context.Context, m *blip.Metrics) error {
 				}
 			}
 
-			// If we have a "host" tag, we should include a resource definition for host
-			// so that metrics are properly associated with infrastructure in Datadog
-			var resources []datadogV2.MetricResource = nil
-
-			for _, tag := range s.tags {
-				if strings.Index(tag, "host:") == 0 {
-					if pos := strings.Index(tag, ":"); pos > 0 {
-						resources = []datadogV2.MetricResource{
-							{
-								Name: datadog.PtrString(tag[pos+1:]),
-								Type: datadog.PtrString("host"),
-							},
-						}
-						break
-					}
-				}
-			}
-
 			// Convert Blip metric type to Datadog metric type
 			switch metrics[i].Type {
 			case blip.COUNTER:
@@ -207,7 +203,7 @@ func (s *Datadog) Send(ctx context.Context, m *blip.Metrics) error {
 						},
 					},
 					Tags:      tags,
-					Resources: resources,
+					Resources: s.resources,
 				}
 			case blip.GAUGE:
 				dp[n] = datadogV2.MetricSeries{
@@ -220,7 +216,7 @@ func (s *Datadog) Send(ctx context.Context, m *blip.Metrics) error {
 						},
 					},
 					Tags:      tags,
-					Resources: resources,
+					Resources: s.resources,
 				}
 			default:
 				// datadog doesn't support this Blip metric type, so skip it
