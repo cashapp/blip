@@ -14,10 +14,16 @@ import (
 )
 
 func init() {
-	dsndriver.SetHotswapFunc(Repo.ReloadPassword)
+	dsndriver.SetHotswapFunc(Repo.ReloadDSN)
 }
 
-type PasswordFunc func(context.Context) (string, error)
+type Credentials struct {
+	Username string
+	Password string
+	TLS      blip.ConfigTLS
+}
+
+type CredentialFunc func(context.Context) (Credentials, error)
 
 type repo struct {
 	m *sync.Map
@@ -27,14 +33,14 @@ var Repo = &repo{
 	m: &sync.Map{},
 }
 
-func (r *repo) Add(addr string, f PasswordFunc) error {
+func (r *repo) Add(addr string, f CredentialFunc) error {
 	r.m.Store(addr, f)
 	blip.Debug("added %s", addr)
 	return nil
 }
 
-func (r *repo) ReloadPassword(ctx context.Context, currentDSN string) string {
-	// Only return new DSN on success and password is different. Else, return
+func (r *repo) ReloadDSN(ctx context.Context, currentDSN string) string {
+	// Only return new DSN on success and credentials are different. Else, return
 	// an empty string which makes the hotswap driver return the original driver
 	// error, i.e. it's like this func was never called. Only when this func
 	// returns a non-empty string does the hotswap driver use it to swap out
@@ -50,22 +56,23 @@ func (r *repo) ReloadPassword(ctx context.Context, currentDSN string) string {
 
 	v, ok := r.m.Load(cfg.Addr)
 	if !ok {
-		blip.Debug("no password func for %s", cfg.Addr)
+		blip.Debug("no credential func for %s", cfg.Addr)
 		return ""
 	}
 
-	newPassword, err := v.(PasswordFunc)(ctx)
+	newCred, err := v.(CredentialFunc)(ctx)
 	if err != nil {
 		event.Sendf(event.DB_RELOAD_PASSWORD_ERROR, "%s: %s", RedactedDSN(currentDSN), err.Error())
 		return ""
 	}
 
-	if cfg.Passwd == newPassword {
-		blip.Debug("password has not changed")
+	if cfg.Passwd == newCred.Password && cfg.User == newCred.Username {
+		blip.Debug("credentials have not changed")
 		return ""
 	}
 
-	blip.Debug("password reloaded")
-	cfg.Passwd = newPassword
+	blip.Debug("credentials reloaded")
+	cfg.Passwd = newCred.Password
+	cfg.User = newCred.Username
 	return cfg.FormatDSN()
 }

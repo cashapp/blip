@@ -1017,6 +1017,7 @@ func (c ConfigTLS) Set() bool {
 	return !True(c.Disable) && c.MySQLMode != "DISABLED" && (c.CA != "" || c.Cert != "" || c.Key != "")
 }
 
+// Create tls.Config from the Blip TLS config settings. Returns
 func (c ConfigTLS) LoadTLS(server string) (*tls.Config, error) {
 	//  WARNING: ConfigTLS.Valid must be called first!
 	Debug("TLS for %s: %+v", c, server)
@@ -1038,6 +1039,7 @@ func (c ConfigTLS) LoadTLS(server string) (*tls.Config, error) {
 		if err != nil {
 			return nil, err
 		}
+
 		caCertPool := x509.NewCertPool()
 		caCertPool.AppendCertsFromPEM(caCert)
 		tlsConfig.RootCAs = caCertPool
@@ -1049,6 +1051,7 @@ func (c ConfigTLS) LoadTLS(server string) (*tls.Config, error) {
 		if err != nil {
 			return nil, err
 		}
+
 		tlsConfig.Certificates = []tls.Certificate{cert}
 		tlsConfig.BuildNameToCertificate()
 	}
