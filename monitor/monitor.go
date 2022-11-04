@@ -463,7 +463,7 @@ func (m *Monitor) startup() error {
 		// Do need retry or error handling because ChangePlan tries forever,
 		// or until called again.
 		status.Monitor(m.monitorId, "monitor", "setting state active")
-		m.lpc.ChangePlan(blip.STATE_ACTIVE, "") // start LPC directly
+		m.lpc.ChangePlan(blip.STATE_ACTIVE, m.cfg.Plan) // start LPC directly
 	}
 
 	return nil
