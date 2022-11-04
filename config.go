@@ -351,6 +351,7 @@ type ConfigMonitor struct {
 	HA        ConfigHighAvailability `yaml:"ha,omitempty"`
 	Heartbeat ConfigHeartbeat        `yaml:"heartbeat,omitempty"`
 	Plans     ConfigPlans            `yaml:"plans,omitempty"`
+	Plan      string                 `yaml:"plan,omitempty"`
 	Sinks     ConfigSinks            `yaml:"sinks,omitempty"`
 	TLS       ConfigTLS              `yaml:"tls,omitempty"`
 

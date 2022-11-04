@@ -725,7 +725,7 @@ Section [`exporter`](#exporter) is exactly the same in a monitor.
 
 <b>Refer to [Monitor Defaults](#monitor-defaults) for configuring MySQL instances, and remember: [`mysql`](#mysql) variables are top-level in a monitor (omit `mysql:` and include the variables directly).<b>
 
-Monitors have two variables that only appear in monitors: `id` and `meta`.
+Monitors have three variables that only appear in monitors: `id`, `meta`, and `plan`.
 
 ### `id`
 
@@ -771,3 +771,11 @@ This makes monitor metadata useful for advanced or automated configurations beca
 
 Monitor metadata is optional.
 When useful, the Blip documentation will shown to use it.
+
+### `plan`
+{: .var-table }
+|**Type**|string)|
+|**Valid values**|any string|
+|**Default value**||
+
+`plan` selects the plan for the monitor to use if `change` is not configured. Setting `plan` to `""` will select the first plan loaded as the default.
