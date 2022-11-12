@@ -2,15 +2,14 @@
 layout: default
 parent: Metrics
 title: Reporting
-nav_order: 2
 ---
 
 # Reporting
 {: .no_toc }
 
 Blip does not have a single format or protocol for reporting metrics.
-Instead, after [collecting metrics](collecting) Blip uses metric sinks to report metrics.
-A sink translates the Blip [metric data structure](#metric-data-structure) to the sink-specific protocol.
+Instead, after [collecting metrics](collecting) Blip uses metric [sinks](../sinks/) to translate the Blip [metric data structure](#metric-data-structure) to a sink-specific protocol.
+
 Normally, a sink sends metrics somewhere, but a sink can do anything with the metrics&mdash;Blip does not impose any restrictions on sinks.
 For example, the default [log sink](../sinks/log) dumps metrics to `STDOUT`.
 
@@ -75,9 +74,25 @@ Metrics can be renamed _after_ collection by using the [TransformMetrics plugin]
 
 ## Metric Data Structure
 
-In YAML, the basic structure of Blip metrics is:
+Internally, Blip stores metrics in a [`blip.Metrics` data structure](https://pkg.go.dev/github.com/cashapp/blip#Metrics):
 
 ```
+type Metrics struct {
+	Begin     time.Time                // when collection started
+	End       time.Time                // when collection completed
+	MonitorId string                   // ID of monitor (MySQL)
+	Plan      string                   // plan name
+	Level     string                   // level name
+	State     string                   // state of monitor
+	Values    map[string][]MetricValue // keyed on domain
+}
+```
+
+[Metric values](https://pkg.go.dev/github.com/cashapp/blip#MetricValue) (the last field in the struct) are reported per-domain.
+
+To visual the data structure more easily, in YAML it would be:
+
+```yaml
 domain:
   - metric:
       value: <float64>
@@ -93,10 +108,13 @@ Each domain collector can collect any number of metrics.
 Each metric has a type and value.
 [Groups](#groups) and [Meta](#meta) are detailed below.
 
+{: .note }
+Blip metrics are not stored or report in YAML; these examples are only for illustration.
+
 A realistic example of two metrics from the [`status.global` domain](domains#statusglobal):
 
 ```
-global.status:
+status.global:
   - threads_running:
       value: 16
       type: gauge

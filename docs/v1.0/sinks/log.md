@@ -6,10 +6,12 @@ title: log
 
 # Log Sink
 
+The log sink is the default sink that prints metrics to STDOUT.
+
+## Quick Reference
+
 ```yaml
 sinks:
   log:
     # No options
 ```
-
-Log is the default sink that dumps (logs) metrics to STDOUT.

@@ -2,7 +2,6 @@
 layout: default
 parent: Metrics
 title: Quick Reference
-nav_order: 100
 ---
 
 # Quick Reference

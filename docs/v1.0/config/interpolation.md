@@ -2,7 +2,6 @@
 layout: default
 parent: Configure
 title: Interpolation
-nav_order: 6
 ---
 
 # Interpolation

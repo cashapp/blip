@@ -2,7 +2,6 @@
 layout: default
 title: "Config File"
 parent: Configure
-nav_order: 2
 ---
 
 {: .floating-toc }
@@ -11,7 +10,7 @@ nav_order: 2
 
 # Config File
 
-Blip configuration is specified in a single [config file](blip#config-file) that has three logical sections:
+Blip configuration is specified in a single [config file](blip#config-file) that has three sections:
 
 ```yaml
 ---
@@ -494,17 +493,17 @@ plans:
     - plan2.yaml
   table: "blip.plans"
   monitor: {}
-  adjust:
+  change:
     # See below
 ```
 
-### adjust
+### change
 
-The `adjust` subsection of the `plan` section configures the [Level Plan Adjuster (LPA) feature](../monitor/level-adjuster.hmtml).
+The `change` subsection of the `plan` section configures [plan changes](../plans/changing) based on the state of MySQL.
 
 ```yaml
 plans:
-  adjust:
+  change:
     offline:
       after: ""
       plan: ""
@@ -519,7 +518,7 @@ plans:
       plan: ""
 ```
 
-Each of the four sections (corresponding to the four [connection states](../monitor/level-adjuster#connection-states)) have the same two variables:
+Each of the four sections&mdash;`offline`, `standby`, `read-only`, and `active`&mdash;have the same two variables:
 
 #### `after`
 
@@ -726,7 +725,7 @@ Section [`exporter`](#exporter) is exactly the same in a monitor.
 
 <b>Refer to [Monitor Defaults](#monitor-defaults) for configuring MySQL instances, and remember: [`mysql`](#mysql) variables are top-level in a monitor (omit `mysql:` and include the variables directly).<b>
 
-Monitors have two variables that only appear in monitors: `id` and `meta`.
+Monitors have three variables that only appear in monitors: `id`, `meta`, and `plan`.
 
 ### `id`
 
@@ -772,3 +771,11 @@ This makes monitor metadata useful for advanced or automated configurations beca
 
 Monitor metadata is optional.
 When useful, the Blip documentation will shown to use it.
+
+### `plan`
+{: .var-table }
+|**Type**|string)|
+|**Valid values**|any string|
+|**Default value**||
+
+`plan` selects the plan for the monitor to use if `change` is not configured. Setting `plan` to `""` will select the first plan loaded as the default.

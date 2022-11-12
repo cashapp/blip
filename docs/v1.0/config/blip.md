@@ -1,7 +1,7 @@
 ---
 layout: default
 parent: Configure
-title: Blip
+title: blip Binary
 nav_order: 1
 ---
 
@@ -16,18 +16,12 @@ To configure (customize) metrics collection, see [Plans](../plans/) and [Metrics
 
 ## Config File
 
-Blip configuration is specified in a single YAML file.
+Blip uses a single YAML file for configuration.
 See [Configure / Config File](config-file) for the full list of Blip config variables.
 
-There are 3 ways to specify the Blip config file.
+👉 By default, Blip reads `blip.yaml` in the current working directory, if it exits.
 
-By default, Blip reads `blip.yaml` in the current working directory if it exists:
-
-```sh
-$ blip
-```
-
-You can specify a config file with the [`--config`](#--config-file) command-line option:
+You can specify a different config file with the [`--config`](#--config-file) command-line option:
 
 ```sh
 $ blip --config FILE
@@ -48,7 +42,6 @@ $ export BLIP_CONFIG=FILE_1
 $ blip --config FILE_2
 ```
 
-
 ## Command Line Options
 
 Run `blip --help` to list command line options.
@@ -61,7 +54,10 @@ Env var: `BLIP_CONFIG`
 
 {: .help-option }
 Specify Blip configuration file.
-The file must exist, else Blip will error on boot.
+The specified file must exist, else Blip will error on boot.
+<br><br>
+Blip will boot successfully if the _default_ file, `blip.yaml`, does not exist in the current working directly.
+In this case, Blip tries to auto-detect a local MySQL instance, which is useful for local development.
 
 ### `--debug`
 
@@ -69,7 +65,7 @@ The file must exist, else Blip will error on boot.
 Env var: `BLIP_CONFIG`
 
 {: .help-option }
-Print debug to stderr.
+Print debug to STDERR.
 
 ### `--help`
 
@@ -131,11 +127,3 @@ If `--run=false`, Blip starts and loads everything, but exits before running mon
 
 {: .help-option }
 Print version and exit.
-
-## Zero Config
-
-Blip uses built-it defaults and auto-detection to work without specifying any configuration.
-This is called the "zero config".
-
-The zero config should work on your laptop (presuming a standard MySQL setup), but it is not intended for production environments.
-At the very least, you need to specify which MySQL instances to monitor in the `monitors` section of the Blip config file.

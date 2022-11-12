@@ -12,15 +12,16 @@ nav_order: 5
 You can skip this part of the introduction if:<br>
 <ul>
 <li>You use <a href="https://docs.signalfx.com/en/latest/">SignalFx</a>, or</li>
+<li>You use <a href="https://www.datadoghq.com/">Datadog</a>, or</li>
 <li>You use <a href="https://chronosphere.io/">Chronosphere</a>, or</li>
-<li>You plan to use Blip to emulate and replace <a href="https://github.com/prometheus/mysqld_exporter">Prometheus `mysqld_exporter`</a></li>
+<li>You plan to use Blip to emulate and replace <a href="https://github.com/prometheus/mysqld_exporter">Prometheus mysqld_exporter</a></li>
 </ul>
-Blip has built-in support for these three use cases.
+Blip has built-in support for these use cases.
 </div>
 
-Blip ships with built-in and automatic support for almost everything, but the one thing we (the Blip developers) cannot know is where you (the user) will send metrics.
+Blip ships with built-in support for many common use cases, but the one thing Blip cannot know is where you send metrics.
 Consequently, you might need to develop a Blip metric sink to translate and send Blip metrics to your metrics store or metrics graphing solution.
-Don't worry: Blip was intentionally designed to make this easy.
+Don't worry: Blip was designed to make this easy.
 This brief introduction shows the high-level process of developing a new Blip metric sink.
 
 The following presumes that you're an experienced [Go programmer](https://go.dev/).
@@ -147,4 +148,4 @@ Bottom line: Blip sinks are pure plugins, so you can make Blip send metrics _any
 
 ---
 
-Enough talk; let's run: [Quick Start&nbsp;&darr;](../quick-start/)
+Enough talk; let's run: [Quick Start&nbsp;&darr;](../quick-start)

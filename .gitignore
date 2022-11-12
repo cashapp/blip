@@ -20,3 +20,4 @@ bin/blip/*
 !bin/blip/main.go
 
 examples/integrate/integrate
+examples/custom-sink/custom-sink 
