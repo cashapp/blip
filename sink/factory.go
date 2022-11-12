@@ -12,6 +12,9 @@ import (
 	"github.com/cashapp/blip"
 )
 
+// Default is the default sink if config.sinks is not specified.
+var Default = "log"
+
 func Register(name string, f blip.SinkFactory) error {
 	r.Lock()
 	defer r.Unlock()

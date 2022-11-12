@@ -28,12 +28,12 @@ import (
 
 // Monitor monitors one MySQL instance. The monitor is a high-level component
 // that runs (and keeps running) four monitor subsystems:
-//   - Level plan collector (LPC)
-//   - Level plan adjuster (LPA)
+//   - Plan changer (PCH)
+//   - Level collector (LCO)
 //   - Blip heartbeat writer
 //   - Exporter (Prometheus)
 //
-// Each subsystem is optional based on the config, but LPC runs by default
+// Each subsystem is optional based on the config, but LCO runs by default
 // because it contains the Engine component that does actual metrics collection.
 // If any subsystem crashes (returns for any reason or panics), the monitor
 // stops and restarts all subsystems. The monitor doesn't stop until Stop is
@@ -48,7 +48,7 @@ import (
 // loaded by the MonitoLoad, which calls blip.MonitorId to determine the value.
 //
 // A monitor is completely self-contained and independent. For example, each monitor
-// has its own LPC, engine, and metric collectors.
+// has its own LCO, engine, and metric collectors.
 type Monitor struct {
 	// Required to create; created in Loader.makeMonitor()
 	monitorId       string
@@ -63,8 +63,8 @@ type Monitor struct {
 	db      *sql.DB
 	dsn     string // redacted (no password)
 	promAPI *prom.API
-	lpc     LevelCollector
-	lpa     LevelAdjuster
+	lco     LevelCollector
+	pch     PlanChanger
 	hbw     *heartbeat.Writer
 
 	// Control chans and sync
@@ -130,12 +130,12 @@ func (m *Monitor) Status() proto.MonitorStatus {
 	if m.dsn != "" {
 		status.DSN = m.dsn
 	}
-	if m.lpc != nil {
-		status.Collector = m.lpc.Status()
+	if m.lco != nil {
+		status.Collector = m.lco.Status()
 	}
-	if m.lpa != nil {
-		lpaStatus := m.lpa.Status()
-		status.Adjuster = &lpaStatus
+	if m.pch != nil {
+		pchStatus := m.pch.Status()
+		status.Adjuster = &pchStatus
 	}
 	m.runMux.RUnlock()
 
@@ -243,7 +243,7 @@ func (m *Monitor) runLoop() {
 }
 
 // startup starts the monitor subsystems, which are optional depending on config:
-// heartbeat writer, exporter API (Prometheus emulation), LPA, and LPC.
+// heartbeat writer, exporter API (Prometheus emulation), PCH, and LCO.
 // The monitor is running once these have started. If any subsystem crashes
 // (or returns for any reason), it calls stop() to stop the other subsystems,
 // then runLoop() calls startup again to restart monitoring.
@@ -398,14 +398,15 @@ func (m *Monitor) startup() error {
 	}
 
 	// ----------------------------------------------------------------------
-	// Level plan collector (LPC)
+	// Plan collector (LCO)
 
-	// Start LPC before LPA because the latter calls the former on state change.
-	// The LPC starts paused (engine not running) until a plan is set by calling
-	// lpc.ChangePlan. If the LPA is enabled, it will do this; if it's not enabled,
+	// Start the LCO before the PCH because the latter calls the former on
+	// state change. The LCO starts paused (engine not running) until a plan
+	// is set by calling lco.ChangePlan. Or, ff the PCH is enabled by
+	// config.plans.change, then it will do this; if it's not enabled,
 	// we'll do it as the last startup step.
-	status.Monitor(m.monitorId, "monitor", "starting LPC")
-	m.lpc = NewLevelCollector(LevelCollectorArgs{
+	status.Monitor(m.monitorId, "monitor", "starting LCO")
+	m.lco = NewLevelCollector(LevelCollectorArgs{
 		Config:           m.cfg,
 		Engine:           NewEngine(m.cfg, m.db),
 		PlanLoader:       m.planLoader,
@@ -415,55 +416,55 @@ func (m *Monitor) startup() error {
 
 	m.wg.Add(1)
 	go func() {
-		defer m.stop(true, "LPC") // stop monitor subsystems
+		defer m.stop(true, "LCO") // stop monitor subsystems
 		defer m.wg.Done()         // notify stop()
-		defer func() {            // catch panic in LPC
+		defer func() {            // catch panic in LCO
 			if r := recover(); r != nil {
 				m.panic(r)
 			}
 		}()
 		doneChan := make(chan struct{}) // Monitor uses wg
-		m.lpc.Run(m.runChan, doneChan)
+		m.lco.Run(m.runChan, doneChan)
 	}()
 
 	// ----------------------------------------------------------------------
-	// Level plan adjuster (LPA)
+	// Level plan adjuster (PCH)
 
-	if m.cfg.Plans.Adjust.Enabled() {
-		// Run option level plan adjuster (LPA). When enabled, the LPA checks
-		// the state of MySQL. If the state changes, it calls lpc.ChangePlan
+	if m.cfg.Plans.Change.Enabled() {
+		// Run option level plan adjuster (PCH). When enabled, the PCH checks
+		// the state of MySQL. If the state changes, it calls lco.ChangePlan
 		// to change the plan as configured by config.monitors.plans.adjust.<state>.
-		status.Monitor(m.monitorId, "monitor", "starting LPA")
-		m.lpa = NewLevelAdjuster(LevelAdjusterArgs{
+		status.Monitor(m.monitorId, "monitor", "starting PCH")
+		m.pch = NewPlanChanger(PlanChangerArgs{
 			MonitorId: m.monitorId,
-			Config:    m.cfg.Plans.Adjust,
+			Config:    m.cfg.Plans.Change,
 			DB:        m.db,
-			LPC:       m.lpc,
+			LCO:       m.lco,
 			HA:        ha.Disabled,
 		})
 
 		m.wg.Add(1)
 		go func() {
-			defer m.stop(true, "LPA") // stop monitor subsystems
+			defer m.stop(true, "PCH") // stop monitor subsystems
 			defer m.wg.Done()         // notify stop()
-			defer func() {            // catch panic in LPA
+			defer func() {            // catch panic in PCH
 				if r := recover(); r != nil {
 					m.panic(r)
 				}
 			}()
 			doneChan := make(chan struct{}) // Monitor uses wg
-			m.lpa.Run(m.runChan, doneChan)  // start LPC indirectly
+			m.pch.Run(m.runChan, doneChan)  // start LCO indirectly
 		}()
 	} else {
-		// When the LPA is not enabled, we must init the state and plan,
-		// which are ACTIVE and first (""), respectively. Since LPA is
+		// When the PCH is not enabled, we must init the state and plan,
+		// which are ACTIVE and first (""), respectively. Since PCH is
 		// optional, this is the normal case: startup presuming MySQL is
 		// active and use the monitor's first plan.
 		//
 		// Do need retry or error handling because ChangePlan tries forever,
 		// or until called again.
 		status.Monitor(m.monitorId, "monitor", "setting state active")
-		m.lpc.ChangePlan(blip.STATE_ACTIVE, "") // start LPC directly
+		m.lco.ChangePlan(blip.STATE_ACTIVE, m.cfg.Plan) // start LPC directly
 	}
 
 	return nil
