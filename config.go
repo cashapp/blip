@@ -446,6 +446,7 @@ func (c *ConfigMonitor) InterpolateEnvVars() {
 	c.HA.InterpolateEnvVars()
 	c.Heartbeat.InterpolateEnvVars()
 	c.Plans.InterpolateEnvVars()
+	c.Plan = interpolateEnv(c.Plan)
 	c.Sinks.InterpolateEnvVars()
 	c.TLS.InterpolateEnvVars()
 }
@@ -470,6 +471,7 @@ func (c *ConfigMonitor) InterpolateMonitor() {
 	c.HA.InterpolateMonitor(c)
 	c.Heartbeat.InterpolateMonitor(c)
 	c.Plans.InterpolateMonitor(c)
+	c.Plan = c.interpolateMon(c.Plan)
 	c.Sinks.InterpolateMonitor(c)
 	c.TLS.InterpolateMonitor(c)
 }
@@ -773,11 +775,11 @@ func (c ConfigMySQL) Redacted() string {
 // --------------------------------------------------------------------------
 
 type ConfigPlans struct {
-	Files       []string           `yaml:"files,omitempty"`
-	Table       string             `yaml:"table,omitempty"`
-	Monitor     *ConfigMonitor     `yaml:"monitor,omitempty"`
-	Adjust      ConfigPlanAdjuster `yaml:"adjust,omitempty"`
-	DisableAuto *bool              `yaml:"disable-auto"`
+	Files       []string         `yaml:"files,omitempty"`
+	Table       string           `yaml:"table,omitempty"`
+	Monitor     *ConfigMonitor   `yaml:"monitor,omitempty"`
+	Change      ConfigPlanChange `yaml:"change,omitempty"`
+	DisableAuto *bool            `yaml:"disable-auto"`
 }
 
 const (
@@ -797,7 +799,7 @@ func (c *ConfigPlans) ApplyDefaults(b Config) {
 		c.Files = make([]string, len(b.Plans.Files))
 		copy(c.Files, b.Plans.Files)
 	}
-	c.Adjust.ApplyDefaults(b)
+	c.Change.ApplyDefaults(b)
 	c.DisableAuto = setBool(c.DisableAuto, b.Plans.DisableAuto)
 }
 
@@ -806,7 +808,7 @@ func (c *ConfigPlans) InterpolateEnvVars() {
 		c.Files[i] = interpolateEnv(c.Files[i])
 	}
 	c.Table = interpolateEnv(c.Table)
-	c.Adjust.InterpolateEnvVars()
+	c.Change.InterpolateEnvVars()
 }
 
 func (c *ConfigPlans) InterpolateMonitor(m *ConfigMonitor) {
@@ -814,10 +816,10 @@ func (c *ConfigPlans) InterpolateMonitor(m *ConfigMonitor) {
 		c.Files[i] = m.interpolateMon(c.Files[i])
 	}
 	c.Table = m.interpolateMon(c.Table)
-	c.Adjust.InterpolateMonitor(m)
+	c.Change.InterpolateMonitor(m)
 }
 
-type ConfigPlanAdjuster struct {
+type ConfigPlanChange struct {
 	Offline  ConfigStatePlan `yaml:"offline,omitempty"`
 	Standby  ConfigStatePlan `yaml:"standby,omitempty"`
 	ReadOnly ConfigStatePlan `yaml:"read-only,omitempty"`
@@ -829,37 +831,37 @@ type ConfigStatePlan struct {
 	Plan  string `yaml:"plan,omitempty"`
 }
 
-func (c *ConfigPlanAdjuster) ApplyDefaults(b Config) {
+func (c *ConfigPlanChange) ApplyDefaults(b Config) {
 	if c.Offline.After == "" {
-		c.Offline.After = b.Plans.Adjust.Offline.After
+		c.Offline.After = b.Plans.Change.Offline.After
 	}
 	if c.Offline.Plan == "" {
-		c.Offline.Plan = b.Plans.Adjust.Offline.Plan
+		c.Offline.Plan = b.Plans.Change.Offline.Plan
 	}
 
 	if c.Standby.After == "" {
-		c.Standby.After = b.Plans.Adjust.Standby.After
+		c.Standby.After = b.Plans.Change.Standby.After
 	}
 	if c.Standby.Plan == "" {
-		c.Standby.Plan = b.Plans.Adjust.Standby.Plan
+		c.Standby.Plan = b.Plans.Change.Standby.Plan
 	}
 
 	if c.ReadOnly.After == "" {
-		c.ReadOnly.After = b.Plans.Adjust.ReadOnly.After
+		c.ReadOnly.After = b.Plans.Change.ReadOnly.After
 	}
 	if c.ReadOnly.Plan == "" {
-		c.ReadOnly.Plan = b.Plans.Adjust.ReadOnly.Plan
+		c.ReadOnly.Plan = b.Plans.Change.ReadOnly.Plan
 	}
 
 	if c.Active.After == "" {
-		c.Active.After = b.Plans.Adjust.Active.After
+		c.Active.After = b.Plans.Change.Active.After
 	}
 	if c.Active.Plan == "" {
-		c.Active.Plan = b.Plans.Adjust.Active.Plan
+		c.Active.Plan = b.Plans.Change.Active.Plan
 	}
 }
 
-func (c *ConfigPlanAdjuster) InterpolateEnvVars() {
+func (c *ConfigPlanChange) InterpolateEnvVars() {
 	c.Offline.After = interpolateEnv(c.Offline.After)
 	c.Offline.Plan = interpolateEnv(c.Offline.Plan)
 
@@ -873,14 +875,14 @@ func (c *ConfigPlanAdjuster) InterpolateEnvVars() {
 	c.Active.Plan = interpolateEnv(c.Active.Plan)
 }
 
-func (c *ConfigPlanAdjuster) InterpolateMonitor(m *ConfigMonitor) {
+func (c *ConfigPlanChange) InterpolateMonitor(m *ConfigMonitor) {
 	c.Offline.Plan = m.interpolateMon(c.Offline.Plan)
 	c.Standby.Plan = m.interpolateMon(c.Standby.Plan)
 	c.ReadOnly.Plan = m.interpolateMon(c.ReadOnly.Plan)
 	c.Active.Plan = m.interpolateMon(c.Active.Plan)
 }
 
-func (c ConfigPlanAdjuster) Enabled() bool {
+func (c ConfigPlanChange) Enabled() bool {
 	return c.Offline.Plan != "" ||
 		c.Standby.Plan != "" ||
 		c.ReadOnly.Plan != "" ||

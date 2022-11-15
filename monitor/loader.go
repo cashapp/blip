@@ -432,7 +432,7 @@ func (ml *Loader) makeMonitor(cfg blip.ConfigMonitor) (*Monitor, error) {
 	// If no sinks, default to printing metrics to stdout
 	if len(sinks) == 0 {
 		blip.Debug("using log sink")
-		sink, _ := sink.Make(blip.SinkFactoryArgs{SinkName: "log", MonitorId: cfg.MonitorId})
+		sink, _ := sink.Make(blip.SinkFactoryArgs{SinkName: sink.Default, MonitorId: cfg.MonitorId})
 		sinks = append(sinks, sink)
 	}
 

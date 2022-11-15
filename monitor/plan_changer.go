@@ -19,22 +19,22 @@ import (
 
 var Now func() time.Time = time.Now
 
-// LevelAdjuster changes the plan based on database instance state.
-type LevelAdjuster interface {
+// PlanChanger changes the plan based on database instance state.
+type PlanChanger interface {
 	Run(stopChan, doneChan chan struct{}) error
 
 	Status() proto.MonitorAdjusterStatus
 }
 
-type LevelAdjusterArgs struct {
+type PlanChangerArgs struct {
 	MonitorId string
-	Config    blip.ConfigPlanAdjuster
+	Config    blip.ConfigPlanChange
 	DB        *sql.DB
-	LPC       LevelCollector
+	LCO       LevelCollector
 	HA        ha.Manager
 }
 
-var _ LevelAdjuster = &adjuster{}
+var _ PlanChanger = &planChanger{}
 
 type state struct {
 	state string
@@ -47,12 +47,12 @@ type change struct {
 	plan  string
 }
 
-// adjuster is the implementation of LevelAdjuster.
-type adjuster struct {
-	cfg       blip.ConfigPlanAdjuster
+// planChanger is the implementation of PlanChanger.
+type planChanger struct {
+	cfg       blip.ConfigPlanChange
 	monitorId string
 	db        *sql.DB
-	lpc       LevelCollector
+	lco       LevelCollector
 	ha        ha.Manager
 	// --
 	*sync.Mutex
@@ -66,7 +66,7 @@ type adjuster struct {
 	lerr    error
 }
 
-func NewLevelAdjuster(args LevelAdjusterArgs) *adjuster {
+func NewPlanChanger(args PlanChangerArgs) *planChanger {
 	states := map[string]change{}
 	d, _ := time.ParseDuration(args.Config.Offline.After)
 	states[blip.STATE_OFFLINE] = change{
@@ -92,11 +92,11 @@ func NewLevelAdjuster(args LevelAdjusterArgs) *adjuster {
 	retry := backoff.NewExponentialBackOff()
 	retry.MaxElapsedTime = 0
 
-	return &adjuster{
+	return &planChanger{
 		monitorId: args.MonitorId,
 		cfg:       args.Config,
 		db:        args.DB,
-		lpc:       args.LPC,
+		lco:       args.LCO,
 		ha:        args.HA,
 		// --
 		Mutex:   &sync.Mutex{},
@@ -111,38 +111,38 @@ func NewLevelAdjuster(args LevelAdjusterArgs) *adjuster {
 }
 
 // setErr sets the last internal error reported by Status.
-func (a *adjuster) setErr(err error) {
-	a.Lock()
-	a.lerr = err
-	a.Unlock()
+func (pch *planChanger) setErr(err error) {
+	pch.Lock()
+	pch.lerr = err
+	pch.Unlock()
 }
 
-// Status returns internal LevelAdjuster status. It's called from Monitor.Status
+// Status returns internal PlanChanger status. It's called from Monitor.Status
 // in response to GET /status/monitor/internal?id=monitorId.
-func (a *adjuster) Status() proto.MonitorAdjusterStatus {
-	a.Lock()
-	defer a.Unlock()
+func (pch *planChanger) Status() proto.MonitorAdjusterStatus {
+	pch.Lock()
+	defer pch.Unlock()
 
 	status := proto.MonitorAdjusterStatus{
 		CurrentState: proto.MonitorState{
-			State: a.curr.state,
-			Plan:  a.curr.plan,
-			Since: a.curr.ts.Format(time.RFC3339),
+			State: pch.curr.state,
+			Plan:  pch.curr.plan,
+			Since: pch.curr.ts.Format(time.RFC3339),
 		},
 		PreviousState: proto.MonitorState{
-			State: a.prev.state,
-			Plan:  a.prev.plan,
-			Since: a.prev.ts.Format(time.RFC3339),
+			State: pch.prev.state,
+			Plan:  pch.prev.plan,
+			Since: pch.prev.ts.Format(time.RFC3339),
 		},
 		PendingState: proto.MonitorState{
-			State: a.pending.state,
-			Plan:  a.pending.plan,
-			Since: a.pending.ts.Format(time.RFC3339),
+			State: pch.pending.state,
+			Plan:  pch.pending.plan,
+			Since: pch.pending.ts.Format(time.RFC3339),
 		},
 	}
 
-	if a.lerr != nil {
-		status.Error = a.lerr.Error()
+	if pch.lerr != nil {
+		status.Error = pch.lerr.Error()
 	}
 
 	return status
@@ -152,12 +152,12 @@ func (a *adjuster) Status() proto.MonitorAdjusterStatus {
 // backoff up to 60 seconds until back online (MySQL connection ok). There is
 // no logic in this function; it's just a timed loop to call CheckState. It's
 // run as a goroutine from Monitor.Run only if config.monitors.plans.adjust
-// is enabled (blip.ConfigPlanAdjuster.Enabled returns true).
-func (a *adjuster) Run(stopChan, doneChan chan struct{}) error {
+// is enabled (blip.ConfigPlanChange.Enabled returns true).
+func (pch *planChanger) Run(stopChan, doneChan chan struct{}) error {
 	defer close(doneChan)
-	defer status.Monitor(a.monitorId, "lpa", "not running")
+	defer status.Monitor(pch.monitorId, "lpa", "not running")
 
-	status.Monitor(a.monitorId, "lpa", "running")
+	status.Monitor(pch.monitorId, "lpa", "running")
 
 	for {
 		select {
@@ -166,120 +166,120 @@ func (a *adjuster) Run(stopChan, doneChan chan struct{}) error {
 		default:
 		}
 
-		a.CheckState()
+		pch.CheckState()
 
-		if a.curr.state != blip.STATE_OFFLINE {
+		if pch.curr.state != blip.STATE_OFFLINE {
 			time.Sleep(1 * time.Second)
 		} else {
-			time.Sleep(a.retry.NextBackOff())
+			time.Sleep(pch.retry.NextBackOff())
 		}
 	}
 }
 
 // CheckState checks the current state and changes state when necessary.
 // This is the main logic, called periodically by Run.
-func (a *adjuster) CheckState() {
+func (pch *planChanger) CheckState() {
 	now := Now()
-	obsv := a.state()
+	obsv := pch.state()
 
-	a.Lock()
-	defer a.Unlock()
+	pch.Lock()
+	defer pch.Unlock()
 
 	defer func() {
-		if a.pending.state == "" {
-			status.Monitor(a.monitorId, "lpa", "%s", a.curr.state)
+		if pch.pending.state == "" {
+			status.Monitor(pch.monitorId, "lpa", "%s", pch.curr.state)
 		} else {
-			status.Monitor(a.monitorId, "lpa", "%s -> %s", a.curr.state, a.pending.state)
+			status.Monitor(pch.monitorId, "lpa", "%s -> %s", pch.curr.state, pch.pending.state)
 		}
 	}()
 
-	if obsv == a.curr.state {
-		if !a.pending.ts.IsZero() {
+	if obsv == pch.curr.state {
+		if !pch.pending.ts.IsZero() {
 			// changed back to current state
-			a.pending.ts = time.Time{}
-			a.pending.state = blip.STATE_NONE
-			a.event.Sendf(event.STATE_CHANGE_ABORT, "%s", obsv)
+			pch.pending.ts = time.Time{}
+			pch.pending.state = blip.STATE_NONE
+			pch.event.Sendf(event.STATE_CHANGE_ABORT, "%s", obsv)
 		}
-	} else if obsv == a.pending.state {
+	} else if obsv == pch.pending.state {
 		// Still in the pending state; is it time to change?
-		if now.Sub(a.pending.ts) < a.states[a.pending.state].after {
+		if now.Sub(pch.pending.ts) < pch.states[pch.pending.state].after {
 			return
 		}
 
 		// Change state via LPC: current -> pending
-		if err := a.lpcChangePlan(a.pending.state, a.pending.plan); err != nil {
-			a.setErr(err)
+		if err := pch.lcoChangePlan(pch.pending.state, pch.pending.plan); err != nil {
+			pch.setErr(err)
 			blip.Debug(err.Error())
-			return // ok to ignore error; see comments on lpcChangePlan
+			return // ok to ignore error; see comments on lcoChangePlan
 		}
 
-		a.prev = a.curr
+		pch.prev = pch.curr
 
-		a.curr = a.pending
+		pch.curr = pch.pending
 
-		a.pending.ts = time.Time{}
-		a.pending.state = blip.STATE_NONE
-		blip.Debug("%s: LPA state changed to %s", a.monitorId, obsv)
-		a.event.Sendf(event.STATE_CHANGE_END, "%s", obsv)
-	} else if a.first && a.curr.state == blip.STATE_OFFLINE {
-		a.first = false
+		pch.pending.ts = time.Time{}
+		pch.pending.state = blip.STATE_NONE
+		blip.Debug("%s: LPA state changed to %s", pch.monitorId, obsv)
+		pch.event.Sendf(event.STATE_CHANGE_END, "%s", obsv)
+	} else if pch.first && pch.curr.state == blip.STATE_OFFLINE {
+		pch.first = false
 
 		// Change state via LPC
-		if err := a.lpcChangePlan(obsv, a.states[obsv].plan); err != nil {
-			a.setErr(err)
+		if err := pch.lcoChangePlan(obsv, pch.states[obsv].plan); err != nil {
+			pch.setErr(err)
 			blip.Debug(err.Error())
-			return // ok to ignore error; see comments on lpcChangePlan
+			return // ok to ignore error; see comments on lcoChangePlan
 		}
 
-		a.prev = a.curr
-		a.curr = state{
+		pch.prev = pch.curr
+		pch.curr = state{
 			state: obsv,
 			ts:    now,
 		}
-		blip.Debug("%s: LPA start in state %s", a.monitorId, obsv)
-		a.event.Sendf(event.STATE_CHANGE_END, "%s", obsv)
+		blip.Debug("%s: LPA start in state %s", pch.monitorId, obsv)
+		pch.event.Sendf(event.STATE_CHANGE_END, "%s", obsv)
 	} else {
 		// State change
-		a.pending.state = obsv
-		a.pending.ts = now
-		a.pending.plan = a.states[obsv].plan
-		blip.Debug("%s: LPA state changed to %s, waiting %s", a.monitorId, obsv, a.states[obsv].after)
-		a.event.Sendf(event.STATE_CHANGE_BEGIN, "%s", obsv)
+		pch.pending.state = obsv
+		pch.pending.ts = now
+		pch.pending.plan = pch.states[obsv].plan
+		blip.Debug("%s: LPA state changed to %s, waiting %s", pch.monitorId, obsv, pch.states[obsv].after)
+		pch.event.Sendf(event.STATE_CHANGE_BEGIN, "%s", obsv)
 
-		a.retry.Reset()
+		pch.retry.Reset()
 	}
 }
 
-// lpcChangePlan calls LevelCollector.ChangePlan to change the metrics collection plan.
+// lcoChangePlan calls LevelCollector.ChangePlan to change the metrics collection plan.
 // Or, it calls LevelCollector.Pause if there is no plan, which is the usual case when
 // offline (can't connect to MySQL. We presume that these calls do not fail; see
 // LevelCollector.ChangePlan for details.
-func (a *adjuster) lpcChangePlan(state, planName string) error {
-	status.Monitor(a.monitorId, "lpa", "calling LPC.ChangePlan: %s %s", state, planName)
+func (pch *planChanger) lcoChangePlan(state, planName string) error {
+	status.Monitor(pch.monitorId, "lpa", "calling LPC.ChangePlan: %s %s", state, planName)
 	if planName == "" {
-		a.lpc.Pause()
+		pch.lco.Pause()
 		return nil
 	}
-	return a.lpc.ChangePlan(state, planName)
+	return pch.lco.ChangePlan(state, planName)
 }
 
 const readOnlyQuery = "SELECT @@read_only, @@super_read_only"
 
 // state queries MySQL to ascertain the HA and read-only state.
-func (a *adjuster) state() string {
-	status.Monitor(a.monitorId, "lpa", "checking HA standby")
-	if a.ha.Standby() {
+func (pch *planChanger) state() string {
+	status.Monitor(pch.monitorId, "lpa", "checking HA standby")
+	if pch.ha.Standby() {
 		return blip.STATE_STANDBY
 	}
 
 	// Active, but is MySQL read-only?
-	status.Monitor(a.monitorId, "lpa", "checking MySQL read-only")
+	status.Monitor(pch.monitorId, "lpa", "checking MySQL read-only")
 
 	var ro, sro int
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	err := a.db.QueryRowContext(ctx, readOnlyQuery).Scan(&ro, &sro)
+	err := pch.db.QueryRowContext(ctx, readOnlyQuery).Scan(&ro, &sro)
 	cancel()
-	a.setErr(err)
+	pch.setErr(err)
 	if err != nil {
 		blip.Debug(err.Error())
 		return blip.STATE_OFFLINE
