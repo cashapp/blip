@@ -428,10 +428,10 @@ func (m *Monitor) startup() error {
 	}()
 
 	// ----------------------------------------------------------------------
-	// Level plan adjuster (PCH)
+	// Plan changer (PCH)
 
 	if m.cfg.Plans.Change.Enabled() {
-		// Run option level plan adjuster (PCH). When enabled, the PCH checks
+		// Run option plan changer (PCH). When enabled, the PCH checks
 		// the state of MySQL. If the state changes, it calls lco.ChangePlan
 		// to change the plan as configured by config.monitors.plans.adjust.<state>.
 		status.Monitor(m.monitorId, "monitor", "starting PCH")
