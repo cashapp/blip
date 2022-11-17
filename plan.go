@@ -318,9 +318,9 @@ func PromPlan() Plan {
 		Name:   "mysqld_exporter",
 		Source: "blip",
 		Levels: map[string]Level{
-			"prom": Level{
-				Name: "all",
-				Freq: "0", // none, pulled/scaped on demand
+			"prom": Level{ // key name and
+				Name: "prom", // level Name must be equal
+				Freq: "0",    // none, pulled/scaped on demand
 				Collect: map[string]Domain{
 					"status.global": {
 						Name: "status.global",
