@@ -6,6 +6,9 @@ title: signalfx
 
 # SignalFx Sink
 
+{: .warn }
+Blip works with Splunk, but Splunk does not support or contribute to Blip.
+
 The signalfx sink sends metrics to [Splunk](https://www.splunk.com/), which [acquired SignalFx](https://www.splunk.com/en_us/newsroom/press-releases/2019/splunk-to-acquire-cloud-monitoring-leader-signalfx.html).
 
 It reports all [tags](../config/config-file#tags) as dimensions.

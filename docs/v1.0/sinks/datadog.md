@@ -6,6 +6,9 @@ title: datadog
 
 # Datadog Sink
 
+{: .warn }
+Blip works with Datadog, but Datadog does not support or contribute to Blip.
+
 The datadog sink sends metrics to [Datadog](https://www.datadoghq.com/).
 
 This sink is an optional replacement for the [Datadog Agent for MySQL](https://docs.datadoghq.com/integrations/mysql/).

@@ -12,11 +12,14 @@ Minimum privileges:
 
 Recommend privileges:
 
-* `SELECT ON *.*`
-* `REPLICATION CLIENT ON *.*`
+* `SELECT, PROCESS, REPLICATION CLIENT ON *.*`
 
 For database and table sizes, Blip needs `SELECT ON *.*`.
 Although sizes are metadata, MySQL requires `SELECT` on an object to read its metadata.
+
+Blip needs the `PROCESS` privilege to query `information_schema.innodb_metrics`.
+
+## Heartbeat
 
 For [heartbeat](../heartbeat):
 

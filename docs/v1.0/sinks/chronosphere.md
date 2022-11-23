@@ -7,6 +7,9 @@ title: chronosophere
 # Chronosphere Sink
 
 {: .warn }
+Blip works with Chronosphere, but Chronosphere does not support or contribute to Blip.
+
+{: .warn }
 The chronosphere sink is experimental.
 It might be removed in future versions.
 

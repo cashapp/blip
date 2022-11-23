@@ -11,6 +11,8 @@ permalink: /v1.0/api
 
 Server endpoints return information about the `blip` instance (the server) and high-level information about monitors.
 
+Default binding and port: `127.0.0.1:7522`.
+
 * TOC
 {:toc}
 

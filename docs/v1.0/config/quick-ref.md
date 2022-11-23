@@ -6,7 +6,7 @@ parent: Configure
 
 # Quick Reference
 
-The following are _quick references_, not complete or valid examples.
+The following is a _quick references_, not a complete or valid example.
 See [Config File](config-file) for details.
 
 ### Interpolation
@@ -26,20 +26,22 @@ ${ENV_VAR}
 # ---------------------------------------------------------------------------
 
 api:
-  bind: 127.1:7090
+  bind: 127.0.0.1:7522
   disable: false
 
 http:
   proxy: "http://proxy.internal"
 
 monitor-loader:
-  files: [one.yaml, two.yaml]
-  stop-loss: 50%
   aws:
-    regions: ["auto","us-east-1"]
+    regions: ["auto", "us-east-1"]
+  files:
+    - "some-mysql.yaml"
+    - "more-mysql.yaml"
   local:
     disable-auto: true
     disable-auto-root: true
+  stop-loss: 50%
 
 # ---------------------------------------------------------------------------
 # Monitor defaults
@@ -54,7 +56,7 @@ aws:
 
 exporter:
   flags:
-    web.listen-address: ":9001"
+    web.listen-address: "127.0.0.1:9104"
     web.telemetry-path: "/metrics"
   mode: "dual" # or "legacy"
 
@@ -66,21 +68,14 @@ heartbeat:
 
 mysql:
   mycnf: "/app/my.cnf"
-  username: "blip"
   password: "..."
   password-file: "/var/shm/blip-passwd"
   socket: "/var/lib/mysql.sock"
   timeout-connect: 5s
+  username: "blip"
 
 plans:
-  disable-auto: false
-  files:
-    - none.yaml
-    - ro-plan.yaml
-    - active-plan.yaml
-  monitor: <monitor>
-  table: "blip.plans"
-  adjust:
+  change:
     offline:
       after: 1s
       plan: none.yaml
@@ -93,12 +88,20 @@ plans:
     active:
       after: 1s
       plan: active-plan.yaml
+  disable-auto: false
+  files:
+    - none.yaml
+    - ro-plan.yaml
+    - active-plan.yaml
+    - special.yaml
+  monitor: <monitor>
+  table: "blip.plans"
 
 sinks:
   chronosphere:
-    debug: "yes"
-    strict-tr: false
-    url: "http://127.0.0.1:3030/openmetrics/write"
+    # See Sinks > chorosphere
+  datadog:
+    # See Sinks > datadog
   log:
     # No options
   noop:
@@ -108,10 +111,7 @@ sinks:
     send-timeout: 5s
     send-retry-wait: 200ms
   signalfx:
-    auth-token: ""
-    auth-token-file: ""
-    metric-prefix: ""
-    metric-translator: ""
+    # See Sinks > signalfx
 
 tags:
   env: ${ENVIRONMENT:-dev}
@@ -121,7 +121,9 @@ tags:
 tls:
   ca: "local.ca"
   cert: "/secrets/%{monitor.hostname}.crt"
+  disable: false
   key: "/secrets/%{monitor.hostname}.key"
+  skip-verify: false
 
 # ---------------------------------------------------------------------------
 # Monitors (MySQL instances)
@@ -140,20 +142,24 @@ monitors:
     socket: /tmp/mysql.sock
     timeout-connect: 5s
 
-    # ---------------------------------------------------------------------
-    # Override monitor defaults by specifying any of the top-level sections
+    # ----------------------------------------------------------------------
+    # Use a shared plan from top-level config.plans instead of monitor plans
+    plan: "special.yaml"
+
+    # -----------------------------------------------------------
+    # Override monitor defaults by specifying a top-level section
     tls:
       ca: new.ca # overrides monitor default 'tls.ca: local.ca'
-
-    # ----------------------------------------------
-    # Tags override monitor defaults or set new tags
-    tags:
-      hostname: "host1"  # overrides monitor default
-      foo:      "bar"    # new tag
 
     # ---------------------------------------------------
     # Meta values unique to monitor (no monitor defaults)
     meta:
       repl-source: source-db.local
       canary: yes
+
+    # ----------------------------------------------
+    # Tags override monitor defaults or set new tags
+    tags:
+      hostname: "host1"  # overrides monitor default
+      foo:      "bar"    # new tag
 ```
