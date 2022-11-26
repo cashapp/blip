@@ -33,16 +33,16 @@ var portSuffix = regexp.MustCompile(`:\d+$`)
 
 // factory is the internal implementation of blip.DbFactory.
 type factory struct {
-	awsConfg blip.AWSConfigFactory
-	modifyDB func(*sql.DB, string)
+	awsConfig blip.AWSConfigFactory
+	modifyDB  func(*sql.DB, string)
 }
 
 // NewConnFactory returns a blip.NewConnFactory that connects to MySQL.
 // This is the only blip.NewConnFactor. It is created in Server.Defaults.
-func NewConnFactory(awsConfg blip.AWSConfigFactory, modifyDB func(*sql.DB, string)) factory {
+func NewConnFactory(awsConfig blip.AWSConfigFactory, modifyDB func(*sql.DB, string)) factory {
 	return factory{
-		awsConfg: awsConfg,
-		modifyDB: modifyDB,
+		awsConfig: awsConfig,
+		modifyDB:  modifyDB,
 	}
 }
 
@@ -189,7 +189,7 @@ func (f factory) Make(cfg blip.ConfigMonitor) (*sql.DB, string, error) {
 	// its certs, so eventually the Blip built-in will be out of date. But user
 	// will never be blocked (waiting for a new Blip release) because they can
 	// override the built-in Amazon cert.
-	if (blip.True(cfg.AWS.AuthToken) || cfg.AWS.PasswordSecret != "") &&
+	if (blip.True(cfg.AWS.IAMAuth) || cfg.AWS.PasswordSecret != "") &&
 		!blip.True(cfg.AWS.DisableAutoTLS) &&
 		tlsConfig == nil {
 
@@ -207,7 +207,7 @@ func (f factory) Make(cfg blip.ConfigMonitor) (*sql.DB, string, error) {
 	// ----------------------------------------------------------------------
 	// IAM auto requires cleartext passwords (the auth token is already encryopted)
 
-	if blip.True(cfg.AWS.AuthToken) {
+	if blip.True(cfg.AWS.IAMAuth) {
 		params = append(params, "allowCleartextPasswords=true")
 	}
 
@@ -261,9 +261,9 @@ func (f factory) Make(cfg blip.ConfigMonitor) (*sql.DB, string, error) {
 func (f factory) Credentials(cfg blip.ConfigMonitor) (CredentialFunc, error) {
 
 	// Amazon IAM auth token (valid 15 min)
-	if blip.True(cfg.AWS.AuthToken) {
+	if blip.True(cfg.AWS.IAMAuth) {
 		blip.Debug("%s: AWS IAM auth token password", cfg.MonitorId)
-		awscfg, err := f.awsConfg.Make(blip.AWS{Region: cfg.AWS.Region})
+		awscfg, err := f.awsConfig.Make(blip.AWS{Region: cfg.AWS.Region}, cfg.Hostname)
 		if err != nil {
 			return nil, err
 		}
@@ -284,7 +284,7 @@ func (f factory) Credentials(cfg blip.ConfigMonitor) (CredentialFunc, error) {
 	// Amazon Secrets Manager, could be rotated
 	if cfg.AWS.PasswordSecret != "" {
 		blip.Debug("%s: AWS Secrets Manager password", cfg.MonitorId)
-		awscfg, err := f.awsConfg.Make(blip.AWS{Region: cfg.AWS.Region})
+		awscfg, err := f.awsConfig.Make(blip.AWS{Region: cfg.AWS.Region}, cfg.Hostname)
 		if err != nil {
 			return nil, err
 		}

@@ -88,7 +88,7 @@ plans:
     active:
       after: 1s
       plan: active-plan.yaml
-  disable-auto: false
+  disable-default-plans: false
   files:
     - none.yaml
     - ro-plan.yaml

@@ -249,7 +249,7 @@ func (f *factory) Make(domain string, args blip.CollectorFactoryArgs) (blip.Coll
 		if region == "" && !blip.True(args.Config.AWS.DisableAutoRegion) {
 			region = "auto"
 		}
-		awsConfig, err := f.AWSConfig.Make(blip.AWS{Region: region})
+		awsConfig, err := f.AWSConfig.Make(blip.AWS{Region: region}, args.Config.Hostname)
 		if err != nil {
 			return nil, err
 		}

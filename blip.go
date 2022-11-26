@@ -120,7 +120,7 @@ type AWS struct {
 }
 
 type AWSConfigFactory interface {
-	Make(AWS) (aws.Config, error)
+	Make(AWS, string) (aws.Config, error)
 }
 
 type DbFactory interface {

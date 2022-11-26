@@ -18,13 +18,8 @@ import (
 )
 
 const (
-	ENV_STRICT = "BLIP_STRICT"
-	ENV_DEBUG  = "BLIP_DEBUG"
-
 	DEFAULT_CONFIG_FILE = "blip.yaml"
 	DEFAULT_DATABASE    = "blip"
-
-	INTERNAL_PLAN_NAME = "blip"
 )
 
 var envvar = regexp.MustCompile(`\${([\w_.-]+)(?:(\:\-)([\w_.-]*))?}`)
@@ -529,7 +524,7 @@ func (c *ConfigMonitor) fieldValue(f string) string {
 // --------------------------------------------------------------------------
 
 type ConfigAWS struct {
-	AuthToken         *bool  `yaml:"auth-token,omitempty"`
+	IAMAuth           *bool  `yaml:"iam-auth,omitempty"`
 	PasswordSecret    string `yaml:"password-secret,omitempty"`
 	Region            string `yaml:"region,omitempty"`
 	DisableAutoRegion *bool  `yaml:"disable-auto-region,omitempty"`
@@ -552,10 +547,9 @@ func (c *ConfigAWS) ApplyDefaults(b Config) {
 		c.Region = b.AWS.Region
 	}
 
-	c.AuthToken = setBool(c.AuthToken, b.AWS.AuthToken)
+	c.IAMAuth = setBool(c.IAMAuth, b.AWS.IAMAuth)
 	c.DisableAutoRegion = setBool(c.DisableAutoRegion, b.AWS.DisableAutoRegion)
 	c.DisableAutoTLS = setBool(c.DisableAutoTLS, b.AWS.DisableAutoTLS)
-
 }
 
 func (c *ConfigAWS) InterpolateEnvVars() {
@@ -576,11 +570,13 @@ const (
 
 	DEFAULT_EXPORTER_LISTEN_ADDR = "127.0.0.1:9104"
 	DEFAULT_EXPORTER_PATH        = "/metrics"
+	DEFAULT_EXPORTER_PLAN        = "default-exporter"
 )
 
 type ConfigExporter struct {
 	Flags map[string]string `yaml:"flags,omitempty"`
 	Mode  string            `yaml:"mode,omitempty"`
+	Plan  string            `yaml:"plan,omitempty"`
 }
 
 func DefaultConfigExporter() ConfigExporter {
@@ -588,7 +584,10 @@ func DefaultConfigExporter() ConfigExporter {
 }
 
 func (c ConfigExporter) Validate() error {
-	if c.Mode != "" && (c.Mode != EXPORTER_MODE_DUAL && c.Mode != EXPORTER_MODE_LEGACY) {
+	if c.Mode == "" {
+		return nil // exporter not enabled; skip the rest
+	}
+	if c.Mode != EXPORTER_MODE_DUAL && c.Mode != EXPORTER_MODE_LEGACY {
 		return fmt.Errorf("invalid config.exporter.mode: %s; valid values: dual, legacy", c.Mode)
 	}
 	return nil
@@ -597,6 +596,16 @@ func (c ConfigExporter) Validate() error {
 func (c *ConfigExporter) ApplyDefaults(b Config) {
 	if c.Mode == "" && b.Exporter.Mode != "" {
 		c.Mode = b.Exporter.Mode
+	}
+	if c.Mode == "" {
+		return // exporter not enabled; skip the rest
+	}
+
+	if c.Plan == "" && b.Exporter.Plan != "" {
+		c.Plan = b.Exporter.Plan
+	}
+	if c.Plan == "" {
+		c.Plan = DEFAULT_EXPORTER_PLAN
 	}
 	if len(b.Exporter.Flags) > 0 {
 		if c.Flags == nil {
@@ -610,6 +619,7 @@ func (c *ConfigExporter) ApplyDefaults(b Config) {
 
 func (c *ConfigExporter) InterpolateEnvVars() {
 	interpolateEnv(c.Mode)
+	interpolateEnv(c.Plan)
 	for k := range c.Flags {
 		c.Flags[k] = interpolateEnv(c.Flags[k])
 	}
@@ -617,6 +627,7 @@ func (c *ConfigExporter) InterpolateEnvVars() {
 
 func (c *ConfigExporter) InterpolateMonitor(m *ConfigMonitor) {
 	m.interpolateMon(c.Mode)
+	m.interpolateMon(c.Plan)
 	for k := range c.Flags {
 		c.Flags[k] = m.interpolateMon(c.Flags[k])
 	}
@@ -718,7 +729,10 @@ type ConfigMySQL struct {
 }
 
 func DefaultConfigMySQL() ConfigMySQL {
-	return ConfigMySQL{}
+	return ConfigMySQL{
+		Username:       DEFAULT_MONITOR_USERNAME,
+		TimeoutConnect: DEFAULT_MONITOR_TIMEOUT_CONNECT,
+	}
 }
 
 func (c ConfigMySQL) Validate() error {
@@ -775,11 +789,11 @@ func (c ConfigMySQL) Redacted() string {
 // --------------------------------------------------------------------------
 
 type ConfigPlans struct {
-	Files       []string         `yaml:"files,omitempty"`
-	Table       string           `yaml:"table,omitempty"`
-	Monitor     *ConfigMonitor   `yaml:"monitor,omitempty"`
-	Change      ConfigPlanChange `yaml:"change,omitempty"`
-	DisableAuto *bool            `yaml:"disable-auto"`
+	Files               []string         `yaml:"files,omitempty"`
+	Table               string           `yaml:"table,omitempty"`
+	Monitor             *ConfigMonitor   `yaml:"monitor,omitempty"`
+	Change              ConfigPlanChange `yaml:"change,omitempty"`
+	DisableDefaultPlans bool             `yaml:"disable-default-plans"`
 }
 
 const (
@@ -800,7 +814,6 @@ func (c *ConfigPlans) ApplyDefaults(b Config) {
 		copy(c.Files, b.Plans.Files)
 	}
 	c.Change.ApplyDefaults(b)
-	c.DisableAuto = setBool(c.DisableAuto, b.Plans.DisableAuto)
 }
 
 func (c *ConfigPlans) InterpolateEnvVars() {
@@ -1023,7 +1036,7 @@ func (c ConfigTLS) Set() bool {
 // Create tls.Config from the Blip TLS config settings. Returns
 func (c ConfigTLS) LoadTLS(server string) (*tls.Config, error) {
 	//  WARNING: ConfigTLS.Valid must be called first!
-	Debug("TLS for %s: %+v", c, server)
+	Debug("TLS for %s: %+v", server, c)
 	if !c.Set() {
 		return nil, nil
 	}

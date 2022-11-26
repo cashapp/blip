@@ -8,6 +8,8 @@ permalink: /v1.0/prometheus
 # Prometheus
 
 Blip can emulate Prometheus `mysqld_exporter`.
+This is called _exporter mode_.
+
 To enable, set [`config.exporter.mode`](config/config-file#mode) to `dual` or `legacy`:
 
 ```yaml
@@ -15,14 +17,15 @@ exporter:
   mode: dual
 ```
 
-In dual mode, Blip works normally _and_ it emulates Prometheus.
+In dual exporter mode, Blip works normally _and_ it emulates `mysqld_exporter`.
 
 ```yaml
 exporter:
   mode: legacy
 ```
 
-In legacy mode, Blip only emulates Prometheus, and Blip sinks are ignored.
+In legacy exporter mode, Blip only emulates `mysqld_exporter`.
+All other parts of Blip are ignored (they aren't even started), including sinks.
 
 See the [`exporter` config](config/config-file#exporter) for the full configuration.
 
@@ -68,4 +71,10 @@ Currently, Prometheus `mysqld_exporter` emulation collects and returns metrics f
 Additional domains can be enabled if there is demand for this feature.
 [File an issue](https://github.com/cashapp/blip/issues) to discuss this.
 
-The default plan for returned by [`blip.PromPlan()`](https://pkg.go.dev/github.com/cashapp/blip#PromPlan).
+## Plan
+
+In exporter mode, Blip still uses a plan, but the plan must have only 1 level.
+
+The [default plan](plans/defaults) is `default-exporter`.
+
+Set [`config.exporter.plan`](config/config-file#plan) to specify a different plan.

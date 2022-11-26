@@ -118,12 +118,39 @@ The secret value must be a key-value map with a `password` key, like:
 
 ```json
 {
-  "user": "blip",    // IGNORED
-  "password": "..."  // Blip uses only this value
+  "username": "blip",
+  "password": "...",    // Blip uses only this value
+  "engine": "mysql",
+  "host": "db.cluster.us-east-1.rds.amazonaws.com",
+  "port": 3306,
+  "dbClusterIdentifier": "db"
 }
 ```
 
 Blip ignores other keys in the secret value; it only reads the `password` key-value.
+
+{: .note }
+The example above is the default secret map that AWS creates for RDS.
+It works with Blip, but Blip currently ignores the non-password fields.
+
+The [AWS credentials](#credentials) that Blip uses must be allowed to read the secret with a policy privilege like:
+
+```json
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Sid": "ReadBlipPasswordSecret",
+            "Effect": "Allow",
+            "Action": "secretsmanager:GetSecretValue",
+            "Resource": "arn:aws:secretsmanager:*:999999999999:secret:blip-password-ABCDEF"
+        }
+    ]
+}
+```
+
+Replace `999999999999` with your AWS account ID, and replace `blip-password-ABCDEF` with your secret ID.
+
 
 ## TLS
 

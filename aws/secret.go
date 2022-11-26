@@ -41,7 +41,6 @@ func (s Secret) Password(ctx context.Context) (string, error) {
 		return "", fmt.Errorf("secret string is nil or empty")
 	}
 
-	// We store secret in secret string as JSON with "username" and "password" fields
 	var v map[string]interface{}
 	if err := json.Unmarshal([]byte(*sv.SecretString), &v); err != nil {
 		return "", fmt.Errorf("cannot decode secret string as map[string]string: %s", err)
