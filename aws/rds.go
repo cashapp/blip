@@ -35,7 +35,7 @@ func NewRDSClientFactory(awsMaker blip.AWSConfigFactory) rdsClientFactory {
 }
 
 func (f rdsClientFactory) Make(ba blip.AWS) (RDSClient, error) {
-	awsCfg, err := f.awsMaker.Make(ba)
+	awsCfg, err := f.awsMaker.Make(ba, "")
 	if err != nil {
 		return nil, err
 	}

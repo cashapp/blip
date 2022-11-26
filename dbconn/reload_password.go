@@ -45,14 +45,13 @@ func (r *repo) ReloadDSN(ctx context.Context, currentDSN string) string {
 	// error, i.e. it's like this func was never called. Only when this func
 	// returns a non-empty string does the hotswap driver use it to swap out
 	// the low-level MySQL connection.
-	blip.Debug("reloading %s", currentDSN)
+	blip.Debug("reloading %s", RedactedDSN(currentDSN))
 
 	cfg, err := mysql.ParseDSN(currentDSN)
 	if err != nil {
 		blip.Debug("error parsing DSN %s: %s", currentDSN, err)
 		return ""
 	}
-	blip.Debug("old dsn: %+v", RedactedDSN(currentDSN))
 
 	v, ok := r.m.Load(cfg.Addr)
 	if !ok {
@@ -71,8 +70,9 @@ func (r *repo) ReloadDSN(ctx context.Context, currentDSN string) string {
 		return ""
 	}
 
-	blip.Debug("credentials reloaded")
 	cfg.Passwd = newCred.Password
 	cfg.User = newCred.Username
-	return cfg.FormatDSN()
+	newDSN := cfg.FormatDSN()
+	blip.Debug("credentials reloaded; new DSN: %s", RedactedDSN(newDSN))
+	return newDSN
 }

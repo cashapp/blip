@@ -21,6 +21,7 @@ import (
 	"github.com/cashapp/blip"
 	"github.com/cashapp/blip/event"
 	"github.com/cashapp/blip/metrics"
+	"github.com/cashapp/blip/plan/default"
 	"github.com/cashapp/blip/proto"
 	"github.com/cashapp/blip/sqlutil"
 )
@@ -172,14 +173,21 @@ func (pl *Loader) LoadShared(cfg blip.ConfigPlans, dbMaker blip.DbFactory) error
 		}
 	}
 
-	if len(sharedPlans) == 0 && !blip.True(cfg.DisableAuto) {
-		// Use built-in internal plan becuase neither config.plans.table
-		// nor config.plans.file was specififed
-		blip.Debug("shared default blip plan enabled")
+	// Load default plans if no shared plans are specified and default plans
+	// aren't disabled. This copies the default into the shared plans repo.
+	if len(sharedPlans) == 0 && !cfg.DisableDefaultPlans {
+		blip.Debug("default plans enabled")
+		dplanMySQL := default_plan.MySQL() // MySQL
 		sharedPlans = append(sharedPlans, planMeta{
-			name:   blip.INTERNAL_PLAN_NAME,
-			plan:   blip.InternalLevelPlan(),
-			source: "blip",
+			name:   dplanMySQL.Name,
+			source: dplanMySQL.Source,
+			plan:   dplanMySQL,
+		})
+		dplanExprter := default_plan.Exporter() // Prom mysqld_exporter
+		sharedPlans = append(sharedPlans, planMeta{
+			name:   dplanExprter.Name,
+			source: dplanExprter.Source,
+			plan:   dplanExprter,
 		})
 	}
 
@@ -255,8 +263,13 @@ func (pl *Loader) Plan(monitorId string, planName string, db *sql.DB) (blip.Plan
 	pl.RLock()
 	defer pl.RUnlock()
 
+	// Point plans to either the monitor plans or shared plans. Monitors plans
+	// take precedence if set; else fall back to shared plans. Related docs:
+	// https://cashapp.github.io/blip/v1.0/plans/loading
+	//
+	// DO NOT MODIFY plans, else you'll modify the underlying slice because Go
+	// slices are refs.
 	var plans []planMeta
-
 	if len(pl.monitorPlans[monitorId]) > 0 {
 		blip.Debug("%s: using monitor plans", monitorId)
 		plans = pl.monitorPlans[monitorId]

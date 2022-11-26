@@ -404,6 +404,7 @@ func (ml *Loader) save(newConfigs []blip.ConfigMonitor, validConfigs map[string]
 		// Save valid monitor config. The does NOT create or run the monitor:
 		// the former is done at the end of load (not Load), and the latter is
 		// done in StartMonitors.
+		blip.Debug("loaded monitor: %#v", newcfg)
 		validConfigs[newcfg.MonitorId] = newcfg
 	}
 	return nil

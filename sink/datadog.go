@@ -1,3 +1,5 @@
+// Copyright 2022 Block, Inc.
+
 package sink
 
 import (
@@ -44,7 +46,7 @@ func NewDatadog(monitorId string, opts, tags map[string]string, httpClient *http
 		// If we have a "host" tag, we should include a resource definition for host
 		// so that metrics are properly associated with infrastructure in Datadog
 		if k == "host" {
-			resources = []datadogV2.MetricResource {
+			resources = []datadogV2.MetricResource{
 				{
 					Name: datadog.PtrString(v),
 					Type: datadog.PtrString("host"),
@@ -57,7 +59,7 @@ func NewDatadog(monitorId string, opts, tags map[string]string, httpClient *http
 		monitorId:  monitorId,
 		tags:       tagList,
 		metricsApi: metricsApi,
-		resources: resources,
+		resources:  resources,
 	}
 
 	for k, v := range opts {

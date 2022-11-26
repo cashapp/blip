@@ -343,26 +343,26 @@ func (m *Monitor) startup() error {
 	if m.cfg.Exporter.Mode != "" {
 		status.Monitor(m.monitorId, "monitor", "starting exporter")
 
-		// Get default plan for monitor. It's possible user provided a prom-compatible.
-		// If not, this returns the Blip default plan, but ExporterPlan will discard
-		// that and choose the correct internal plan based on any exporter flags.
-		defaultPlan, err := m.planLoader.Plan(m.monitorId, "", nil)
+		// Load the exporter plan. If the user specified config.exporter.plan,
+		// that plan is loaded. Else, the default exporter plan will be loaded
+		// because ConfigExporter.ApplyDefaults will have set the plan name to
+		// the default, and the plan.Loader will have loaded it, too.
+		promPlan, err := m.planLoader.Plan(m.monitorId, m.cfg.Exporter.Plan, nil)
 		if err != nil {
 			blip.Debug("%s: %s", m.monitorId, err.Error())
 			status.Monitor(m.monitorId, "exporter", "not running: error loading plans: %s", err)
 			return err
 		}
 
-		// Determine actual prom plan: either the default if it's user-provide
-		// (i.e. not the default blip plan), or the provided plan. Then validate and
-		// tweak based on config.exporter.flags.
-		promPlan, err := ExporterPlan(m.cfg.Exporter, defaultPlan)
-		if err != nil {
+		// An exporter plan can have only 1 level. This should really be checked
+		// on boot, but since exporter is the exception, we accept this less than
+		// ideal design.
+		if len(promPlan.Levels) != 1 {
+			err := fmt.Errorf("exporter plan has %d levels, expected 1", len(promPlan.Levels))
 			blip.Debug("%s: %s", m.monitorId, err.Error())
 			status.Monitor(m.monitorId, "exporter", "not running: invalid plan: %s", err)
 			return err
 		}
-		blip.Debug("%s: exporter plan: %s (%s)", m.monitorId, promPlan.Name, promPlan.Source)
 
 		// Run API to emulate an exporter, responding to GET /metrics
 		m.promAPI = prom.NewAPI(
@@ -398,7 +398,7 @@ func (m *Monitor) startup() error {
 	}
 
 	// ----------------------------------------------------------------------
-	// Plan collector (LCO)
+	// Level collector (LCO)
 
 	// Start the LCO before the PCH because the latter calls the former on
 	// state change. The LCO starts paused (engine not running) until a plan

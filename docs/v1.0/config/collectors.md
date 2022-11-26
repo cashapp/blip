@@ -10,7 +10,7 @@ Collectors are low-level components that collect metrics for [domains](../metric
 Collectors have options documented in the [domain reference](../metrics/domains) and specified as [plan options](../plans/file#options).
 
 Options are used to fine-tune _how_ metrics are collected, not which metrics are collected.
-See [Metrics / Collection](../metrics/collecting) for customizing which metrics are collected.
+See [Metrics / Collecting](../metrics/collecting) for customizing which metrics are collected.
 
 <p class="note">
 All collector options are optional.

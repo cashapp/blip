@@ -6,12 +6,33 @@ title: "Error Policy"
 
 # Error Policy
 
-An error policy defines how a metric collector handles a specific MySQL errors.
+An error policy defines how a metric collector handles specific MySQL errors.
 Error policies are optional, and most metric collectors do not define any.
-Instead, they rely on the default error policy, `report,drop,retry`: report the error, drop the metric, and retry.
+To see which collectors have error policies, check the [domain reference](../metrics/domains) or use [`--print-domains`](../config/blip#--print-domains):
 
-Since one error policy handles one specific MySQL error, they are _not_ intended for [general error handling](../monitors/error-handling).
-Instead, they are intended to handle different MySQL setup without different Blip plans.
+```sh
+$ blip --print-domains
+
+repl
+	Replication status
+
+	(No options)
+
+	Errors:
+		access-denied: MySQL error 1227: access denied on 'SHOW REPLICA STATUS' (need REPLICATION CLIENT priv)
+
+	Metrics:
+		running (gauge): 1=running (no error), 0=not running, -1=not a replica
+```
+
+The output above is truncated to highlight the error policy that the [`repl` collector](../metrics/domains#repl) handles: `access-denied`.
+If MySQL returns error 1227 to the collector, it handles the error according to the error policy if defined.
+The default error policy is `report,drop,retry`: report the error, drop the metric, and retry.
+
+{: .note }
+Default error policy: `report,drop,retry`: report the error, drop the metric, and retry.
+
+A different error policy can be specified for the collector in the plan:
 
 ```yaml
 collect:
@@ -19,12 +40,18 @@ collect:
     metrics:
       - running
     errors:
-      access-denied: "ignore,drop,retry"
+      access-denied: "ignore,drop,stop"  # New error policy; override default
 ```
+
+In the example above, instead of the default (`report,drop,retry`), the collector will _ignore_ the error, _drop_ the metric, and _stop_ trying to collect it.
+The format of the error policy value is defined in the next section.
+
+Since error policies handle specific MySQL errors, they are not intended for [general error handling](../monitors/error-handling).
+Instead, error policies make it possible to write plans that are "best effort" depending on the MySQL instance: if a collector works, then great; but if not, an error policy prevents Blip from spewing errors.
 
 ## Format
 
-The value has three parts: `<report>,<metric>,<retry>`
+An error policy value is a string and comma-separated value with three parts: `<report>,<metric>,<retry>`
 
 Report:
 * `ignore`: Silently ignore the error; report _nothing_ (not even an event)

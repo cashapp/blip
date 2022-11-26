@@ -19,16 +19,26 @@ Although sizes are metadata, MySQL requires `SELECT` on an object to read its me
 
 Blip needs the `PROCESS` privilege to query `information_schema.innodb_metrics`.
 
+{: .warn }
+<b>Never grant <code>ALL</code> or <code>SUPER</code> privileges to the Blip MySQL user!</b>
+
+## Password
+
+The Blip MySQL user typically uses a password, but other authentication methods are supported too.
+See [Monitors / MySQL Connection / Authentication](../monitors/mysql-connection#authentication).
+
 ## Heartbeat
 
 For [heartbeat](../heartbeat):
 
 * `INSERT, UPDATE, DELETE ON blip.heartbeat`
 
-<p class="warn">
-<b>Never grant <code>ALL</code> or <code>SUPER</code> privileges to the Blip MySQL user!</b>
-</p>
-
-<p class="warn">
+{: .warn }
 <b>Never grant write privileges to the Blip MySQL user except on the <a href="../heartbeat#table">heartbeat table</a>!</b>
-</p>
+
+## Plan Table
+
+If using a [plan table](../plans/table), the recommend privileges work since they grant `SELECT` on all tables.
+But if you use the minimum privileges, then the Blip MySQL also requires:
+
+* `SELECT ON blip.plans`

@@ -158,13 +158,16 @@ If `auto` is specified, Blip queries [EC2 IMDS](https://docs.aws.amazon.com/AWSE
 |**Valid values**|file names|
 |**Default value**||
 
-The `files` variable specifies YAML files to load monitors from. Each file must have a `monitors` section, like:
+The `files` variable specifies YAML files to load monitors from.
+Each file must have a `monitors` section, like:
 
 ```yaml
 ---
 monitors:
   - hostname: db.local
 ```
+
+File paths are relative to the current working directory of `blip`.
 
 ### local
 
@@ -312,6 +315,17 @@ The `mode` variables enables [Prometheus emulation](../prometheus).
 When set to `dual`, Blip runs normally _and_ emulates Prometheus.
 When set to `legacy`, Blip runs _only_ emulates Prometheus.
 The feature is disabled by default.
+
+### `plan`
+
+{: .var-table }
+|**Type**|string|
+|**Valid values**|Plan name|
+|**Default value**|`default-exporter`|
+
+The `plan` variables specifies which plan to load.
+The plan must have only 1 level.
+See [Prometheus emulation](../prometheus#plan) for details.
 
 {: .config-section-title}
 ## heartbeat
@@ -502,7 +516,7 @@ plans:
 
 ### change
 
-The `change` subsection of the `plan` section configures [plan changes](../plans/changing) based on the state of MySQL.
+The `change` subsection of the `plan` section configures [plan changing](../plans/changing) based on the state of MySQL.
 
 ```yaml
 plans:
@@ -541,17 +555,25 @@ The `after` variable sets how long before the state takes effect.
 
 The `plan` variable sets the plan to load when the state takes effect.
 
+### `disable-default-plans`
+
+{: .var-table }
+|**Type**|string|
+|**Valid values**|`true` or `false`|
+|**Default value**|`false`|
+
+The `disable-default-plans` variable enables/disables [default plans](../plans/loading#default).
+
 ### `files`
 
 {: .var-table }
 |**Type**|list of strings|
 |**Valid values**|file names|
-|**Default value**|`plans.yaml`|
+|**Default value**||
 
 The `files` variable is a list of file names from which to load plans.
-Blip attempts to load the default, `plans.yaml`, but it is not required and does not cause an error if the file does not exist.
-Instead, in this case, Blip uses a default built-in plan.
-If plan files are explicitly configured, Blip only reads those plan files.
+File paths are relative to the current working directory of `blip`.
+See [Plans / Loading](../plans/loading) for details.
 
 ### `monitor`
 
@@ -569,7 +591,8 @@ The `monitor` variable configures the MySQL instance from which the [`table`](#t
 |**Valid values**|valid MySQL table name|
 |**Default value**||
 
-The `table` variable configures the MySQL table name from which plans are loaded.
+The `table` variable is the MySQL table name from which plans are loaded.
+See [Plans / Table](../plans/table).
 
 {: .config-section-title}
 ## sinks
@@ -772,5 +795,5 @@ When useful, the Blip documentation will shown to use it.
 |**Valid values**|any string|
 |**Default value**||
 
-The `plan` variable selects the [shared plan](../plans/loading#shared) for the monitor to use if `change` is not configured.
-The default (no value) selects the first plan loaded.
+The `plan` variable selects the [shared plan](../plans/loading#shared) for the monitor to use if [`change`](#change) is not configured.
+The default (no value) selects a plan according to [plan precedence](../plans/loading#precedence).

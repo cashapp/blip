@@ -31,21 +31,6 @@ type Exporter struct {
 
 var _ prom.Exporter = Exporter{}
 
-func ExporterPlan(cfg blip.ConfigExporter, plan blip.Plan) (blip.Plan, error) {
-	if plan.Source == "blip" && plan.Name == "blip" {
-		plan = blip.PromPlan()
-	} else {
-		if len(plan.Levels) != 1 {
-			return blip.Plan{}, fmt.Errorf("plan has %d levels, expected 1 named 'prom'", len(plan.Levels))
-		}
-		if levelName, ok := plan.Levels["prom"]; !ok {
-			return blip.Plan{}, fmt.Errorf("invalid plan level name: %s: must be 'prom'", levelName)
-		}
-	}
-	// @todo modify plan based on ConfigExporter.Flags
-	return plan, nil
-}
-
 func NewExporter(cfg blip.ConfigExporter, plan blip.Plan, engine *Engine) *Exporter {
 	e := &Exporter{
 		cfg:          cfg,
@@ -97,8 +82,7 @@ func (e Exporter) Collect(ch chan<- prometheus.Metric) {
 
 	e.Lock()
 	if !e.prepared {
-		plan := blip.PromPlan()
-		if err := e.engine.Prepare(ctx, plan, noop, noop); err != nil {
+		if err := e.engine.Prepare(ctx, e.plan, noop, noop); err != nil {
 			blip.Debug(err.Error())
 			e.Unlock()
 			return

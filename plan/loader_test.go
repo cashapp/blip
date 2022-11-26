@@ -38,11 +38,15 @@ func TestLoadDefault(t *testing.T) {
 	gotPlans := pl.PlansLoaded("")
 	expectPlans := []proto.PlanLoaded{
 		{
-			Name:   blip.INTERNAL_PLAN_NAME,
+			Name:   "default-mysql",
+			Source: "blip",
+		},
+		{
+			Name:   blip.DEFAULT_EXPORTER_PLAN,
 			Source: "blip",
 		},
 	}
-	assert.Equal(t, gotPlans, expectPlans)
+	assert.Equal(t, expectPlans, gotPlans)
 }
 
 func TestLoadOneFile(t *testing.T) {
