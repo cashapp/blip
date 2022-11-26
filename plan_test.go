@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/cashapp/blip"
+	"github.com/cashapp/blip/plan/default"
 	"github.com/cashapp/blip/test"
 )
 
@@ -86,13 +87,13 @@ func TestValidateMetricName(t *testing.T) {
 func TestValidateDefaultPlans(t *testing.T) {
 	// Test that the default internal plans are valid because it'd be embarrassing
 	// to ship invalid default plan
-	plan := blip.InternalLevelPlan()
+	plan := default_plan.MySQL()
 	err := plan.Validate()
 	if err != nil {
 		t.Error(err)
 	}
 
-	plan = blip.PromPlan()
+	plan = default_plan.Exporter()
 	err = plan.Validate()
 	if err != nil {
 		t.Error(err)
