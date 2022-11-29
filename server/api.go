@@ -164,7 +164,7 @@ func (api *API) monitorsStart(w http.ResponseWriter, r *http.Request) {
 	}
 	blip.Debug("start %s", monitorId)
 	if err := mon.Start(); err != nil {
-		errMsg := html.EscapeString(fmt.Sprintf("Error starting monitor %s: %s", monitorId, err))
+		errMsg := html.EscapeString(fmt.Sprintf("Error starting monitor %s: %s", html.EscapeString(monitorId), err))
 		http.Error(w, errMsg, http.StatusConflict)
 		return
 	}
