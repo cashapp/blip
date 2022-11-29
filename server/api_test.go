@@ -36,7 +36,7 @@ func setup(t *testing.T) testAPI {
 		PlanLoader: plan.NewLoader(nil),
 		RDSLoader:  aws.RDSLoader{ClientFactory: mock.RDSClientFactory{}},
 	})
-	api := server.NewAPI(cfg.API, ml)
+	api := server.NewAPI(cfg, ml)
 
 	ts := httptest.NewServer(api)
 
