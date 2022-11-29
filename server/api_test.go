@@ -9,14 +9,11 @@ import (
 	"net/url"
 	"testing"
 
-	//"github.com/stretchr/testify/assert"
-
 	"github.com/cashapp/blip"
 	"github.com/cashapp/blip/aws"
 	"github.com/cashapp/blip/dbconn"
 	"github.com/cashapp/blip/monitor"
 	"github.com/cashapp/blip/plan"
-	"github.com/cashapp/blip/proto"
 	"github.com/cashapp/blip/server"
 	"github.com/cashapp/blip/test"
 	"github.com/cashapp/blip/test/mock"
@@ -60,7 +57,7 @@ func TestAPIStatusGet(t *testing.T) {
 	server := setup(t)
 	defer server.ts.Close()
 
-	var gotStatus proto.Status
+	var gotStatus map[string]string
 	url := server.url + "/status"
 	statusCode, err := test.MakeHTTPRequest("GET", url, nil, &gotStatus)
 	if err != nil {
@@ -69,8 +66,7 @@ func TestAPIStatusGet(t *testing.T) {
 	if statusCode != http.StatusOK {
 		t.Errorf("got HTTP status = %d, expected %d", statusCode, http.StatusOK)
 	}
-
-	if gotStatus.Version != blip.VERSION {
-		t.Errorf("got Status.Version %s, expected %s", gotStatus.Version, blip.VERSION)
+	if _, ok := gotStatus["uptime"]; !ok {
+		t.Errorf("/status response does not have uptime: %+v", gotStatus)
 	}
 }

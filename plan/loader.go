@@ -1,5 +1,3 @@
-// Copyright 2022 Block, Inc.
-
 // Package plan provides the Loader singleton that loads metric collection plans.
 package plan
 
@@ -22,68 +20,39 @@ import (
 	"github.com/cashapp/blip/event"
 	"github.com/cashapp/blip/metrics"
 	"github.com/cashapp/blip/plan/default"
-	"github.com/cashapp/blip/proto"
 	"github.com/cashapp/blip/sqlutil"
 )
 
-// planMeta is a blip.Plan plus metadata.
-type planMeta struct {
-	name   string
-	source string
-	shared bool
+// Meta is a blip.Plan plus metadata.
+type Meta struct {
+	Name   string
+	Source string
+	Shared bool
+	YAML   string // plan converted to YAML
 	plan   blip.Plan
 }
 
 // PlanLooader is a singleton service and repo for level plans.
 type Loader struct {
 	plugin       func(blip.ConfigPlans) ([]blip.Plan, error)
-	sharedPlans  []planMeta            // keyed on Plan.Name
-	monitorPlans map[string][]planMeta // keyed on monitorId, Plan.Name
-	needToLoad   map[string]string     // keyed on monitorId => Plan.Table
+	sharedPlans  []Meta            // keyed on Plan.Name
+	monitorPlans map[string][]Meta // keyed on monitorId, Plan.Name
 	*sync.RWMutex
 }
 
 func NewLoader(plugin func(blip.ConfigPlans) ([]blip.Plan, error)) *Loader {
 	return &Loader{
 		plugin:       plugin,
-		sharedPlans:  []planMeta{},
-		monitorPlans: map[string][]planMeta{},
-		needToLoad:   map[string]string{},
+		sharedPlans:  []Meta{},
+		monitorPlans: map[string][]Meta{},
 		RWMutex:      &sync.RWMutex{},
 	}
 }
 
-func (pl *Loader) PlansLoaded(monitorId string) []proto.PlanLoaded {
-	pl.RLock()
-	defer pl.RUnlock()
-
-	var loaded []proto.PlanLoaded
-
-	if monitorId == "" {
-		loaded = make([]proto.PlanLoaded, len(pl.sharedPlans))
-		for i := range pl.sharedPlans {
-			loaded[i] = proto.PlanLoaded{
-				Name:   pl.sharedPlans[i].name,
-				Source: pl.sharedPlans[i].source,
-			}
-		}
-	} else {
-		loaded = make([]proto.PlanLoaded, len(pl.monitorPlans[monitorId]))
-		for i := range pl.monitorPlans[monitorId] {
-			loaded[i] = proto.PlanLoaded{
-				Name:   pl.sharedPlans[i].name,
-				Source: pl.sharedPlans[i].source,
-			}
-		}
-	}
-
-	return loaded
-}
-
-// LoadShared loads all top-level (shared) plans: config.plans. These plans are
+// LoadShared loads all top-level (shared) plans: config.Plans. These plans are
 // called "shared" because more than one monitor can use them, which is the normal
 // case. For example, the simplest configurate is specifying a single shared plan
-// that almost monitors use implicitly (by not specifcying config.monitors.*.plans).
+// that almost monitors use implicitly (by not specifcying config.monitors.*.Plans).
 //
 // This method is called by Server.Boot(). Plans from a table are deferred until
 // the monitor's LPC calls Plan() because the monitor might not be online when Blip
@@ -106,12 +75,12 @@ func (pl *Loader) LoadShared(cfg blip.ConfigPlans, dbMaker blip.DbFactory) error
 		}
 
 		pl.Lock()
-		pl.sharedPlans = make([]planMeta, len(plans))
+		pl.sharedPlans = make([]Meta, len(plans))
 		for i, plan := range plans {
-			pl.sharedPlans[i] = planMeta{
-				name:   plan.Name,
+			pl.sharedPlans[i] = Meta{
+				Name:   plan.Name,
 				plan:   plan,
-				source: "plugin",
+				Source: "plugin",
 			}
 		}
 		pl.Unlock()
@@ -119,13 +88,13 @@ func (pl *Loader) LoadShared(cfg blip.ConfigPlans, dbMaker blip.DbFactory) error
 		return nil
 	}
 
-	sharedPlans := []planMeta{}
+	sharedPlans := []Meta{}
 
-	// Read default plans from table on pl.cfg.plans.monitor
+	// Read default plans from table on pl.cfg.Plans.monitor
 	if cfg.Table != "" {
 		blip.Debug("loading plans from %s", cfg.Table)
 
-		// Connect to db specified by config.plans.monitor, which should have
+		// Connect to db specified by config.Plans.monitor, which should have
 		// been validated already, but double check. It reuses ConfigMonitor
 		// for the DSN info, not because it's an actual db to monitor.
 		if cfg.Monitor == nil {
@@ -150,10 +119,11 @@ func (pl *Loader) LoadShared(cfg blip.ConfigPlans, dbMaker blip.DbFactory) error
 
 		// Save all plans from table by name
 		for _, plan := range plans {
-			sharedPlans = append(sharedPlans, planMeta{
-				name:   plan.Name,
+			sharedPlans = append(sharedPlans, Meta{
+				Name:   plan.Name,
 				plan:   plan,
-				source: cfg.Table,
+				Source: cfg.Table,
+				Shared: true,
 			})
 		}
 	}
@@ -178,16 +148,18 @@ func (pl *Loader) LoadShared(cfg blip.ConfigPlans, dbMaker blip.DbFactory) error
 	if len(sharedPlans) == 0 && !cfg.DisableDefaultPlans {
 		blip.Debug("default plans enabled")
 		dplanMySQL := default_plan.MySQL() // MySQL
-		sharedPlans = append(sharedPlans, planMeta{
-			name:   dplanMySQL.Name,
-			source: dplanMySQL.Source,
+		sharedPlans = append(sharedPlans, Meta{
+			Name:   dplanMySQL.Name,
+			Source: dplanMySQL.Source,
 			plan:   dplanMySQL,
+			Shared: true,
 		})
 		dplanExprter := default_plan.Exporter() // Prom mysqld_exporter
-		sharedPlans = append(sharedPlans, planMeta{
-			name:   dplanExprter.Name,
-			source: dplanExprter.Source,
+		sharedPlans = append(sharedPlans, Meta{
+			Name:   dplanExprter.Name,
+			Source: dplanExprter.Source,
 			plan:   dplanExprter,
+			Shared: true,
 		})
 	}
 
@@ -198,7 +170,7 @@ func (pl *Loader) LoadShared(cfg blip.ConfigPlans, dbMaker blip.DbFactory) error
 	return nil
 }
 
-// Monitor plans: config.monitors.*.plans
+// Monitor plans: config.monitors.*.Plans
 func (pl *Loader) LoadMonitor(mon blip.ConfigMonitor, dbMaker blip.DbFactory) error {
 	event.Sendf(event.PLANS_LOAD_MONITOR, mon.MonitorId)
 
@@ -207,7 +179,7 @@ func (pl *Loader) LoadMonitor(mon blip.ConfigMonitor, dbMaker blip.DbFactory) er
 		return nil
 	}
 
-	monitorPlans := []planMeta{}
+	monitorPlans := []Meta{}
 
 	// Monitor plans from table, but defer until monitor's LPC calls Plan()
 	if mon.Plans.Table != "" {
@@ -230,10 +202,10 @@ func (pl *Loader) LoadMonitor(mon blip.ConfigMonitor, dbMaker blip.DbFactory) er
 		}
 
 		for _, plan := range plans {
-			monitorPlans = append(monitorPlans, planMeta{
-				name:   plan.Name,
+			monitorPlans = append(monitorPlans, Meta{
+				Name:   plan.Name,
 				plan:   plan,
-				source: table,
+				Source: table,
 			})
 		}
 	}
@@ -269,7 +241,7 @@ func (pl *Loader) Plan(monitorId string, planName string, db *sql.DB) (blip.Plan
 	//
 	// DO NOT MODIFY plans, else you'll modify the underlying slice because Go
 	// slices are refs.
-	var plans []planMeta
+	var plans []Meta
 	if len(pl.monitorPlans[monitorId]) > 0 {
 		blip.Debug("%s: using monitor plans", monitorId)
 		plans = pl.monitorPlans[monitorId]
@@ -282,15 +254,15 @@ func (pl *Loader) Plan(monitorId string, planName string, db *sql.DB) (blip.Plan
 		return blip.Plan{}, fmt.Errorf("no plans loaded for monitor %s", monitorId)
 	}
 
-	var pm *planMeta
+	var pm *Meta
 	if planName == "" {
 		pm = &plans[0]
-		planName = pm.name
+		planName = pm.Name
 		blip.Debug("%s: loading first plan: %s", monitorId, planName)
 	} else {
 		blip.Debug("%s: loading plan %s", monitorId, planName)
 		for i := range plans {
-			if plans[i].name == planName {
+			if plans[i].Name == planName {
 				pm = &plans[i]
 			}
 		}
@@ -299,11 +271,11 @@ func (pl *Loader) Plan(monitorId string, planName string, db *sql.DB) (blip.Plan
 		}
 	}
 
-	if pm.shared {
-		blip.Debug("%s: loading plan %s (shared)", monitorId, pm.name)
+	if pm.Shared {
+		blip.Debug("%s: loading plan %s (shared)", monitorId, pm.Name)
 		pm = nil
 		for i := range pl.sharedPlans {
-			if pl.sharedPlans[i].name == planName {
+			if pl.sharedPlans[i].Name == planName {
 				pm = &pl.sharedPlans[i]
 			}
 		}
@@ -312,10 +284,48 @@ func (pl *Loader) Plan(monitorId string, planName string, db *sql.DB) (blip.Plan
 		}
 	}
 
-	blip.Debug("%s: loading plan %s from %s", monitorId, planName, pm.source)
+	blip.Debug("%s: loading plan %s from %s", monitorId, planName, pm.Source)
 	// Since blip.Plan has field types that pass by reference (maps and slices), we want to the returned plan to
 	// be a deep copy to ensure the caller cannot modify the original shared plan.
 	return deepcopyPlan(&pm.plan)
+}
+
+func (pl *Loader) SharedPlans() []Meta {
+	pl.RLock()
+	defer pl.RUnlock()
+	plans := make([]Meta, len(pl.sharedPlans))
+	for i := range pl.sharedPlans {
+		meta := pl.sharedPlans[i]
+		bytes, _ := yaml.Marshal(pl.sharedPlans[i].plan.Levels)
+		meta.YAML = string(bytes)
+		plans[i] = meta
+	}
+	return plans
+}
+
+func (pl *Loader) MonitorPlans(ids ...string) map[string][]Meta {
+	var allow map[string]bool
+	if len(ids) > 0 {
+		allow = map[string]bool{}
+		for _, id := range ids {
+			allow[id] = true
+		}
+	}
+	plans := map[string][]Meta{}
+	for monitorId, monitorPlans := range pl.monitorPlans {
+		if len(allow) > 0 && !allow[monitorId] {
+			continue
+		}
+		plans[monitorId] = make([]Meta, len(plans[monitorId]))
+		for i := range monitorPlans {
+			meta := monitorPlans[i]
+			bytes, _ := yaml.Marshal(monitorPlans[i].plan.Levels)
+			meta.YAML = string(bytes)
+			plans[monitorId][i] = meta
+		}
+	}
+
+	return plans
 }
 
 func (pl *Loader) Print() {
@@ -337,8 +347,8 @@ func (pl *Loader) Print() {
 	*/
 }
 
-func (pl *Loader) readPlans(filePaths []string) ([]planMeta, error) {
-	meta := []planMeta{}   // return value
+func (pl *Loader) readPlans(filePaths []string) ([]Meta, error) {
+	meta := []Meta{}       // return value
 	plans := []blip.Plan{} // ValidatePlans()
 
 	for _, filePattern := range filePaths {
@@ -352,9 +362,9 @@ func (pl *Loader) readPlans(filePaths []string) ([]planMeta, error) {
 		for _, file := range files {
 			if pl.fileLoaded(file) {
 				blip.Debug("already read %s", file)
-				pm := planMeta{
-					name:   file,
-					shared: true,
+				pm := Meta{
+					Name:   file,
+					Shared: true,
 				}
 				meta = append(meta, pm)
 				continue FILES
@@ -376,10 +386,10 @@ func (pl *Loader) readPlans(filePaths []string) ([]planMeta, error) {
 				continue FILES
 			}
 
-			pm := planMeta{
-				name:   file,
+			pm := Meta{
+				Name:   file,
 				plan:   plan,
-				source: fileabs,
+				Source: fileabs,
 			}
 			meta = append(meta, pm)
 			plans = append(plans, plan) // validate later
@@ -396,7 +406,7 @@ func (pl *Loader) readPlans(filePaths []string) ([]planMeta, error) {
 
 func (pl *Loader) fileLoaded(file string) bool {
 	for i := range pl.sharedPlans {
-		if pl.sharedPlans[i].name == file {
+		if pl.sharedPlans[i].Name == file {
 			return true
 		}
 	}

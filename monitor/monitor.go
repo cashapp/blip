@@ -22,7 +22,6 @@ import (
 	"github.com/cashapp/blip/heartbeat"
 	"github.com/cashapp/blip/plan"
 	"github.com/cashapp/blip/prom"
-	"github.com/cashapp/blip/proto"
 	"github.com/cashapp/blip/status"
 )
 
@@ -72,9 +71,6 @@ type Monitor struct {
 	runChan     chan struct{} // stop goroutines run by monitor
 	wg          sync.WaitGroup
 
-	errMux *sync.Mutex
-	err    error
-
 	event event.MonitorReceiver
 	retry *backoff.ExponentialBackOff
 }
@@ -103,7 +99,6 @@ func NewMonitor(args MonitorArgs) *Monitor {
 		sinks:           args.Sinks,
 		transformMetric: args.TransformMetric,
 		// --
-		errMux: &sync.Mutex{},
 		runMux: &sync.RWMutex{},
 		wg:     sync.WaitGroup{},
 		event:  event.MonitorReceiver{MonitorId: args.Config.MonitorId},
@@ -121,34 +116,16 @@ func (m *Monitor) Config() blip.ConfigMonitor {
 	return m.cfg
 }
 
-// Status returns the real-time monitor status. See proto.MonitorStatus for details.
-func (m *Monitor) Status() proto.MonitorStatus {
-	m.runMux.RLock()
-	status := proto.MonitorStatus{
-		MonitorId: m.monitorId,
-	}
-	if m.dsn != "" {
-		status.DSN = m.dsn
-	}
-	if m.lco != nil {
-		status.Collector = m.lco.Status()
-	}
-	if m.pch != nil {
-		pchStatus := m.pch.Status()
-		status.Adjuster = &pchStatus
-	}
-	m.runMux.RUnlock()
-
-	m.errMux.Lock()
-	if m.err != nil {
-		status.Error = m.err.Error()
-	}
-	m.errMux.Unlock()
-
-	return status
+// DSN returns the redacted DSN (no password).
+func (m *Monitor) DSN() string {
+	return m.dsn
 }
 
 // Stop stops the monitor. It is idempotent and thread-safe.
+//
+// Start/stop monitors only through the Loader. DO NOT call Start or
+// Stop directly, else the running state of the monitor and the Loader
+// will be out of sync.
 func (m *Monitor) Stop() error {
 	m.runMux.Lock()
 	defer m.runMux.Unlock()
@@ -176,12 +153,16 @@ func (m *Monitor) Stop() error {
 	}
 
 	event.Sendf(event.MONITOR_STOPPED, m.monitorId)
-	status.Monitor(m.monitorId, "monitor", "stopped at %s", time.Now())
+	status.Monitor(m.monitorId, status.MONITOR, "stopped at %s", blip.FormatTime(time.Now()))
 	return nil
 }
 
 // Start starts the monitor. If it's already running, it returns an error.
 // It can be called again after calling Stop.
+//
+// Start/stop monitors only through the Loader. DO NOT call Start or
+// Stop directly, else the running state of the monitor and the Loader
+// will be out of sync.
 func (m *Monitor) Start() error {
 	m.runMux.Lock()
 	defer m.runMux.Unlock()
@@ -230,8 +211,7 @@ func (m *Monitor) runLoop() {
 		// On m.runChan close (via stop func), we restart almost immediately because
 		// Blip never stops trying to send metrics.
 		m.retry.Reset()
-		m.event.Sendf(event.MONITOR_STARTED, m.dsn)
-		status.Monitor(m.monitorId, "monitor", "running since %s", time.Now())
+		status.Monitor(m.monitorId, status.MONITOR, "running since %s", blip.FormatTime(time.Now()))
 		select {
 		case <-m.runLoopChan: // Stop called
 			return
@@ -268,14 +248,18 @@ func (m *Monitor) startup() error {
 
 	// ----------------------------------------------------------------------
 	// Make DSN and *sql.DB. This does NOT connect to MySQL.
+	var db *sql.DB
+	var dsnRedacted string // DSN with s/password/.../
+	var err error
 	for {
-		status.Monitor(m.monitorId, "monitor", "making DB/DSN (not connecting)")
-		db, dsnRedacted, err := m.dbMaker.Make(m.cfg)
+		status.Monitor(m.monitorId, status.MONITOR, "making DB/DSN (not connecting)")
+		db, dsnRedacted, err = m.dbMaker.Make(m.cfg)
 		m.setErr(err, false)
 		if err == nil { // success
 			m.runMux.Lock()
 			m.db = db
 			m.dsn = dsnRedacted
+			status.Monitor(m.monitorId, status.MONITOR_DSN, dsnRedacted)
 			m.runMux.Unlock()
 			break
 		}
@@ -284,7 +268,7 @@ func (m *Monitor) startup() error {
 			return nil // runLoop stopped (Stop called)
 		default:
 		}
-		status.Monitor(m.monitorId, "monitor", "error making DB/DSN, sleep and retry: %s", err)
+		status.Monitor(m.monitorId, status.MONITOR, "error making DB/DSN, sleep and retry: %s", err)
 		time.Sleep(m.retry.NextBackOff())
 	}
 
@@ -292,7 +276,7 @@ func (m *Monitor) startup() error {
 	// Load monitor plans, if any. This MIGHT connect to MySQL if the plan
 	// is stored in a table.
 	for {
-		status.Monitor(m.monitorId, "monitor", "loading plans")
+		status.Monitor(m.monitorId, status.MONITOR, "loading plans")
 		err := m.planLoader.LoadMonitor(m.cfg, m.dbMaker)
 		m.setErr(err, false)
 		if err == nil { // success
@@ -303,7 +287,7 @@ func (m *Monitor) startup() error {
 		default:
 			return nil // // runLoop stopped (Stop called)
 		}
-		status.Monitor(m.monitorId, "monitor", "error loading plans, sleep and retry: %s", err)
+		status.Monitor(m.monitorId, status.MONITOR, "error loading plans, sleep and retry: %s", err)
 		time.Sleep(m.retry.NextBackOff())
 	}
 
@@ -321,7 +305,7 @@ func (m *Monitor) startup() error {
 	// Blip writes millisecond-precision timestamps to a table that the repl.lag
 	// metric collector uses to report sub-second replication lag.
 	if m.cfg.Heartbeat.Freq != "" {
-		status.Monitor(m.monitorId, "monitor", "starting heartbeat")
+		status.Monitor(m.monitorId, status.MONITOR, "starting heartbeat")
 		m.hbw = heartbeat.NewWriter(m.monitorId, m.db, m.cfg.Heartbeat)
 		m.wg.Add(1)
 		go func() {
@@ -341,7 +325,7 @@ func (m *Monitor) startup() error {
 	// Exporter API (Prometheus emulation)
 
 	if m.cfg.Exporter.Mode != "" {
-		status.Monitor(m.monitorId, "monitor", "starting exporter")
+		status.Monitor(m.monitorId, status.MONITOR, "starting exporter")
 
 		// Load the exporter plan. If the user specified config.exporter.plan,
 		// that plan is loaded. Else, the default exporter plan will be loaded
@@ -392,7 +376,8 @@ func (m *Monitor) startup() error {
 
 		if m.cfg.Exporter.Mode == blip.EXPORTER_MODE_LEGACY {
 			blip.Debug("%s: legacy mode", m.monitorId)
-			status.Monitor(m.monitorId, "monitor", "running in exporter legacy mode")
+			status.Monitor(m.monitorId, status.MONITOR, "running in exporter legacy mode")
+			m.event.Sendf(event.MONITOR_STARTED, dsnRedacted)
 			return nil
 		}
 	}
@@ -405,10 +390,10 @@ func (m *Monitor) startup() error {
 	// is set by calling lco.ChangePlan. Or, ff the PCH is enabled by
 	// config.plans.change, then it will do this; if it's not enabled,
 	// we'll do it as the last startup step.
-	status.Monitor(m.monitorId, "monitor", "starting LCO")
+	status.Monitor(m.monitorId, status.MONITOR, "starting level collector")
 	m.lco = NewLevelCollector(LevelCollectorArgs{
 		Config:           m.cfg,
-		Engine:           NewEngine(m.cfg, m.db),
+		DB:               m.db,
 		PlanLoader:       m.planLoader,
 		Sinks:            m.sinks,
 		TransformMetrics: m.transformMetric,
@@ -434,7 +419,7 @@ func (m *Monitor) startup() error {
 		// Run option plan changer (PCH). When enabled, the PCH checks
 		// the state of MySQL. If the state changes, it calls lco.ChangePlan
 		// to change the plan as configured by config.monitors.plans.adjust.<state>.
-		status.Monitor(m.monitorId, "monitor", "starting PCH")
+		status.Monitor(m.monitorId, status.MONITOR, "starting plan changer")
 		m.pch = NewPlanChanger(PlanChangerArgs{
 			MonitorId: m.monitorId,
 			Config:    m.cfg.Plans.Change,
@@ -463,10 +448,11 @@ func (m *Monitor) startup() error {
 		//
 		// Do need retry or error handling because ChangePlan tries forever,
 		// or until called again.
-		status.Monitor(m.monitorId, "monitor", "setting state active")
-		m.lco.ChangePlan(blip.STATE_ACTIVE, m.cfg.Plan) // start LPC directly
+		status.Monitor(m.monitorId, status.MONITOR, "starting plan %s", m.cfg.Plan)
+		m.lco.ChangePlan(blip.STATE_ACTIVE, m.cfg.Plan) // start LCO directly
 	}
 
+	m.event.Sendf(event.MONITOR_STARTED, dsnRedacted)
 	return nil
 }
 
@@ -499,18 +485,17 @@ func (m *Monitor) stop(lock bool, caller string) {
 	}
 
 	// Wait for monitor subsystem goroutines to return
-	status.Monitor(m.monitorId, "monitor", "stopping goroutines")
+	status.Monitor(m.monitorId, status.MONITOR, "stopping goroutines")
 	m.wg.Wait()
 }
 
 func (m *Monitor) setErr(err error, isPanic bool) {
 	if err != nil {
 		m.event.Errorf(event.MONITOR_ERROR, err.Error())
-		status.Monitor(m.monitorId, "monitor", "error: %s", err)
+		status.Monitor(m.monitorId, "error:"+status.MONITOR, "error: %s", err)
+	} else {
+		status.RemoveComponent(m.monitorId, "error:"+status.MONITOR)
 	}
-	m.errMux.Lock()
-	m.err = err
-	m.errMux.Unlock()
 }
 
 func (m *Monitor) panic(r interface{}) {

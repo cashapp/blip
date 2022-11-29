@@ -29,9 +29,8 @@ type Options struct {
 // labels, and query predicates. The caller is expected to copy and use the embedded
 // structs separately, like:
 //
-//   var o config.Options = cmdLine.Options
-//   for i, arg := range cmdline.Args {
-//
+//	var o config.Options = cmdLine.Options
+//	for i, arg := range cmdline.Args {
 type CommandLine struct {
 	Options
 	Args []string `arg:"positional"`
@@ -70,7 +69,6 @@ func printHelp() {
 		"  --print-config   Print config on boot\n"+
 		"  --print-domains  Print metric domains\n"+
 		"  --print-monitors Print monitors on boot\n"+
-		"  --print-plans    Print level plans on boot\n"+
 		"  --run            Run monitors (if false, boot then exit)\n"+
 		"  --version        Print version and exit\n"+
 		"\n"+

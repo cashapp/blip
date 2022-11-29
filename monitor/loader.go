@@ -5,6 +5,7 @@ package monitor
 import (
 	"context"
 	"crypto/sha256"
+	"errors"
 	"fmt"
 	"io/ioutil"
 	"sync"
@@ -28,8 +29,15 @@ type LoadFunc func(blip.Config) ([]blip.ConfigMonitor, error)
 // StartMonitorFunc is a callback that matches blip.Plugin.StartMonitor.
 type StartMonitorFunc func(blip.ConfigMonitor) bool
 
+var ErrStopLoss = errors.New("stop-loss prevents reloading")
+
 // loadedMonitor represents one validated and loaded Monitor created by
-// a call to Load. started is false until StartMonitors is called.
+// a call to Load. started is false until StartMonitors or Start is called.
+// Call Stop (or Unload) to stop a monitor.
+//
+// Start/stop monitors only through the Loader. DO NOT call Monitor.Start or
+// Monitor.Stop directly, else the running state of the monitor and the Loader
+// will be out of sync.
 type loadedMonitor struct {
 	monitor *Monitor
 	started bool
@@ -91,7 +99,7 @@ func NewLoader(args LoaderArgs) *Loader {
 	}
 }
 
-// StartMonitors runs all monitors that have been loaded but not started.
+// StartMonitors starts all monitors that have been loaded but not started.
 // This should be called after Load. On Blip startup, the server calls Load
 // in Server.Boot, then StartMonitors in server.Run. The user can reload
 // by calling the server API: /monitors/reload.
@@ -125,22 +133,32 @@ func (ml *Loader) StartMonitors() {
 
 		m := ml.repo[i] // m is *loadedMonitor
 		status.Blip("monitor-loader", "starting %s", m.monitor.MonitorId())
-
-		// Call StartMonitor callback. Default allows all monitors to start,
-		// but user might have provided callback to filter monitors.
-		if !ml.startMonitor(m.monitor.Config()) {
-			blip.Debug("%s not run", m.monitor.MonitorId())
-			continue
-		}
-
-		// Start the MySQL monitor, which starts metrics collection
-		if err := m.monitor.Start(); err != nil {
+		if err := ml.start(m); err != nil {
+			// @todo event
 			blip.Debug(err.Error()) // shouldn't happen
 		}
-		m.started = true
 		time.Sleep(w)
 	}
-	status.Blip("monitor-loader", "%d monitors started at %s", n, time.Now())
+	status.Blip("monitor-loader", "%d monitors started at %s", n, blip.FormatTime(time.Now()))
+}
+
+// start starts one loaded monitored. It's calloped by StartMonitors and Start.
+// The caller must serialize ensure that the monitor is not already started;
+// this func does neither.
+func (ml *Loader) start(m *loadedMonitor) error {
+	// Call StartMonitor callback. Default allows all monitors to start,
+	// but user might have provided callback to filter monitors.
+	if !ml.startMonitor(m.monitor.Config()) {
+		blip.Debug("%s not run", m.monitor.MonitorId())
+		return nil
+	}
+
+	// Start the MySQL monitor, which starts metrics collection
+	if err := m.monitor.Start(); err != nil {
+		return err
+	}
+	m.started = true
+	return nil
 }
 
 // [ 1, 10) = <1s startup
@@ -163,15 +181,15 @@ func wait(n int) int {
 	return ms
 }
 
-// Load loads all configured monitors. If none are configured, it auto-detects
-// local MySQL instances if config.monitor-loader.local.disable-auto = false,
-// which is the default. Load does NOT start monitors; StartMonitors starts them.
+// Load loads all configured monitors and unloads (stops and removes) monitors
+// that have been removed or changed since the last call to Load. It does not
+// start new monitors. Call StartMonitors after Load to start new (or previously
+// stopped) monitors.
 //
-// Load handles config.monitor-loader.stop-loss: if too many monitors are lost,
-// it returns nil and send a MONITORS_STOPLOSS event, which the user is expected
-// to handle with a custom event.Receiver, else the event is just logged to STDERR.
+// Server.Boot calls Load, then Server.Run calls StartMonitors.
 //
-// Server.Boot calls Load when Blip starts, then Server.Run calls StartMonitors.
+// Load checks for stop-loss and does local MySQL auto-detection, if these two
+// features are enabled.
 //
 // If Load returns error, the currently loaded monitors are not affected.
 // The error indicates a problem loading monitors or a validation error.
@@ -184,7 +202,13 @@ func (ml *Loader) Load(ctx context.Context) error {
 	event.Send(event.MONITORS_LOADING)
 	defer event.Send(event.MONITORS_LOADED)
 
+	defer func() {
+		status.Blip("monitors", "%d", len(ml.repo))
+	}()
+
 	// ----------------------------------------------------------------------
+	// Load
+
 	// Low-level monitor loading returns a diff: new, chagned, and removed
 	// monitors as compared to what's currently in the repo.
 	diff, err := ml.load(ctx)
@@ -194,6 +218,7 @@ func (ml *Loader) Load(ctx context.Context) error {
 
 	// ----------------------------------------------------------------------
 	// Stop-loss
+
 	// Check config.monitor-loader.stop-loss: don't change monitors if there's
 	// a big drop in the number because it might be a false-positive that will
 	// set off alarms when a bunch of metrics fail to report.
@@ -215,15 +240,16 @@ func (ml *Loader) Load(ctx context.Context) error {
 		}
 		if errMsg != "" {
 			event.Errorf(event.MONITORS_STOPLOSS, errMsg)
-			return nil // this func didn't fail
+			return ErrStopLoss
 		}
 	}
 
 	// ----------------------------------------------------------------------
 	// Update repo
-	// Unload monitors that have been removed or changed. changed monitors have
-	// a new *Monitor in added with the same monitor ID, so we must unload the
-	// old copy first, then add in the new copy (using the same monitor ID).
+
+	// Unload monitors that have been removed or changed. Changed monitors have
+	// a new *Monitor in diff.added with the same monitor ID, so we must unload
+	// the old monitor first, then add the monitor (with the same ID).
 	for _, mon := range diff.removed {
 		ml.Unload(mon.MonitorId(), false)
 	}
@@ -268,7 +294,7 @@ func (ml *Loader) load(ctx context.Context) (diff, error) {
 	defer func() {
 		last := fmt.Sprintf("added: %d removed: %d changed: %d",
 			len(diff.added), len(diff.removed), len(diff.changed))
-		status.Blip("monitor-loader", "%s on %s", last, time.Now())
+		status.Blip("monitor-loader", "%s on %s", last, blip.FormatTime(time.Now()))
 	}()
 
 	// All valid monitor configs loaded, keyed by monitor ID. See save().
@@ -295,7 +321,7 @@ func (ml *Loader) load(ctx context.Context) (diff, error) {
 	}
 
 	// -------------------------------------------------------------------
-	// Default load sequence: config files, monitors file, AWS, local
+	// Default load sequence: config file, monitor files, AWS, local
 
 	// First, monitors from the config file
 	if len(ml.cfg.Monitors) != 0 {
@@ -568,8 +594,23 @@ func (ml *Loader) Count() uint {
 	return uint(len(ml.repo))
 }
 
-// Unload stops and removes a monitor.
-func (ml *Loader) Unload(monitorId string, lock bool) error {
+// Start starts a monitor if it's not already running.
+func (ml *Loader) Start(monitorId string, lock bool) error {
+	ml.Lock()
+	defer ml.Unlock()
+	m, ok := ml.repo[monitorId]
+	if !ok {
+		return nil
+	}
+	if m.started {
+		return nil
+	}
+	return ml.start(m)
+}
+
+// Stop stops a monitor but does not unload it. It can be started again
+// by calling Start.
+func (ml *Loader) Stop(monitorId string, lock bool) error {
 	if lock {
 		ml.Lock()
 		defer ml.Unlock()
@@ -579,6 +620,15 @@ func (ml *Loader) Unload(monitorId string, lock bool) error {
 		return nil
 	}
 	m.monitor.Stop()
+	m.started = false
+	return nil
+}
+
+// Unload stops and removes a monitor.
+func (ml *Loader) Unload(monitorId string, lock bool) error {
+	if err := ml.Stop(monitorId, lock); err != nil {
+		return err
+	}
 	delete(ml.repo, monitorId)
 	status.RemoveMonitor(monitorId)
 	return nil

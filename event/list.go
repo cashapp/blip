@@ -20,6 +20,7 @@ const (
 	PLANS_LOAD_MONITOR    = "plans-load-monitor"
 	PLANS_LOAD_SHARED     = "plans-load-shared"
 	SERVER_API_PANIC      = "server-api-panic"
+	SERVER_API_ERROR      = "server-api-error"
 	SERVER_RUN            = "server-run"
 	SERVER_STOPPED        = "server-stopped"
 )

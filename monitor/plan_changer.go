@@ -13,7 +13,6 @@ import (
 	"github.com/cashapp/blip"
 	"github.com/cashapp/blip/event"
 	"github.com/cashapp/blip/ha"
-	"github.com/cashapp/blip/proto"
 	"github.com/cashapp/blip/status"
 )
 
@@ -22,8 +21,6 @@ var Now func() time.Time = time.Now
 // PlanChanger changes the plan based on database instance state.
 type PlanChanger interface {
 	Run(stopChan, doneChan chan struct{}) error
-
-	Status() proto.MonitorAdjusterStatus
 }
 
 type PlanChangerArgs struct {
@@ -112,40 +109,11 @@ func NewPlanChanger(args PlanChangerArgs) *planChanger {
 
 // setErr sets the last internal error reported by Status.
 func (pch *planChanger) setErr(err error) {
-	pch.Lock()
-	pch.lerr = err
-	pch.Unlock()
-}
-
-// Status returns internal PlanChanger status. It's called from Monitor.Status
-// in response to GET /status/monitor/internal?id=monitorId.
-func (pch *planChanger) Status() proto.MonitorAdjusterStatus {
-	pch.Lock()
-	defer pch.Unlock()
-
-	status := proto.MonitorAdjusterStatus{
-		CurrentState: proto.MonitorState{
-			State: pch.curr.state,
-			Plan:  pch.curr.plan,
-			Since: pch.curr.ts.Format(time.RFC3339),
-		},
-		PreviousState: proto.MonitorState{
-			State: pch.prev.state,
-			Plan:  pch.prev.plan,
-			Since: pch.prev.ts.Format(time.RFC3339),
-		},
-		PendingState: proto.MonitorState{
-			State: pch.pending.state,
-			Plan:  pch.pending.plan,
-			Since: pch.pending.ts.Format(time.RFC3339),
-		},
+	if err != nil {
+		status.Monitor(pch.monitorId, "error:"+status.PLAN_CHANGER, err.Error())
+	} else {
+		status.RemoveComponent(pch.monitorId, "error:"+status.PLAN_CHANGER)
 	}
-
-	if pch.lerr != nil {
-		status.Error = pch.lerr.Error()
-	}
-
-	return status
 }
 
 // Run calls CheckState every second; or, if offline, it uses an exponential
@@ -155,9 +123,9 @@ func (pch *planChanger) Status() proto.MonitorAdjusterStatus {
 // is enabled (blip.ConfigPlanChange.Enabled returns true).
 func (pch *planChanger) Run(stopChan, doneChan chan struct{}) error {
 	defer close(doneChan)
-	defer status.Monitor(pch.monitorId, "lpa", "not running")
+	defer status.Monitor(pch.monitorId, status.PLAN_CHANGER, "not running")
 
-	status.Monitor(pch.monitorId, "lpa", "running")
+	status.Monitor(pch.monitorId, status.PLAN_CHANGER, "running")
 
 	for {
 		select {
@@ -186,10 +154,11 @@ func (pch *planChanger) CheckState() {
 	defer pch.Unlock()
 
 	defer func() {
-		if pch.pending.state == "" {
-			status.Monitor(pch.monitorId, "lpa", "%s", pch.curr.state)
+		status.Monitor(pch.monitorId, status.PLAN_CHANGER_STATE, "%s %s %s", pch.curr.state, pch.curr.plan, pch.curr.ts.Format(time.RFC3339))
+		if pch.pending.state != "" {
+			status.Monitor(pch.monitorId, status.PLAN_CHANGER_PENDING, "%s %s %s", pch.pending.state, pch.pending.plan, pch.pending.ts.Format(time.RFC3339))
 		} else {
-			status.Monitor(pch.monitorId, "lpa", "%s -> %s", pch.curr.state, pch.pending.state)
+			status.RemoveComponent(pch.monitorId, status.PLAN_CHANGER_PENDING)
 		}
 	}()
 
@@ -255,7 +224,7 @@ func (pch *planChanger) CheckState() {
 // offline (can't connect to MySQL. We presume that these calls do not fail; see
 // LevelCollector.ChangePlan for details.
 func (pch *planChanger) lcoChangePlan(state, planName string) error {
-	status.Monitor(pch.monitorId, "lpa", "calling LPC.ChangePlan: %s %s", state, planName)
+	status.Monitor(pch.monitorId, status.PLAN_CHANGER, "calling LPC.ChangePlan: %s %s", state, planName)
 	if planName == "" {
 		pch.lco.Pause()
 		return nil
@@ -267,13 +236,13 @@ const readOnlyQuery = "SELECT @@read_only, @@super_read_only"
 
 // state queries MySQL to ascertain the HA and read-only state.
 func (pch *planChanger) state() string {
-	status.Monitor(pch.monitorId, "lpa", "checking HA standby")
+	status.Monitor(pch.monitorId, status.PLAN_CHANGER, "checking HA standby")
 	if pch.ha.Standby() {
 		return blip.STATE_STANDBY
 	}
 
 	// Active, but is MySQL read-only?
-	status.Monitor(pch.monitorId, "lpa", "checking MySQL read-only")
+	status.Monitor(pch.monitorId, status.PLAN_CHANGER, "checking MySQL read-only")
 
 	var ro, sro int
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)

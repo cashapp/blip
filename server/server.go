@@ -10,7 +10,6 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
-	"runtime"
 	"syscall"
 	"time"
 
@@ -118,7 +117,9 @@ func (s *Server) Boot(env blip.Env, plugins blip.Plugins, factories blip.Factori
 	// ----------------------------------------------------------------------
 
 	startTs := time.Now()
-	status.Blip("server", "booting")
+	status.Blip("started", blip.FormatTime(startTs))
+	status.Blip("version", blip.VERSION)
+	status.Blip(status.SERVER, "booting")
 
 	event.SetReceiver(event.Log{All: s.cmdline.Options.Log})
 	event.Sendf(event.BOOT_START, "blip %s", blip.VERSION) // very first event
@@ -126,7 +127,7 @@ func (s *Server) Boot(env blip.Env, plugins blip.Plugins, factories blip.Factori
 	// ----------------------------------------------------------------------
 	// Load config
 	event.Send(event.BOOT_CONFIG_LOADING)
-	status.Blip("server", "boot: loading config")
+	status.Blip(status.SERVER, "boot: loading config")
 
 	// Always start with a default config, else we'll lack some basic config
 	// like the API addr:port to listen on. If strict, it's a zero config except
@@ -190,7 +191,7 @@ func (s *Server) Boot(env blip.Env, plugins blip.Plugins, factories blip.Factori
 
 	// ----------------------------------------------------------------------
 	// Load level plans
-	status.Blip("server", "boot: loading plans")
+	status.Blip(status.SERVER, "boot: loading plans")
 
 	// Get the built-in level plan loader singleton. It's used in two places:
 	// here for initial plan loading, and level.Collector (LPC) to fetch the
@@ -208,9 +209,9 @@ func (s *Server) Boot(env blip.Env, plugins blip.Plugins, factories blip.Factori
 
 	// ----------------------------------------------------------------------
 	// Load monitors
-	status.Blip("server", "boot: load monitors")
+	status.Blip(status.SERVER, "boot: load monitors")
 
-	// Create, but don't start, database monitors. They're startTs later in Run.
+	// Create, but don't start, database monitors. They're started later in Run.
 	s.monitorLoader = monitor.NewLoader(monitor.LoaderArgs{
 		Config:     s.cfg,
 		Factories:  factories,
@@ -230,7 +231,7 @@ func (s *Server) Boot(env blip.Env, plugins blip.Plugins, factories blip.Factori
 	// ----------------------------------------------------------------------
 	// API
 	if !s.cfg.API.Disable {
-		s.api = NewAPI(cfg.API, s.monitorLoader)
+		s.api = NewAPI(cfg, s.monitorLoader)
 	} else {
 		blip.Debug("API disabled")
 	}
@@ -255,31 +256,16 @@ func (s *Server) Run(stopChan, doneChan chan struct{}) error {
 
 	// Start all monitors. Then if config.monitor-load.freq is specified, start
 	// periodical monitor reloading.
-	status.Blip("server", "starting monitors")
+	status.Blip(status.SERVER, "starting monitors")
 	s.monitorLoader.StartMonitors()
 
 	// Run API, restart on panic
 	if !s.cfg.API.Disable {
-		go func() {
-			for {
-				go func() {
-					defer func() { // catch panic in API
-						if r := recover(); r != nil {
-							b := make([]byte, 4096)
-							n := runtime.Stack(b, false)
-							err := fmt.Errorf("PANIC: server API: %s\n%s", r, string(b[0:n]))
-							event.Errorf(event.SERVER_API_PANIC, err.Error())
-						}
-					}()
-					s.api.Run()
-				}() // API goroutine
-				time.Sleep(1 * time.Second) // between panic
-			}
-		}()
+		go s.api.Run()
 	}
 
 	// Run until caller closes stopChan or blip process catches a signal
-	status.Blip("server", "running since %s", time.Now())
+	status.Blip(status.SERVER, "running since %s", blip.FormatTime(time.Now()))
 	signalChan := make(chan os.Signal)
 	signal.Notify(signalChan, os.Interrupt, syscall.SIGTERM)
 	select {

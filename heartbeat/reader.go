@@ -145,14 +145,15 @@ func (r *BlipReader) run() {
 				r.Lock()
 				r.lag = -1 // no heartbeat
 				r.Unlock()
-				status.Monitor(r.monitorId, "reader-error", "no heartbeat for %s (retry in %s)", r.srcId, NoHeartbeatWait)
+				status.Monitor(r.monitorId, "error:"+status.HEARTBEAT_READER, "no heartbeat for %s (retry in %s)", r.srcId, NoHeartbeatWait)
 				time.Sleep(NoHeartbeatWait)
 			default:
-				status.Monitor(r.monitorId, "reader-error", "error: %s (retry in %s)", err.Error(), ReadErrorWait)
+				status.Monitor(r.monitorId, "error:"+status.HEARTBEAT_READER, "error: %s (retry in %s)", err.Error(), ReadErrorWait)
 				time.Sleep(ReadErrorWait)
 			}
 			continue
 		}
+		status.RemoveComponent(r.monitorId, "error:"+status.HEARTBEAT_READER)
 
 		if isRepl == 0 {
 			r.Lock()
@@ -160,7 +161,7 @@ func (r *BlipReader) run() {
 			r.Unlock()
 			msg := fmt.Sprintf("not a replica: %s=%d (retry in %s)", r.replCheck, isRepl, ReplCheckWait)
 			blip.Debug("%s: %s", r.monitorId, msg)
-			status.Monitor(r.monitorId, "reader", msg)
+			status.Monitor(r.monitorId, status.HEARTBEAT_READER, msg)
 			time.Sleep(ReplCheckWait)
 			continue
 		}
@@ -179,7 +180,7 @@ func (r *BlipReader) run() {
 		r.last = last.Time
 		r.Unlock()
 
-		status.Monitor(r.monitorId, "reader", "%d ms lag from %s (%s), next in %s", lag, srcId, r.srcRole, wait)
+		status.Monitor(r.monitorId, status.HEARTBEAT_READER, "%d ms lag from %s (%s), next in %s", lag, srcId, r.srcRole, wait)
 		time.Sleep(wait)
 	}
 }
