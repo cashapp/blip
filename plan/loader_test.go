@@ -8,24 +8,17 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/go-test/deep"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 
 	"github.com/cashapp/blip"
-	//"github.com/cashapp/blip/dbconn"
 
 	"github.com/cashapp/blip/metrics"
 	"github.com/cashapp/blip/plan"
-	"github.com/cashapp/blip/proto"
 	"github.com/cashapp/blip/test/mock"
-	//	"github.com/cashapp/blip/test"
 )
 
 // --------------------------------------------------------------------------
-
-const (
-	monitorId1 = "testmon1"
-)
 
 func TestLoadDefault(t *testing.T) {
 	cfg := blip.DefaultConfig()
@@ -35,18 +28,28 @@ func TestLoadDefault(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	gotPlans := pl.PlansLoaded("")
-	expectPlans := []proto.PlanLoaded{
+	gotPlans := pl.SharedPlans()
+	expectPlans := []plan.Meta{
 		{
 			Name:   "default-mysql",
 			Source: "blip",
+			Shared: true,
 		},
 		{
 			Name:   blip.DEFAULT_EXPORTER_PLAN,
 			Source: "blip",
+			Shared: true,
 		},
 	}
-	assert.Equal(t, expectPlans, gotPlans)
+	for i := range gotPlans {
+		if gotPlans[i].YAML == "" {
+			t.Errorf("%s missing YAML", gotPlans[i].Name)
+		}
+		gotPlans[i].YAML = ""
+	}
+	if diff := deep.Equal(gotPlans, expectPlans); diff != nil {
+		t.Error(diff)
+	}
 }
 
 func TestLoadOneFile(t *testing.T) {
@@ -66,14 +69,22 @@ func TestLoadOneFile(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	gotPlans := pl.PlansLoaded("")
-	expectPlans := []proto.PlanLoaded{
+	gotPlans := pl.SharedPlans()
+	expectPlans := []plan.Meta{
 		{
 			Name:   file,
 			Source: fileabs,
 		},
 	}
-	assert.Equal(t, gotPlans, expectPlans)
+	for i := range gotPlans {
+		if gotPlans[i].YAML == "" {
+			t.Errorf("%s missing YAML", gotPlans[i].Name)
+		}
+		gotPlans[i].YAML = ""
+	}
+	if diff := deep.Equal(gotPlans, expectPlans); diff != nil {
+		t.Error(diff)
+	}
 }
 
 // TestPlanShouldReturnDeepCopyOfPlan needs to ensure that the copy of blip.Plan returned is
@@ -130,10 +141,10 @@ func TestPlanShouldReturnDeepCopyOfPlan(t *testing.T) {
 			return []blip.Plan{expected}, nil
 		})
 	err := pl.LoadShared(blip.ConfigPlans{}, nil)
-	require.NoError(t, err)
+	assert.Nil(t, err)
 
 	got, err := pl.Plan("", planName, nil)
-	require.NoError(t, err)
+	assert.Nil(t, err)
 
 	assert.Equal(t, expected, got)
 	// Verify that is a is a deep copy of b by comparing address of the slices and maps in blip.Plan.

@@ -5,6 +5,7 @@ package monitor_test
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -17,6 +18,8 @@ import (
 	"github.com/cashapp/blip/metrics"
 	"github.com/cashapp/blip/monitor"
 	"github.com/cashapp/blip/plan"
+	"github.com/cashapp/blip/status"
+	"github.com/cashapp/blip/test"
 	"github.com/cashapp/blip/test/mock"
 )
 
@@ -37,6 +40,15 @@ func TestLevelCollector(t *testing.T) {
 	// which is what we want: LPC->engine->collector. By using a fake collector
 	// but real LPC and enginer, we testing the real, unmodified logic--
 	// the LPC and engine don't know or care that this collector is a mock.
+	_, db, err := test.Connection("mysql57")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	monitorId := "m1"
+	defer status.RemoveMonitor(monitorId)
+
 	mux := &sync.Mutex{}
 	gotLevels := []string{}
 	mc := mock.MetricsCollector{
@@ -61,7 +73,7 @@ func TestLevelCollector(t *testing.T) {
 	// collector is fake.
 	planName := "../test/plans/lpc_1_5_10.yaml"
 	moncfg := blip.ConfigMonitor{
-		MonitorId: monitorId1,
+		MonitorId: monitorId,
 		Username:  "root",
 		Password:  "test",
 		Hostname:  "127.0.0.1:33560", // 5.6
@@ -91,7 +103,7 @@ func TestLevelCollector(t *testing.T) {
 	// starts working once a plan is set.
 	lpc := monitor.NewLevelCollector(monitor.LevelCollectorArgs{
 		Config:     moncfg,
-		Engine:     monitor.NewEngine(blip.ConfigMonitor{MonitorId: monitorId1}, db),
+		DB:         db,
 		PlanLoader: pl,
 		Sinks:      []blip.Sink{mock.Sink{}},
 	})
@@ -101,9 +113,9 @@ func TestLevelCollector(t *testing.T) {
 
 	// Wait a few ticks and check LPC status to verify that is, in fact, paused
 	time.Sleep(100 * time.Millisecond)
-	status := lpc.Status()
-	if status.Paused != true {
-		t.Errorf("LPC not paused, expected it to be paused until ChangePlan is called")
+	s := status.ReportMonitors(monitorId)
+	if !strings.Contains(s[monitorId][status.LEVEL_COLLECTOR], "paused") {
+		t.Errorf("LPC not paused, expected it to be paused until ChangePlan is called (status=%+v)", s)
 	}
 
 	// ChangePlan sets the plan and un-pauses (starts collecting the new plan).
@@ -175,6 +187,15 @@ func TestLevelCollectorChangePlan(t *testing.T) {
 	// which is what we want: LPC->engine->collector. By using a fake collector
 	// but real LPC and engine, we testing the real, unmodified logic--
 	// the LPC and engine don't know or care that this collector is a mock.
+	_, db, err := test.Connection("mysql57")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	monitorId := "m2"
+	defer status.RemoveMonitor(monitorId)
+
 	callChan := make(chan bool, 1)
 	returnChan := make(chan error, 1)
 	mc := mock.MetricsCollector{
@@ -197,7 +218,7 @@ func TestLevelCollectorChangePlan(t *testing.T) {
 
 	// Make a mini, fake config that uses the test plan and load it realistically
 	planName := "../test/plans/test.yaml"
-	moncfg := blip.ConfigMonitor{MonitorId: monitorId1}
+	moncfg := blip.ConfigMonitor{MonitorId: monitorId}
 	cfg := blip.Config{
 		Plans:    blip.ConfigPlans{Files: []string{planName}},
 		Monitors: []blip.ConfigMonitor{moncfg},
@@ -217,7 +238,7 @@ func TestLevelCollectorChangePlan(t *testing.T) {
 	// Create LPC and run it, but it starts paused until ChangePlan is called
 	lpc := monitor.NewLevelCollector(monitor.LevelCollectorArgs{
 		Config:     moncfg,
-		Engine:     monitor.NewEngine(blip.ConfigMonitor{MonitorId: monitorId1}, db),
+		DB:         db,
 		PlanLoader: pl,
 		Sinks:      []blip.Sink{mock.Sink{}},
 	})
@@ -258,9 +279,8 @@ func TestLevelCollectorChangePlan(t *testing.T) {
 
 	returnChan <- nil // CP2 returns, which sets the state to READ_ONLY
 	time.Sleep(150 * time.Millisecond)
-
-	status := lpc.Status()
-	if status.State != blip.STATE_READ_ONLY {
-		t.Errorf("got state %s, expected %s", status.State, blip.STATE_READ_ONLY)
+	s := status.ReportMonitors(monitorId)
+	if s[monitorId][status.LEVEL_STATE] != blip.STATE_READ_ONLY {
+		t.Errorf("got state %s, expected %s", s[monitorId][status.LEVEL_STATE], blip.STATE_READ_ONLY)
 	}
 }

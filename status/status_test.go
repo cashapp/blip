@@ -11,8 +11,10 @@ import (
 )
 
 func TestMonitorMulti(t *testing.T) {
+	status.Reset()
+
 	// Empty status when nothing has been reported
-	got := status.ReportMonitors("*")
+	got := status.ReportMonitors()
 	expect := map[string]map[string]string{}
 	assert.Equal(t, got, expect)
 
@@ -35,29 +37,29 @@ func TestMonitorMulti(t *testing.T) {
 	}
 
 	// Now status should report each component separately
-	got = status.ReportMonitors("*")
+	got = status.ReportMonitors()
 	expect = map[string]map[string]string{
 		"1": {
 			c1: "foo",
 			c2: "bar",
 		},
 	}
-	assert.Equal(t, got, expect)
+	assert.Equal(t, expect, got)
 
 	// Removing one component should not affect the other one
 	status.RemoveComponent("1", c1)
-	got = status.ReportMonitors("*")
+	got = status.ReportMonitors()
 	expect = map[string]map[string]string{
 		"1": {
 			//c1: "foo", // REMOVED
 			c2: "bar",
 		},
 	}
-	assert.Equal(t, got, expect)
+	assert.Equal(t, expect, got)
 
 	// Removing should be idempotent, so remove c1 again
 	status.RemoveComponent("1", c1)
-	got = status.ReportMonitors("*")
+	got = status.ReportMonitors()
 	expect = map[string]map[string]string{
 		"1": {
 			//c1: "foo", // REMOVED
@@ -68,14 +70,14 @@ func TestMonitorMulti(t *testing.T) {
 
 	// And for completeness, remove all and make sure status is empty again
 	status.RemoveComponent("1", c2)
-	got = status.ReportMonitors("*")
+	got = status.ReportMonitors()
 	expect = map[string]map[string]string{
 		"1": {
 			//c1: "foo", // REMOVED
 			//c2: "bar", // REMOVED
 		},
 	}
-	assert.Equal(t, got, expect)
+	assert.Equal(t, expect, got)
 
 	// The 3rd component should be a(3)
 	c3 := status.MonitorMulti("1", "a", "three")

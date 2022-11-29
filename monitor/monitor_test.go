@@ -4,69 +4,30 @@ package monitor_test
 
 import (
 	"context"
-	"database/sql"
-	"fmt"
-	"log"
-	"os"
-	"sync"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
 
 	"github.com/cashapp/blip"
 	"github.com/cashapp/blip/dbconn"
 	"github.com/cashapp/blip/monitor"
 	"github.com/cashapp/blip/plan"
+	"github.com/cashapp/blip/test"
 	"github.com/cashapp/blip/test/mock"
 )
-
-const (
-	monitorId1 = "testmon1"
-)
-
-var (
-	db *sql.DB
-)
-
-// First Method that gets run before all tests.
-func TestMain(m *testing.M) {
-	var err error
-
-	// Read plans from files
-
-	// Connect to MySQL
-	dsn := fmt.Sprintf(
-		"%s:%s@tcp(%s:%s)/?parseTime=true",
-		"root",
-		"test",
-		"localhost",
-		"33570",
-	)
-	db, err = sql.Open("mysql", dsn)
-	if err != nil {
-		log.Fatal(err)
-	}
-	err = db.Ping()
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	code := m.Run() // run tests
-	os.Exit(code)
-}
-
-// --------------------------------------------------------------------------
 
 func TestMonitor(t *testing.T) {
 	//blip.Debugging = true
 
 	moncfg := blip.ConfigMonitor{
-		MonitorId: monitorId1,
+		MonitorId: "tm1",
 		Username:  "root",
 		Password:  "test",
-		Hostname:  "127.0.0.1:33560", // 5.6
+		Hostname:  "127.0.0.1:" + test.MySQLPort["mysql57"],
 	}
 	cfg := blip.Config{
-		Plans:    blip.ConfigPlans{Files: []string{"../test/plans/version.yaml"}},
+		Plans:    blip.ConfigPlans{Files: []string{"../test/plans/var_global.yaml"}},
 		Monitors: []blip.ConfigMonitor{moncfg},
 	}
 	moncfg.ApplyDefaults(cfg)
@@ -80,13 +41,10 @@ func TestMonitor(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	mux := &sync.Mutex{}
-	var gotMetrics *blip.Metrics
+	metricsChan := make(chan *blip.Metrics, 1)
 	sink := mock.Sink{
 		SendFunc: func(ctx context.Context, m *blip.Metrics) error {
-			mux.Lock()
-			m = gotMetrics
-			mux.Unlock()
+			metricsChan <- m
 			return nil
 		},
 	}
@@ -105,23 +63,42 @@ func TestMonitor(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	time.Sleep(1300 * time.Millisecond)
+	var gotMetrics *blip.Metrics
+	select {
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout waiting to receive metrics")
+	case gotMetrics = <-metricsChan:
+	}
 
-	status := mon.Status()
-	t.Logf("%+v", status)
-
-	if status.MonitorId != monitorId1 {
-		t.Errorf("MonitorStatus.MonitorId = '%s', expected '%s'", status.MonitorId, monitorId1)
+	if _, ok := gotMetrics.Values["var.global"]; !ok {
+		t.Fatalf("did not collect var.global domain: %+v", gotMetrics.Values)
 	}
-	if status.Collector.Engine.CollectAll != 1 && status.Collector.Engine.CollectAll != 2 {
-		t.Errorf("MonitorStatus.Collector.Engine.CollectAll = %d, expected 1 or 2", status.Collector.Engine.CollectAll)
+	if len(gotMetrics.Values) != 1 {
+		t.Errorf("collected %d domains, expected 1: %+v", len(gotMetrics.Values), gotMetrics.Values)
 	}
-	if status.Collector.Engine.CollectSome != 0 {
-		t.Errorf("MonitorStatus.Collector.Engine.CollectSome= %d, expected 0", status.Collector.Engine.CollectSome)
+	expectMetricValues := []blip.MetricValue{
+		{
+			Name:  "max_connections",
+			Value: 151,
+			Type:  blip.GAUGE,
+		},
+		{
+			Name:  "max_prepared_stmt_count",
+			Value: 16382,
+			Type:  blip.GAUGE,
+		},
+		{
+			Name:  "innodb_log_file_size",
+			Value: 50331648,
+			Type:  blip.GAUGE,
+		},
+		{
+			Name:  "innodb_max_dirty_pages_pct",
+			Value: 75,
+			Type:  blip.GAUGE,
+		},
 	}
-	if status.Collector.Engine.CollectFail != 0 {
-		t.Errorf("MonitorStatus.Collector.Engine.CollectFail = %d, expected 0", status.Collector.Engine.CollectFail)
-	}
+	assert.Equal(t, expectMetricValues, gotMetrics.Values["var.global"])
 
 	err := mon.Stop()
 	if err != nil {

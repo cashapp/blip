@@ -25,6 +25,16 @@ var s = &status{
 	counters: map[string]map[string]*uint64{}, // monitorId => component
 }
 
+// Reset resets everything to zero values. It's only used for test.
+func Reset() {
+	s = &status{
+		Mutex:    &sync.Mutex{},
+		blip:     map[string]string{},
+		monitors: map[string]map[string]string{},  // monitorId => component
+		counters: map[string]map[string]*uint64{}, // monitorId => component
+	}
+}
+
 func Blip(component, msg string, args ...interface{}) {
 	s.Lock()
 	s.blip[component] = fmt.Sprintf(msg, args...)
@@ -82,18 +92,26 @@ func ReportBlip() map[string]string {
 	return status
 }
 
-func ReportMonitors(monitorId string) map[string]map[string]string {
+func ReportMonitors(ids ...string) map[string]map[string]string {
 	s.Lock()
 	defer s.Unlock()
-	status := map[string]map[string]string{}
-	if monitorId == "*" {
-		for k, v := range s.monitors {
-			status[k] = v
+	var allow map[string]bool
+	if len(ids) > 0 {
+		allow = map[string]bool{}
+		for _, id := range ids {
+			allow[id] = true
 		}
-	} else if monitorId != "" {
-		status[monitorId] = s.monitors[monitorId]
 	}
-
+	status := map[string]map[string]string{}
+	for monitorId := range s.monitors {
+		if len(allow) > 0 && !allow[monitorId] {
+			continue
+		}
+		status[monitorId] = map[string]string{}
+		for k, v := range s.monitors[monitorId] {
+			status[monitorId][k] = v
+		}
+	}
 	return status
 }
 

@@ -131,7 +131,7 @@ type HTTPClientFactory interface {
 	MakeForSink(sinkName, monitorId string, opts, tags map[string]string) (*http.Client, error)
 }
 
-// Monitor states used by level plan adjuster (LPA).
+// Monitor states used for plan changing: https://cashapp.github.io/blip/v1.0/plans/changing
 const (
 	STATE_NONE      = ""
 	STATE_OFFLINE   = "offline"
@@ -141,7 +141,6 @@ const (
 )
 
 var (
-	Strict    = false
 	Debugging = false
 	debugLog  = log.New(os.Stderr, "", log.LstdFlags|log.Lmicroseconds)
 )
@@ -192,4 +191,8 @@ func SetOrDefault(a, b string) string {
 		return a
 	}
 	return b
+}
+
+var FormatTime func(time.Time) string = func(t time.Time) string {
+	return t.Format(time.RFC3339)
 }
