@@ -27,8 +27,8 @@ The rest of this page details advanced plan loading.
 
 Blip loads plans from four sources:
 
-1. [`LoadPlans` plugin](../develop/integration-api#plugins) exclusivity, if defined; else
-2. [Files](file) and [tables](table), if any are specified; else
+1. [`LoadPlans` plugin](../develop/integration-api#plugins) _exclusively_ if defined; else:
+2. [Files](file) and [tables](table), if any are specified; else:
 3. [Default](#default) plans
 
 If the `LoadPlans` plugin is defined, Blip ignores the other three sources and calls only the plugin.

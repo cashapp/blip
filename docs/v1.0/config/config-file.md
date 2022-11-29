@@ -183,7 +183,7 @@ The `local` subsection has only two variables:
 |**Valid values**|&bull;&nbsp;"N%" (percentage) where N is an integer between 0 and 100 (exclusive)<br>&bull;&nbsp;"N" where N is an integer greater than 0|
 |**Default value**||
 
-The `stop-loss` variable enables the [stop-lost feature](../server/monitor-loader#stop-loss).
+The `stop-loss` variable enables the [stop-lost feature](../monitors/loading#stop-loss).
 
 ---
 

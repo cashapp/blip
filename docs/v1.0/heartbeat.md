@@ -49,7 +49,7 @@ CREATE TABLE IF NOT EXISTS heartbeat (
 
 Replication lag is a point-to-point measurement between a source and a replica, but replication topologies change due to maintenance and failures.
 That makes it difficult to configure heartbeat because sources and replicas change.
-Even though the [Level Plan Adjuster](monitors/level-adjuster) can change the Blip configuration based on the state of MySQL, that is not sufficient when there are more than three or more  nodes in the replication topology and any node might become the source.
+Even though the [plan changing](plans/changing) can change the Blip configuration based on the state of MySQL, that is not sufficient when there are more than three or more  nodes in the replication topology and any node might become the source.
 
 To address these challenges, Blip heartbeat has two concepts: _source reporting_ and _source following_.
 

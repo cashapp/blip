@@ -105,14 +105,6 @@ The monitors are finalized: monitor defaults and [interpolation](interpolation) 
 This option does not stop Blip from running.
 Specify [`--run=false`](#--run) to print monitors and exit.
 
-### `--print-plans`
-
-{: .help-option }
-Print all [plans](../plans/) after booting.
-<br><br>
-This option does not stop Blip from running.
-Specify [`--run=false`](#--run) to print plans and exit.
-
 ### `--run`
 
 {: .help-option-default }
@@ -121,9 +113,30 @@ Env var: `BLIP_RUN`
 
 {: .help-option }
 Run Blip and all monitors after successful boot.
-If `--run=false`, Blip starts and loads everything, but exits before running monitors.
+If `--run=false` (or environment varialbe `BLIP_RUN=false`), Blip starts and loads everything, but exits before running monitors.
+See [Startup](#startup).
 
 ### `--version`
 
 {: .help-option }
 Print version and exit.
+
+## Startup
+
+Blip has a two-phase startup sequence: boot, then run.
+
+The _boot_ phase loads and validates everything: Blip config, monitors, plans, and so forth.
+Any error on boot causes Blip to exit with a non-zero exit status.
+
+The _run_ phase runs monitors and the Blip [API](../api).
+Once running, Blip does not exit until it receives a signal.
+It retires on all errors, including panic.
+
+
+{: .note }
+To boot without running (which is useful to validate everything), specify [`--run=false`](#--run) on the commnand line, or environment varialbe `BLIP_RUN=false`.
+
+## Signals
+
+Blip does a controlled shutdown on `SIGTERM`.
+Other signals are not caught.
