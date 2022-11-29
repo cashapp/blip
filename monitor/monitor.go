@@ -248,12 +248,9 @@ func (m *Monitor) startup() error {
 
 	// ----------------------------------------------------------------------
 	// Make DSN and *sql.DB. This does NOT connect to MySQL.
-	var db *sql.DB
-	var dsnRedacted string // DSN with s/password/.../
-	var err error
 	for {
 		status.Monitor(m.monitorId, status.MONITOR, "making DB/DSN (not connecting)")
-		db, dsnRedacted, err = m.dbMaker.Make(m.cfg)
+		db, dsnRedacted, err := m.dbMaker.Make(m.cfg)
 		m.setErr(err, false)
 		if err == nil { // success
 			m.runMux.Lock()
@@ -377,7 +374,7 @@ func (m *Monitor) startup() error {
 		if m.cfg.Exporter.Mode == blip.EXPORTER_MODE_LEGACY {
 			blip.Debug("%s: legacy mode", m.monitorId)
 			status.Monitor(m.monitorId, status.MONITOR, "running in exporter legacy mode")
-			m.event.Sendf(event.MONITOR_STARTED, dsnRedacted)
+			m.event.Sendf(event.MONITOR_STARTED, m.dsn)
 			return nil
 		}
 	}
@@ -452,7 +449,7 @@ func (m *Monitor) startup() error {
 		m.lco.ChangePlan(blip.STATE_ACTIVE, m.cfg.Plan) // start LCO directly
 	}
 
-	m.event.Sendf(event.MONITOR_STARTED, dsnRedacted)
+	m.event.Sendf(event.MONITOR_STARTED, m.dsn)
 	return nil
 }
 
