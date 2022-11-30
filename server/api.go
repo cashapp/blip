@@ -212,7 +212,7 @@ func (api *API) monitorId(w http.ResponseWriter, r *http.Request) (string, *moni
 	}
 	mon := api.monitorLoader.Monitor(monitorId)
 	if mon == nil {
-		http.Error(w, fmt.Sprintf("monitor %s not loaded", monitorId), http.StatusNotFound)
+		http.Error(w, fmt.Sprintf("monitor %s not loaded", html.EscapeString(monitorId)), http.StatusNotFound)
 		return "", nil, false
 	}
 	// Avoid code scanning alert "Log entries created from user input"
