@@ -109,7 +109,7 @@ func (c *QRT) Help() blip.CollectorHelp {
 			{
 				Name: "pN",
 				Type: blip.GAUGE,
-				Desc: "N is the requested percentile listed in options",
+				Desc: "Percentile to collect where N between 1 and 999 (p99=99th, p999=99.9th)",
 			},
 		},
 		Errors: map[string]blip.CollectorHelpError{

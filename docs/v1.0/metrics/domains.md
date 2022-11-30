@@ -95,6 +95,7 @@ _Percona Server Query Response Time_
 |Derived metrics|&bull; `pN` (gauge) for each value in the `percentiles` option|
 |Meta|&bull; `pN=pA`: where `pN` is collected percentile and `pA` is actual percentile|
 |Options|&bull; `flush`<br>&bull; `real-percentiles`|
+|Error policy|&bull; `unknown-table`|
 
 The `percona.response-time` domain collects query response time percentiles from the Percona Server 5.7 [Response Time Distribution plugin](https://www.percona.com/doc/percona-server/5.7/diagnostics/response_time_distribution.html).
 
@@ -105,6 +106,12 @@ This domain is functionally identical to [`query.response-time`](#queryresponse-
 |`flush`|`truncate-table`|
 
 See [`query.response-time`](#queryresponse-time) for details.
+
+#### Error Policy
+{: .no_toc }
+
+* `unknown-table`<br>
+MySQL error 1109: Unknown table 'query_response_time' in information_schema
 
 <!-------------------------------------------------------------------------->
 
