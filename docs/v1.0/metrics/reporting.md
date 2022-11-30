@@ -108,7 +108,7 @@ status.global: # domain
 ```
 
 {: .note }
-**Blip metrics are not stored or report in YAML. Examples are for illustration only.**
+**Blip metrics are not stored or reported in YAML. Examples are for illustration only.**
 
 All metrics belong to a single [domain](domains), and each domain can collect any number of metrics.
 
