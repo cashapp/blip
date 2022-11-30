@@ -40,6 +40,7 @@ The rest are reserved for future use.
 |ndb|MySQL NDB Cluster||
 |oracle|Oracle enhancements||
 |percona|Percona Server enhancements||
+|[`percona.response-time`](domains#perconaresponse-time)|Percona Server 5.7 Response Time Distribution plugin|v1.0.0|
 |perconca.userstat|[Percona User Statistics](https://www.percona.com/doc/percona-server/8.0/diagnostics/user_stats.html)||
 |percona.userstat.index|Percona `userstat` index statistics (`INFORMATION_SCHEMA.INDEX_STATISTICS`)|
 |percona.userstat.table|Percona `userstat` table statistics||
@@ -47,9 +48,8 @@ The rest are reserved for future use.
 |pfs|Performance Schema `SHOW ENGINE PERFORMANCE_SCHEMA STATUS`||
 |pxc|Percona XtraDB Cluster||
 |query|Query metrics||
-|[`query.global`](domains#queryglobal)|Global query metrics (including response time)|v1.0.0|
-|query.id|Query metrics||
-|repl|MySQL replication `SHOW SLAVE|REPLICA STATUS`|v1.0.0|
+|[`query.response-time`](domains#queryresponse-time)|Global query response time (MySQL 8.0)|v1.0.0|
+|[`repl`](domains#repl)|MySQL replication `SHOW SLAVE|REPLICA STATUS`|v1.0.0|
 |[`repl.lag`](domains#repllag)|MySQL replication lag (including heartbeats)|v1.0.0|
 |rocksdb|RocksDB store engine||
 |size|Storage sizes (in bytes)||

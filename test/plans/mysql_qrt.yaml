@@ -1,0 +1,8 @@
+---
+kpi:
+  freq: 5s
+  collect:
+    query.response-time:
+      metrics:
+        - p95
+        - P99
