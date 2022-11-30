@@ -68,9 +68,9 @@ The rest are reserved for future use.
 |[`stmt.current`](domains#stmtcurrent)|Current statements|v1.0.0|
 |stmt.history|Historical statements||
 |thd|Threads||
-|tls|TLS (SSL) status and configuration||
+|[`tls`](domains#tls)|TLS (SSL) status and configuration|v1.0.0|
 |tokudb|TokuDB storage engine||
-|trx|Transactions||
+|[`trx`](domains#trx)|Transactions|v1.0.0|
 |[`var.global`](domains#varglobal)|MySQL global system variables (sysvars) `SHOW GLOBAL VARIABLES`|v1.0.0|
 |wait|Stage waits||
 |wait.current|Current waits||

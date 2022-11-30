@@ -162,7 +162,7 @@ func (s *Chronosphere) Send(ctx context.Context, m *blip.Metrics) (lerr error) {
 
 			// Assign value based on type because the structs are different
 			switch m.Type {
-			case blip.GAUGE:
+			case blip.GAUGE, blip.BOOL:
 				fam[n].Metrics[0].MetricPoints[0].Value = &om.MetricPoint_GaugeValue{
 					GaugeValue: &om.GaugeValue{
 						Value: &om.GaugeValue_DoubleValue{
