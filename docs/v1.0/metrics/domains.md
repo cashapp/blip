@@ -39,6 +39,9 @@ Error policy
 Derived metrics
 : [Derived metrics](collecting#derived-metrics). Omitted if none.
 
+Options
+: [Domain options](collecting#options). Omitted if none.
+
 ---
 
 * TOC
@@ -57,6 +60,8 @@ _Amazon RDS for MySQL_
 
 Collects [Amazon RDS metrics](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/monitoring-cloudwatch.html#rds-metrics).
 
+<!-------------------------------------------------------------------------->
+
 {: .config-section-title }
 ## innodb
 _InnoDB Metrics_
@@ -66,43 +71,96 @@ _InnoDB Metrics_
 |MySQL config|maybe|
 |Sources|`information_schema.innodb_metrics`|
 |Meta|&bull; `subsystem=<SUBSYSTEM column>`|
+|Options|&bull; `all`|
 
 Metrics from [`INFORMATION_SCHEMA.INNODB_METRICS`](https://dev.mysql.com/doc/refman/en/information-schema-innodb-metrics-table.html).
 
+#### Options
+{: .no_toc }
+
+* `all`<br>
+Default: `no`<br>
+If `yes`, all InnoDB metrics are collect&mdash;the whole table.
+If `no` (the default), only the explicitly listed InnoDB metrics are collected. 
+If `enabled`, only InnoDB metrics enabled by the MySQL configuration are collected (`WHERE status='enabled'` in the table).
+
+<!-------------------------------------------------------------------------->
+
 {: .config-section-title }
-## query.global
-_Global Query Response Time_
+## percona.response-time
+_Percona Server Query Response Time_
 
 {: .var-table}
 |Blip version|v1.0.0|
 |MySQL config|yes|
-|Sources|MySQL 8.0 [p_s.events_statements_histogram_global](https://dev.mysql.com/doc/refman/8.0/en/performance-schema-statement-histogram-summary-tables.html), Percona Server 5.7 [RTD plugin](https://www.percona.com/doc/percona-server/5.7/diagnostics/response_time_distribution.html)|
-|Meta key-values|&bull; `pN=pA`: where `pN` is configured percentile (default: `p999`) and `pA` is actual percentile (see note 1)|
-|Derived metrics|&bull; `response_time` (gauge)<br>|
+|Sources|Percona Server 5.7 [RTD plugin](https://www.percona.com/doc/percona-server/5.7/diagnostics/response_time_distribution.html)|
+|Meta|&bull; `pN=pA`: where `pN` is configured percentile (default: `p999`) and `pA` is actual percentile|
+|Options|&bull; `flush`<br>&bull; `percentiles`<br>&bull; `real-percentiles`|
+|Derived metrics|&bull; `pN` (gauge) for each value in the `percentiles` option|
 
-The `query.global` domain includes metrics for all queries, which is currently only response time.
-By default, it reports the P999 (99.9th percentile) response time using either MySQL 8.0 [performance_schema.events_statements_histogram_global](https://dev.mysql.com/doc/refman/8.0/en/performance-schema-statement-histogram-summary-tables.html) or Percona Server 5.7 [Response Time Distribution plugin](https://www.percona.com/doc/percona-server/5.7/diagnostics/response_time_distribution.html).
+The `percona.response-time` domain collects query response time percentile metrics from the Percona Server 5.7 [Response Time Distribution plugin](https://www.percona.com/doc/percona-server/5.7/diagnostics/response_time_distribution.html).
 
-Multiple percentiles can be collected&mdash;`p95`, `p99`, and `p999` for example.
-The metric for each percentile is denoted by meta key `pN`.
+This domain is functionally identical to [`query.response-time`](#queryresponse-time); only one option name is different:
+
+|`percona.response-time`|`query.response-time`|
+|-----------------------|---------------------|
+|`flush`|`truncate-table`|
+
+See [`query.response-time`](#queryresponse-time) for details.
+
+<!-------------------------------------------------------------------------->
+
+{: .config-section-title }
+## query.response-time
+_MySQL Query Response Time_
+
+{: .var-table}
+|Blip version|v1.0.0|
+|MySQL config|yes|
+|Sources|MySQL 8.0 [p_s.events_statements_histogram_global](https://dev.mysql.com/doc/refman/8.0/en/performance-schema-statement-histogram-summary-tables.html)|
+|Meta|&bull; `pN=pA`: where `pN` is configured percentile (default: `p999`) and `pA` is actual percentile|
+|Options|&bull; `percentiles`<br>&bull; `real-percentiles`<br>&bull; `truncate-table`|
+|Derived metrics|&bull; `pN` (gauge)<br>|
+
+The `query.response-time` domain collect query response time percentiles.
+By default, it reports the P999 (99.9th percentile) response time in microseconds.
 
 {: .note}
 To convert units, use the [TransformMetrics plugin](../integrate#transformmetrics) or write a [custom sink](../sinks/custom).
 
+Multiple percentiles can be collected and reported by setting the `percentiles` option.
+Each percentile in `options` is reported as a separate metric.
+
+#### Options
+{: .no_toc }
+
+* `percentiles`<br>
+Default: 99.9<br>
+Comma-separated list of percentile to report.
+For example, "95,99,99.9" collects and reports three derived metrics: `p95`, `pP99`, and `pP999`.
+Regardless of how percentiles are listed in this option, they are always reported with a "p" prefix and no decimal point.
+For example, option "99.9" is reported as metric "p999".
+* `real-percentiles`<br>
+Default: yes
+If yes (default), reports the real percentile in meta for each percentile in options. 
+MySQL (and Percona Server) use histograms with variable bucket ranges.
+Therefore, the P99 might actually be P98.9 or P99.2.
+Meta key `pN` indicates the configured percentile, and its value `pA` indicates the actual percentile that was used.
+* `truncate-table`<br>
+Default: no
+Truncate [performance_schema.events_statements_histogram_global](https://dev.mysql.com/doc/refman/8.0/en/performance-schema-statement-histogram-summary-tables.html) after each collection.
+This reset percentile values so that each collection represents the global query response time during the collection interval rather than during the entire uptime of the MySQL.
+However, truncating the table interferes with other tools reading (or truncating) the table.
+
 #### Derived metrics
 {: .no_toc }
 
-* `reponse_time`<br>
+* `pN`<br>
 Type: gauge<br>
 Response time for all queries, reported as a percentile (default: P999) in microseconds.
-The true percentile might be slightly more or less depending on how the histogram buckets are configured (see note 1).
+The true percentile might be slightly more or less depending on how the histogram buckets are configured.
 
-#### Notes
-{: .no_toc }
-
-1. MySQL (and Percona Server) use histograms with variable bucket ranges.
-Therefore, the P99 might actually be P98.9 or P99.2.
-Meta key `pN` indicates the configured percentile, and its value `pA` indicates the actual percentile that was used.
+<!-------------------------------------------------------------------------->
 
 {: .config-section-title}
 ## repl
@@ -140,6 +198,8 @@ Type: gauge<br>
   |-1|MySQL is **not a replica**: `SHOW SLAVE|REPLICA STATUS` returns no output|
 
   Replication lag does not affect the `running` metric: replication can be running but lagging.
+
+<!-------------------------------------------------------------------------->
 
 {: .config-section-title}
 ## repl.lag
@@ -202,6 +262,8 @@ Default: `blip`<br>
 Type of heartbeat writer.
 Only `blip` is currently supported.
 
+<!-------------------------------------------------------------------------->
+
 {: .config-section-title }
 ## size.binlog
 _Binary Log Storage Size_
@@ -210,15 +272,8 @@ _Binary Log Storage Size_
 |Blip version|v1.0.0|
 |Sources|`SHOW BINARY LOGS`|
 |MySQL config|no|
-|Derived metrics|&bull; `bytes`: Total size of all binary logs in bytes.|
 |Error policy|&bull; `access-denied`<br>&bull; `binlog-not-enabled`|
-
-#### Derived metrics
-{: .no_toc }
-
-* `bytes`<br>
-Type: gauge<br>
-Total size of all binary logs in bytes.
+|Derived metrics|&bull; `bytes`: Total size of all binary logs in bytes.|
 
 #### Error Policy
 {: .no_toc }
@@ -228,6 +283,15 @@ MySQL error 1227: access denied on `SHOW BINARY LOGS`.
 
 * `binlog-not-enabled`
 MySQL error 1381: binary logging not enabled.
+
+#### Derived metrics
+{: .no_toc }
+
+* `bytes`<br>
+Type: gauge<br>
+Total size of all binary logs in bytes.
+
+<!-------------------------------------------------------------------------->
 
 {: .config-section-title }
 ## size.database
@@ -246,6 +310,8 @@ _Database Storage Sizes_
 Type: gauge<br>
 Database size in bytes.
 
+<!-------------------------------------------------------------------------->
+
 {: .config-section-title }
 ## size.table
 _Table Storage Sizes_
@@ -263,6 +329,8 @@ _Table Storage Sizes_
 Type: gauge<br>
 Table size in bytes.
 
+<!-------------------------------------------------------------------------->
+
 {: .config-section-title }
 ## status.global
 _Global Status Variables_
@@ -272,6 +340,8 @@ _Global Status Variables_
 |MySQL config|no|
 
 `status.global` collects the primary source of MySQL server metrics: `SHOW GLOBAL STATUS`.
+
+<!-------------------------------------------------------------------------->
 
 {: .config-section-title }
 ## stmt.current
@@ -294,19 +364,48 @@ Statement metrics are reported as summary statistics: average, maximum, and so f
 
 `stmt.current` reports summary statistics for currently running statements.
 
+<!-------------------------------------------------------------------------->
+
 {: .config-section-title }
 ## tls
 _TLS (SSL) Status and Configuration_
 
-Not implemented yet but planned.
+{: .var-table}
+|Blip version|v1.0.0|
+|MySQL config|no|
+|Derived metrics|&bull; `enabled`: True (1) if have_ssl=YES, else false (0)|
 
 #### Derived metrics
 {: .no_toc }
 
-* enabled (have_ssl)
-* ssl_server_not_before (date-time converted to Unix timestamp)
-* ssl_server_not_after	(date-time converted to Unix timestamp)
-* current_tls_version
+* `enabled`<br>
+Type: bool<br>
+True (1) if `have_ssl = YES`, else false (0).
+
+{: .note }
+`have_ssl` is deprecated as of MySQL 8.0.26.
+This domain does not currently support the [`tls_channel_status` table](https://dev.mysql.com/doc/refman/8.0/en/performance-schema-tls-channel-status-table.html).
+
+<!-------------------------------------------------------------------------->
+
+{: .config-section-title }
+## trx
+_Transactions_
+
+{: .var-table}
+|Blip version|v1.0.0|
+|MySQL config|no|
+|Sources|`information_schema.innodb_trx`|
+|Derived metrics|&bull; `oldest`: Time of oldest active trx in seconds|
+
+#### Derived metrics
+{: .no_toc }
+
+* `oldest`<br>
+Type: gauge<br>
+Time of oldest active (still running) transaction in seconds.
+
+<!-------------------------------------------------------------------------->
 
 {: .config-section-title }
 ## var.global

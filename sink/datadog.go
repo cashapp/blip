@@ -207,7 +207,7 @@ func (s *Datadog) Send(ctx context.Context, m *blip.Metrics) error {
 					Tags:      tags,
 					Resources: s.resources,
 				}
-			case blip.GAUGE:
+			case blip.GAUGE, blip.BOOL:
 				dp[n] = datadogV2.MetricSeries{
 					Metric: name,
 					Type:   datadogV2.METRICINTAKETYPE_GAUGE.Ptr(),

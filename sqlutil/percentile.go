@@ -35,13 +35,13 @@ func ParsePercentileStr(percentileStr string) (float64, error) {
 	return percentile, nil
 }
 
-// FormatPercentile formats a percentile into the form pNNN where NNN is the percentile upto 1 decimal point
+// FormatPercentile formats a percentile into the form pNNN where NNN is
+// the percentile upt o 1 decimal point. For example, 0.99 returns "p99".
 func FormatPercentile(f float64) string {
 	percentile := f * 100
 	metaKey := fmt.Sprintf("%.1f", percentile)
 	metaKey = strings.Trim(metaKey, "0")
 	metaKey = strings.ReplaceAll(metaKey, ".", "")
 	metaKey = "p" + metaKey
-
 	return metaKey
 }
