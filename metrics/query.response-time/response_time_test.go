@@ -57,8 +57,8 @@ func TestCollectP(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	}
-	if f < 95.0 {
-		t.Errorf("metrics[0] real %s %f < 95.0, expected >= 95.0", r, f)
+	if f < 0.95 {
+		t.Errorf("metrics[0] real %s %f < 0.95, expected >= 0.95", r, f)
 	}
 
 	r, ok = metrics[1].Meta["p99"]
@@ -69,7 +69,7 @@ func TestCollectP(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	}
-	if f < 99.0 {
-		t.Errorf("metrics[1] real %s %f < 99.0, expected >= 99.0", r, f)
+	if f < 0.99 {
+		t.Errorf("metrics[1] real %s %f < 0.99, expected >= 0.99", r, f)
 	}
 }

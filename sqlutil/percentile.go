@@ -22,11 +22,9 @@ func ParsePercentileStr(percentileStr string) (float64, error) {
 	if f < 1 {
 		// percentile of the form 0.999 (P99.9)
 		percentile = f
-	} else if f >= 1 && f < 100 {
+	} else if f >= 1 && f <= 100 {
 		// percentile of the form 99.9 (P99.9)
 		percentile = f / 100.0
-	} else if f == 100.0 {
-		return 100, nil
 	} else {
 		// percentile of the form 999 (P99.9)
 		// To find the percentage as decimal, we want to convert this number into a float with no significant digits before decimal.
@@ -38,7 +36,7 @@ func ParsePercentileStr(percentileStr string) (float64, error) {
 }
 
 // FormatPercentile formats a percentile into the form pNNN where NNN is
-// the percentile upt o 1 decimal point. For example, 0.99 returns "p99".
+// the percentile up to 1 decimal point. For example, 0.99 returns "p99".
 func FormatPercentile(f float64) string {
 	percentile := f * 100
 	metaKey := fmt.Sprintf("%.1f", percentile)
@@ -53,6 +51,9 @@ type P struct {
 	Value float64
 }
 
+// PercentileMetrics returns the list of percentile strings like "P95" in
+// standard form (lowercase "p95") and decimal (0.95). It's used to process
+// the metrics list for percentile collectors like query.response-time.
 func PercentileMetrics(metrics []string) ([]P, error) {
 	if len(metrics) == 0 {
 		return nil, fmt.Errorf("no percentile metrics specified, expected at least 1 like 'p99'")
