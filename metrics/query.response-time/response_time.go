@@ -6,7 +6,6 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"strings"
 
 	myerr "github.com/go-mysql/errors"
 
@@ -18,10 +17,8 @@ import (
 const (
 	DOMAIN = "query.response-time"
 
-	OPT_PERCENTILES           = "percentiles"
-	OPT_REAL_PERCENTILES      = "real-percentiles"
-	OPT_TRUNCATE_TABLE        = "truncate-table"
-	DEFAULT_PERCENTILE_OPTION = "999"
+	OPT_REAL_PERCENTILES = "real-percentiles"
+	OPT_TRUNCATE_TABLE   = "truncate-table"
 
 	ERR_NO_TABLE = "table-not-exist"
 
@@ -68,11 +65,6 @@ func (c *ResponseTime) Help() blip.CollectorHelp {
 		Domain:      DOMAIN,
 		Description: "Collect metrics for query response time",
 		Options: map[string]blip.CollectorHelpOption{
-			OPT_PERCENTILES: {
-				Name:    OPT_PERCENTILES,
-				Desc:    "Comma-separated list of response time percentiles formatted as 999, 0.999 or 99.9",
-				Default: DEFAULT_PERCENTILE_OPTION,
-			},
 			OPT_REAL_PERCENTILES: {
 				Name:    OPT_REAL_PERCENTILES,
 				Desc:    "If real percentiles are included in meta",
@@ -96,7 +88,7 @@ func (c *ResponseTime) Help() blip.CollectorHelp {
 			{
 				Name: "pN",
 				Type: blip.GAUGE,
-				Desc: "N is the requested percentile listed in options",
+				Desc: "Percentile to collect where N between 1 and 999 (p99=99th, p999=99.9th)",
 			},
 		},
 		Errors: map[string]blip.CollectorHelpError{
@@ -131,31 +123,20 @@ LEVEL:
 			config.truncate = true // default
 		}
 
-		var percentilesStr string
-		if percentilesOption, ok := dom.Options[OPT_PERCENTILES]; ok {
-			percentilesStr = percentilesOption
-		} else {
-			percentilesStr = DEFAULT_PERCENTILE_OPTION
+		// Process list of percentiles metrics into a list of names and values
+		p, err := sqlutil.PercentileMetrics(dom.Metrics)
+		if err != nil {
+			return nil, err
 		}
 
-		var percentiles []percentile
-		percentilesList := strings.Split(strings.TrimSpace(percentilesStr), ",")
-		for _, percentileStr := range percentilesList {
-			p, err := sqlutil.ParsePercentileStr(percentileStr)
-			if err != nil {
-				return nil, err
+		// For each percentile, save a query to fetch its (closest) value
+		config.percentiles = make([]percentile, len(p))
+		for i := range p {
+			config.percentiles[i] = percentile{
+				formatted: p[i].Name,
+				query:     BASE_QUERY + fmt.Sprintf(" WHERE bucket_quantile >= %f ORDER BY bucket_quantile LIMIT 1", p[i].Value),
 			}
-
-			where := fmt.Sprintf(" WHERE bucket_quantile >= %f ORDER BY bucket_quantile LIMIT 1", p)
-			query := BASE_QUERY + where
-
-			percentile := percentile{
-				formatted: sqlutil.FormatPercentile(p),
-				query:     query,
-			}
-			percentiles = append(percentiles, percentile)
 		}
-		config.percentiles = percentiles
 
 		// Apply custom error policies, if any
 		config.errPolicy = map[string]*errors.Policy{}

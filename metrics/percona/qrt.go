@@ -41,10 +41,8 @@ const (
 )
 
 const (
-	OPT_PERCENTILES           = "percentiles"
-	OPT_REAL_PERCENTILES      = "real-percentiles"
-	OPT_FLUSH_QRT             = "flush"
-	default_percentile_option = "999"
+	OPT_REAL_PERCENTILES = "real-percentiles"
+	OPT_FLUSH_QRT        = "flush"
 
 	ERR_UNKNOWN_TABLE = "unknown-table"
 )
@@ -88,12 +86,6 @@ func (c *QRT) Help() blip.CollectorHelp {
 		Domain:      blip_domain,
 		Description: "Collect QRT (Query Response Time) metrics",
 		Options: map[string]blip.CollectorHelpOption{
-			OPT_PERCENTILES: {
-				Name:    OPT_PERCENTILES,
-				Desc:    "Comma-separated list of percentiles formatted as 999, 0.999 or 99.9",
-				Default: default_percentile_option,
-				Values:  map[string]string{},
-			},
 			OPT_REAL_PERCENTILES: {
 				Name:    OPT_REAL_PERCENTILES,
 				Desc:    "If real percentiles are included in meta",
@@ -117,7 +109,7 @@ func (c *QRT) Help() blip.CollectorHelp {
 			{
 				Name: "pN",
 				Type: blip.GAUGE,
-				Desc: "N is the requested percentile listed in options",
+				Desc: "Percentile to collect where N between 1 and 999 (p99=99th, p999=99.9th)",
 			},
 		},
 		Errors: map[string]blip.CollectorHelpError{
@@ -152,28 +144,20 @@ LEVEL:
 			config.flush = true // default
 		}
 
-		var percentilesStr string
-		if percentilesOption, ok := dom.Options[OPT_PERCENTILES]; ok {
-			percentilesStr = percentilesOption
-		} else {
-			percentilesStr = default_percentile_option
+		// Process list of percentiles metrics into a list of names and values
+		p, err := sqlutil.PercentileMetrics(dom.Metrics)
+		if err != nil {
+			return nil, err
 		}
 
-		var percentiles []percentile
-		percentilesList := strings.Split(strings.TrimSpace(percentilesStr), ",")
-		for _, percentileStr := range percentilesList {
-			p, err := sqlutil.ParsePercentileStr(percentileStr)
-			if err != nil {
-				return nil, err
+		// For each percentile, save a query to fetch its (closest) value
+		config.percentiles = make([]percentile, len(p))
+		for i := range p {
+			config.percentiles[i] = percentile{
+				p:         p[i].Value,
+				formatted: p[i].Name,
 			}
-
-			percentile := percentile{
-				p:         p,
-				formatted: sqlutil.FormatPercentile(p),
-			}
-			percentiles = append(percentiles, percentile)
 		}
-		config.percentiles = percentiles
 
 		// Apply custom error policies, if any
 		config.errPolicy = map[string]*errors.Policy{}
