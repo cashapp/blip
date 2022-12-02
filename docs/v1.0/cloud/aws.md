@@ -4,7 +4,6 @@ parent: Cloud
 title: AWS
 ---
 
-
 # AWS
 {: .no_toc }
 
@@ -17,7 +16,6 @@ It does not explain, for example, how to set up IAM roles or configure RDS.
 
 * TOC
 {:toc}
-
 
 ## Region
 

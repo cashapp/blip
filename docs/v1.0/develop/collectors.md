@@ -5,34 +5,15 @@ title: Collectors
 ---
 
 # Collectors
+{: .no_toc }
 
 Collectors are low-level components that collect metrics for [domains](../metrics/domains).
 See [metrics/status.global/global.go](https://github.com/cashapp/blip/blob/main/metrics/status.global/global.go) for a reference example with extensive code comments.
 
-## Conventions
+* TOC
+{:toc}
 
-### Naming
-
-Blip strives to report MySQL metric names as-is&mdash;no modifications&mdash;so that what you see in MySQL is what you get in Blip.
-
-However, MySQL metric names are very inconsistent:
-
-* `Foo_bar` (most common)
-* `Foo_Bar` (replica status)
-* `foo_bar` (InnoDB metrics)
-* `foo_bar_count` (type suffix)
-* `foo_bar_usec` (unit suffix)
-
-For consistency, Blip metric names have three requirements:
-
-1. Only `snake_case`
-1. Always lowercase
-1. No prefixes or suffixes
-
-A fully-qualified metric name includes a domain: `status.global.threads_running`.
-The metric name is always the last field (split on `.`).
-
-### Domains
+## Domain Names
 
 Blip metric domain names have three requirements:
 
@@ -46,55 +27,105 @@ Common abbreviation and acronyms are preferred, especially when they match MySQL
 Currently, domain names fit this convention, but if a need arises to allow hyphenation ("domain-name"), it might be allowed.
 Snake case ("domain_name") and camel case ("domainName") are not allowed: the former is used by metrics, and the latter is not Blip style.
 
-Blip uses sub-domains for two purposes: MySQL-grouped metrics, or metrics that are related but different.
+## Subdomains
 
-The [`error` domain](domains#error) is an example of metrics that are related by different.
-[`error.query`](domains#errorquery) and [`error.repl`](domains#errorepl) both comprise error-related metrics, hence the common root domain, but the specific metrics for each are different.
+Blip domains are dot-separated into subdomains, like [`status.global`](../metrics/domains#statusglobal): domain is `status`, subdomain is `global`.
+Blip uses subdomains for [metric grouping](../metrics/reporting#groups) and, in rare cases, Blip organization.
+See the [Domain Quick Reference](../metrics/quick-ref) for a full list of domains and subdomains.
 
-The[`status` domain](domains#status) is an example of MySQL-grouped metrics.
-MySQL provides status metrics grouped by account, global, host, thread, and user.
-(_Global_ is the most common, as in `SHOW GLOBAL STATUS`.)
-Blip has a sub-domain for each group&mdash;`status.account`, `status.global`, and so on&mdash;that makes advanced plans like the following possible:
+### Metric Grouping
+
+Many MySQL metrics are grouped, and Blip mirrors the same grouping in its domain names.
+This has changed over many years, so if it seems new to you, then consider this:
+
+* Long, log ago only `SHOW STATUS` existed
+* Then `SHOW GLOBAL STATUS` came into being
+* And now we [Status Variable Summary Tables](https://dev.mysql.com/doc/refman/8.0/en/performance-schema-status-variable-summary-tables.html)
+
+This is why Blip uses domain [`status.global`](../metrics/domains#statusglobal) and not just "status" because the latter is ambiguous.
+
+{: .note }
+For brevity, all Blip domains and subdomains are called "domains".
+`repl` is a domain, and `status.global` is a domain.
+The subdomain distinction is made only when discussing and naming them.
+
+Global groups, like [`status.global`](../metrics/domains#statusglobal) and [`var.global`](../metrics/domains#varglobal), do _not_ have a [metric group](../metrics/reporting#groups) because what would the group key and value be?
+During Blip developed, we considered a global group key-value like `all="*"` or `all=""`, but these are useless magical values that serve no purpose, so we omitted them.
+Groups are only used when there are meaningful non-global group keys and values, like [`size.table`](../metrics/domains#sizetable): these metrics _must_ be grouped by `db` and `tbl` to make sense.
+
+### Blip Organization
+
+In rare cases, we subdomain for greater clarity and organization in Blip, especially with respect to level collection.
+For example, with [`repl`](../metrics/domains#repl) and [`repl.lag`](../metrics/domains#repllag) a user might want to collect `repl.lag` frequently (every second) but collect `repl` info more slowly.
+If these two were one domain, it would be less clear in the plan and more difficult to code in the collector:
 
 ```yaml
-level:
+rep_lag:
+  freq: 1s
   collect:
-    status.global:
+    repl:
       options:
-        all: yes
-    status.host:
-      options:
-        host: 10.1.1.1
+        source-role: "east"
       metrics:
-        - queries
-        - threads_running
+        - lag
+
+repl_info:
+  freq: 30s
+  collect:
+    repl:
+      metrics:
+        - running
 ```
 
-The plan snippet above collects all global status metrics (`status.global`) but only two status metrics for host 10.1.1.1 (`status.host`).
+That plan is valid, it's more difficult to code in a single collector given totally different work (and options) at different levels.
+While collectors must handle different _metrics_ at different levels, it's usually the same work, which makes coding the collector easier.
+Also, the plan is less clear since it's the same domain but configured differently.
 
-MySQL-grouped metrics are an _explicit group_: `status.host` explicitly groups by `host`.
-See [Reporting > Groups](reporting#groups) for more details.
+By contrast, separate domains makes it easier to develop, test, explain, and use each:
 
-{: .note}
-For simplicity, sub-domains are called "domains" in the rest of the docs.
-The term is only used here to clarify the distinction and usage.
+* [`repl`](../metrics/domains#repl) collects metrics from `SHOW REPLICA STATUS`
+* [`repl.lag`](../metrics/domains#repllag) measures and collects replication lag from [Blip heartbeat](../hearbeat)
+
+We subdomain for Blip organization judiciously.
+If you're making a custom collector that you want to merge upstream (into public Blip), be sure to [file an issue](https://github.com/cashapp/blip/issues) and discuss with us first.
+
+## Metric Names
+
+### MySQL Metrics
+
+Blip reports MySQL metric names as-is (no renaming) so that what you see in MySQL is what you get in Blip.
+The only modification Blip makes is lowercasing MySQL metric names for consistency because in MySQL they're inconsistent:
+
+* `Foo_bar` (most common)
+* `Foo_Bar` (replica status)
+* `foo_bar` (InnoDB metrics)
+
+If your collector only reports MySQL metrics, then just [`strings.ToLower()`](https://pkg.go.dev/strings#ToLower) the name as-is from MySQL.
+
+### Derived Metrics
+
+If your collector creates and reports [derived metrics](../metrics/collecting#derived-metrics), then there are three requirements for naming:
+
+1. Only `snake_case`
+1. Always lowercase
+1. No prefixes or suffixes
+
+A fully-qualified metric name includes a domain: `status.global.threads_running`.
+The metric name is always the last field (split on `.`).
 
 ## Code
 
-### 1. Develop
+Example [https://github.com/cashapp/blip/tree/main/examples/integrate](https://github.com/cashapp/blip/tree/main/examples/integrate) shows how to create a custom metrics collector for domain "foo".
+The high-level work is:
 
-Implement `blip.Collector` and `blip.CollectorFactory`.
-
-### 2. Register
-
-```go
-metrics.Register(myFactory, "mydomain")
-```
-
-### 3. Reference
+1. Implement `blip.Collector` and `blip.CollectorFactory`
+2. Register the domain/collector by calling `metrics.Register(myFactory, "foo")`
+3. Use the domain in a plan:
 
 ```yaml
 level:
   collect:
-    mydomain:
+    foo: # Custom domain/collector
+      metrics:
+        - whatever
 ```
