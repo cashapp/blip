@@ -6,7 +6,7 @@ import (
 )
 
 var MySQLPort = map[string]string{
-	"mysql56": "33560",
+	//"mysql56": "33560",
 	"mysql57": "33570",
 	"mysql80": "33800",
 	"ps57":    "33900",
