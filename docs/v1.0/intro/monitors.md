@@ -47,8 +47,8 @@ monitors:
     password: foo
 
   - hostname: db3.us-east-1.amazonaws.com
-    aws-rds:
-      auth-token: true
+    aws:
+      iam-auth: true
 ```
 
 The first monitor is a local MySQL instance: Blip connects using socket file `/tmp/mysql.sock`.
