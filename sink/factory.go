@@ -69,6 +69,7 @@ var noop = noopSink{}
 
 func init() {
 	Register("datadog", f)
+	Register("dogstatsd", f)
 	Register("chronosphere", f)
 	Register("signalfx", f)
 	Register("log", f)
@@ -160,6 +161,8 @@ func (f *factory) Make(args blip.SinkFactoryArgs) (blip.Sink, error) {
 		if err != nil {
 			return nil, err
 		}
+	case "dogstatsd":
+		retryArgs.Sink, err = NewDogStatsD(args.MonitorId, args.Options, args.Tags)
 	default:
 		return nil, fmt.Errorf("sink %s not registered", args.SinkName)
 	}

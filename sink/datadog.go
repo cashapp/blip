@@ -18,7 +18,7 @@ import (
 	"github.com/cashapp/blip/status"
 )
 
-// SignalFx sends metrics to SignalFx.
+// Datadog sends metrics to Datadog.
 type Datadog struct {
 	monitorId string
 	tags      []string            // monitor.tags (dimensions)
