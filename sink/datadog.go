@@ -10,6 +10,8 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/DataDog/datadog-go/v5/statsd"
+
 	"github.com/DataDog/datadog-api-client-go/v2/api/datadog"
 	"github.com/DataDog/datadog-api-client-go/v2/api/datadogV2"
 
@@ -18,25 +20,27 @@ import (
 	"github.com/cashapp/blip/status"
 )
 
-// SignalFx sends metrics to SignalFx.
+// Datadog sends metrics to Datadog.
 type Datadog struct {
-	monitorId string
-	tags      []string            // monitor.tags (dimensions)
-	tr        tr.DomainTranslator // datadog.metric-translator
-	prefix    string              // datadog.metric-prefix
-	// --
+	monitorId    string
+	tags         []string            // monitor.tags (dimensions)
+	tr           tr.DomainTranslator // datadog.metric-translator
+	prefix       string              // datadog.metric-prefix
+	useDogStatsD bool                // datadog.use-dogstatsd
+
+	// -- Api
 	metricsApi *datadogV2.MetricsApi
 	apiKeyAuth string
 	appKeyAuth string
+	resources  []datadogV2.MetricResource
 
-	resources []datadogV2.MetricResource
+	// -- DogStatsD
+	dogStatsDClient *statsd.Client
+	dogStatsDHost   string
+	dogStatsDPort   string
 }
 
 func NewDatadog(monitorId string, opts, tags map[string]string, httpClient *http.Client) (*Datadog, error) {
-	c := datadog.NewConfiguration()
-	c.HTTPClient = httpClient
-	metricsApi := datadogV2.NewMetricsApi(datadog.NewAPIClient(c))
-
 	tagList := make([]string, 0, len(tags))
 	var resources []datadogV2.MetricResource = nil
 
@@ -56,10 +60,9 @@ func NewDatadog(monitorId string, opts, tags map[string]string, httpClient *http
 	}
 
 	d := &Datadog{
-		monitorId:  monitorId,
-		tags:       tagList,
-		metricsApi: metricsApi,
-		resources:  resources,
+		monitorId: monitorId,
+		tags:      tagList,
+		resources: resources,
 	}
 
 	for k, v := range opts {
@@ -92,29 +95,155 @@ func NewDatadog(monitorId string, opts, tags map[string]string, httpClient *http
 				return nil, err
 			}
 			d.tr = tr
+
 		case "metric-prefix":
 			if v == "" {
 				return nil, fmt.Errorf("datadog sink metric-prefix is empty string; value required when option is specified")
 			}
 			d.prefix = v
 
+		case "use-dogstatsd":
+			d.useDogStatsD = blip.Bool(v)
+
+		case "dogstatsd-host":
+			d.dogStatsDHost = v
+
+		case "dogstatsd-port":
+			d.dogStatsDPort = v
+
 		default:
 			return nil, fmt.Errorf("invalid option: %s", k)
 		}
 	}
 
-	if d.apiKeyAuth == "" {
-		return nil, fmt.Errorf("datadog sink required either api-key-auth or api-key-auth-file")
-	}
+	if d.useDogStatsD {
+		if d.dogStatsDHost == "" || d.dogStatsDPort == "" {
+			return nil, fmt.Errorf("dogStatsD host and port are required when DogStatsD is enabled")
+		}
 
-	if d.appKeyAuth == "" {
-		return nil, fmt.Errorf("datadog sink required either app-key-auth or app-key-auth-file")
+		client, err := statsd.New(fmt.Sprintf("%s:%s", d.dogStatsDHost, d.dogStatsDPort))
+		if err != nil {
+			return nil, err
+		}
+		d.dogStatsDClient = client
+	} else {
+		if d.apiKeyAuth == "" {
+			return nil, fmt.Errorf("datadog sink required either api-key-auth or api-key-auth-file")
+		}
+
+		if d.appKeyAuth == "" {
+			return nil, fmt.Errorf("datadog sink required either app-key-auth or app-key-auth-file")
+		}
+
+		c := datadog.NewConfiguration()
+		c.HTTPClient = httpClient
+		metricsApi := datadogV2.NewMetricsApi(datadog.NewAPIClient(c))
+		d.metricsApi = metricsApi
 	}
 
 	return d, nil
 }
 
 func (s *Datadog) Send(ctx context.Context, m *blip.Metrics) error {
+	if s.useDogStatsD {
+		return s.sendDogStatsD(ctx, m)
+	}
+	return s.sendApi(ctx, m)
+}
+
+func (s *Datadog) sendDogStatsD(ctx context.Context, m *blip.Metrics) error {
+	status.Monitor(s.monitorId, s.Name(), "sending metrics")
+
+	// On return, set monitor status for this sink
+	n := 0
+	defer func() {
+		status.Monitor(s.monitorId, s.Name(), "last sent %d metrics at %d", n, time.Now())
+	}()
+
+	// Pre-alloc DogStatsD data points
+	for _, metrics := range m.Values {
+		n += len(metrics)
+	}
+	if n == 0 {
+		return fmt.Errorf("no Blip metrics were collected")
+	}
+	n = 0
+
+	// Convert each Blip metric value to an DogStatsD data point
+	for domain := range m.Values { // each domain
+		metrics := m.Values[domain]
+		var name string
+
+	METRICS:
+		for i := range metrics { // each metric in this domain
+
+			// Set full metric name: translator (if any) else Blip standard,
+			// then prefix (if any)
+			if s.tr == nil {
+				name = domain + "." + metrics[i].Name
+			} else {
+				name = s.tr.Translate(domain, metrics[i].Name)
+			}
+			if s.prefix != "" {
+				name = s.prefix + name
+			}
+
+			// Copy metric meta and groups into tags (dimensions), if any
+			var tags []string
+			if len(metrics[i].Meta) == 0 && len(metrics[i].Group) == 0 {
+				// Optimization: if no meta or group, then reuse pointer to
+				// d.tags which points to the tags--never modify d.tags!
+				tags = s.tags
+			} else {
+				// There are meta or groups (or both), so we MUST COPY tags
+				// from d.tags and the rest into a new map
+				tags = make([]string, 0, len(s.tags)+len(metrics[i].Meta)+len(metrics[i].Group))
+				for _, v := range s.tags { // copy tags (from config)
+					tags = append(tags, v)
+				}
+
+				for k, v := range metrics[i].Meta { // metric meta
+					if k == "ts" { // avoid time series explosion: ts is high cardinality
+						continue
+					}
+					tags = append(tags, fmt.Sprintf("%s:%s", k, v))
+				}
+
+				for k, v := range metrics[i].Group { // metric groups
+					tags = append(tags, fmt.Sprintf("%s:%s", k, v))
+				}
+			}
+
+			// Convert Blip metric type to DogStatsD metric type
+			switch metrics[i].Type {
+			case blip.COUNTER:
+				err := s.dogStatsDClient.Count(name, int64(metrics[i].Value), tags, 1)
+				if err != nil {
+					blip.Debug("error sending data points to Datadog: %s", err)
+				}
+			case blip.GAUGE, blip.BOOL:
+				err := s.dogStatsDClient.Gauge(name, metrics[i].Value, tags, 1)
+				if err != nil {
+					blip.Debug("error sending data points to Datadog: %s", err)
+				}
+			default:
+				// datadog doesn't support this Blip metric type, so skip it
+				continue METRICS // @todo error?
+			}
+
+			n++
+		} // metric
+	} // domain
+
+	// This shouldn't happen: >0 Blip metrics in but =0 Datadog data points out
+	if n == 0 {
+		return fmt.Errorf("no Datadog data points after processing %d Blip metrics", len(m.Values))
+	}
+
+	return nil
+}
+
+func (s *Datadog) sendApi(ctx context.Context, m *blip.Metrics) error {
 	status.Monitor(s.monitorId, s.Name(), "sending metrics")
 
 	// On return, set monitor status for this sink
