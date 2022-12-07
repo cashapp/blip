@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net/http"
+	"regexp"
 	"strconv"
 	"time"
 
@@ -20,7 +21,7 @@ import (
 	"github.com/cashapp/blip/status"
 )
 
-const DefaultDogStatsDPort = 8125
+var portRe = regexp.MustCompile(`:\d+$`)
 
 // Datadog sends metrics to Datadog.
 type Datadog struct {
@@ -36,9 +37,9 @@ type Datadog struct {
 	resources  []datadogV2.MetricResource
 
 	// -- DogStatsD
-	dogStatsD       bool
-	dogStatsDClient *statsd.Client
-	dogStatsDHost   string
+	dogstatsd       bool
+	dogstatsdClient *statsd.Client
+	dogstatsdHost   string
 }
 
 func NewDatadog(monitorId string, opts, tags map[string]string, httpClient *http.Client) (*Datadog, error) {
@@ -104,28 +105,31 @@ func NewDatadog(monitorId string, opts, tags map[string]string, httpClient *http
 			d.prefix = v
 
 		case "dogstatsd-host":
-			d.dogStatsDHost = v
+			d.dogstatsdHost = v
 
 		default:
 			return nil, fmt.Errorf("invalid option: %s", k)
 		}
 	}
 
-	if d.dogStatsDHost != "" {
-		d.dogStatsD = true
+	if d.dogstatsdHost != "" {
+		d.dogstatsd = true
 	}
 
 	// if DogStatsD and api are both setup, return error as it will otherwise result in duplicate metrics
-	if d.dogStatsD && (d.apiKeyAuth != "" && d.appKeyAuth != "") {
-		return nil, fmt.Errorf("datadog sink requires either dogStatsD host or (api-key-auth and app-key-auth), not both at the same time")
+	if d.dogstatsd && (d.apiKeyAuth != "" && d.appKeyAuth != "") {
+		return nil, fmt.Errorf("datadog sink requires either dogstatsd host or (api-key-auth and app-key-auth), not both at the same time")
 	}
 
-	if d.dogStatsD {
-		client, err := statsd.New(fmt.Sprintf("%s:%d", d.dogStatsDHost, DefaultDogStatsDPort))
+	if d.dogstatsd {
+		if !portRe.MatchString(d.dogstatsdHost) {
+			d.dogstatsdHost += ":8125"
+		}
+		client, err := statsd.New(d.dogstatsdHost)
 		if err != nil {
 			return nil, err
 		}
-		d.dogStatsDClient = client
+		d.dogstatsdClient = client
 	} else {
 		if d.apiKeyAuth == "" {
 			return nil, fmt.Errorf("datadog sink requires either api-key-auth or api-key-auth-file")
@@ -162,7 +166,7 @@ func (s *Datadog) Send(ctx context.Context, m *blip.Metrics) error {
 	}
 	var dp []datadogV2.MetricSeries
 
-	if s.api() {
+	if !s.dogstatsd {
 		dp = make([]datadogV2.MetricSeries, n)
 	}
 	n = 0
@@ -229,8 +233,8 @@ func (s *Datadog) Send(ctx context.Context, m *blip.Metrics) error {
 			// Convert Blip metric type to Datadog metric type
 			switch metrics[i].Type {
 			case blip.COUNTER:
-				if s.dogStatsD {
-					err := s.dogStatsDClient.Count(name, int64(metrics[i].Value), tags, 1)
+				if s.dogstatsd {
+					err := s.dogstatsdClient.Count(name, int64(metrics[i].Value), tags, 1)
 					if err != nil {
 						blip.Debug("error sending data points to Datadog: %s", err)
 					}
@@ -250,8 +254,8 @@ func (s *Datadog) Send(ctx context.Context, m *blip.Metrics) error {
 				}
 
 			case blip.GAUGE, blip.BOOL:
-				if s.dogStatsD {
-					err := s.dogStatsDClient.Gauge(name, metrics[i].Value, tags, 1)
+				if s.dogstatsd {
+					err := s.dogstatsdClient.Gauge(name, metrics[i].Value, tags, 1)
 					if err != nil {
 						blip.Debug("error sending data points to Datadog: %s", err)
 					}
@@ -284,8 +288,8 @@ func (s *Datadog) Send(ctx context.Context, m *blip.Metrics) error {
 		return fmt.Errorf("no Datadog data points after processing %d Blip metrics", len(m.Values))
 	}
 
-	// dogStatsD metrics are sent to the datadog agent inside the loop, there's nothing else to do
-	if s.dogStatsD {
+	// dogstatsd metrics are sent to the datadog agent inside the loop, there's nothing else to do
+	if s.dogstatsd {
 		return nil
 	}
 
@@ -320,8 +324,4 @@ func (s *Datadog) Send(ctx context.Context, m *blip.Metrics) error {
 
 func (s *Datadog) Name() string {
 	return "datadog"
-}
-
-func (s *Datadog) api() bool {
-	return !s.dogStatsD
 }
