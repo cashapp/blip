@@ -60,11 +60,11 @@ func (t *Table) Help() blip.CollectorHelp {
 			},
 			OPT_INCLUDE: {
 				Name: OPT_INCLUDE,
-				Desc: "Comma-separate list of database or table names to include (overrides option " + OPT_EXCLUDE + ")",
+				Desc: "Comma-separated list of database or table names to include (overrides option " + OPT_EXCLUDE + ")",
 			},
 			OPT_EXCLUDE: {
 				Name:    OPT_EXCLUDE,
-				Desc:    "Comma-separate list of database or table names to exclude (ignored if " + OPT_EXCLUDE + " set)",
+				Desc:    "Comma-separated list of database or table names to exclude (ignored if " + OPT_INCLUDE + " is set)",
 				Default: "mysql.*,information_schema.*,performance_schema.*,sys.*",
 			},
 		},

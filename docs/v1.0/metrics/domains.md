@@ -85,6 +85,38 @@ If `enabled`, only InnoDB metrics enabled by the MySQL configuration are collect
 <!-------------------------------------------------------------------------->
 
 {: .config-section-title }
+## io.table
+_Table IO Metrics_
+
+{: .var-table}
+|Blip version|v1.0.??|
+|MySQL config|maybe|
+|Sources|`performance_schema.table_io_waits_summary_by_table`|
+|Options|&bull; `exclude`<br>&bull; `include`<br>&bull; `truncate`|
+|Group keys|`db`, `tbl`|
+
+Metrics from `performance_schema.table_io_waits_summary_by_table`
+
+#### Options
+* `include`<br>
+A comma-separated list of database or table names to include (overrides option `exclude`).
+
+* `exclude`<br>
+Default: `mysql.*,information_schema.*,performance_schema.*,sys.*`<br>
+A comma-separated list of database or table names to exclude (ignored if `include` is set).
+
+* `truncate-table`<br>
+Default: `yes`<br>
+If the source table should be truncated to reset data after each retrieval.
+
+* `all`<br>
+Default: `no`<br>
+If `yes`, all `performance_schema.table_io_waits_summary_by_table` metrics are collected&mdash;all columns.
+If `no` (the default), only the explicitly listed `performance_schema.table_io_waits_summary_by_table` metrics are collected.
+
+<!-------------------------------------------------------------------------->
+
+{: .config-section-title }
 ## percona.response-time
 _Percona Server Query Response Time_
 

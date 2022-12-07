@@ -40,6 +40,7 @@ The rest are reserved for future use.
 |ndb|MySQL NDB Cluster||
 |oracle|Oracle enhancements||
 |percona|Percona Server enhancements||
+|[`io.table`](domains#iotable)|Table IO metrics [`performance_schema.table_io_waits_summary_by_table`](https://dev.mysql.com/doc/refman/5.7/en/performance-schema-table-wait-summary-tables.html#performance-schema-table-io-waits-summary-by-table-table)|v1.0.??|
 |[`percona.response-time`](domains#perconaresponse-time)|Percona Server 5.7 Response Time Distribution plugin|v1.0.0|
 |perconca.userstat|[Percona User Statistics](https://www.percona.com/doc/percona-server/8.0/diagnostics/user_stats.html)||
 |percona.userstat.index|Percona `userstat` index statistics (`INFORMATION_SCHEMA.INDEX_STATISTICS`)|

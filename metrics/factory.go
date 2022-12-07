@@ -10,6 +10,7 @@ import (
 	"github.com/cashapp/blip"
 	"github.com/cashapp/blip/metrics/aws.rds"
 	"github.com/cashapp/blip/metrics/innodb"
+	"github.com/cashapp/blip/metrics/io.table"
 	"github.com/cashapp/blip/metrics/percona"
 	"github.com/cashapp/blip/metrics/query.response-time"
 	"github.com/cashapp/blip/metrics/repl"
@@ -281,6 +282,8 @@ func (f *factory) Make(domain string, args blip.CollectorFactoryArgs) (blip.Coll
 		return trx.NewTrx(args.DB), nil
 	case "var.global":
 		return varglobal.NewGlobal(args.DB), nil
+	case "io.table":
+		return iotable.NewTable(args.DB), nil
 	}
 	return nil, fmt.Errorf("invalid domain: %s", domain)
 }
@@ -302,4 +305,5 @@ var builtinCollectors = []string{
 	"trx",
 	"tls",
 	"var.global",
+	"io.table",
 }
