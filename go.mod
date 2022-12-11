@@ -4,6 +4,7 @@ go 1.18
 
 require (
 	github.com/DataDog/datadog-api-client-go/v2 v2.2.0
+	github.com/DataDog/datadog-go/v5 v5.1.1
 	github.com/alexflint/go-arg v1.4.2
 	github.com/aws/aws-sdk-go-v2 v1.12.0
 	github.com/aws/aws-sdk-go-v2/config v1.6.0
@@ -30,6 +31,7 @@ require (
 
 require (
 	github.com/DataDog/zstd v1.5.0 // indirect
+	github.com/Microsoft/go-winio v0.5.0 // indirect
 	github.com/alexflint/go-scalar v1.0.0 // indirect
 	github.com/aws/aws-sdk-go-v2/credentials v1.3.2 // indirect
 	github.com/aws/aws-sdk-go-v2/internal/configsources v1.1.3 // indirect
@@ -59,7 +61,7 @@ require (
 	github.com/signalfx/com_signalfx_metrics_protobuf v0.0.2 // indirect
 	github.com/signalfx/gohistogram v0.0.0-20160107210732-1ccfd2ff5083 // indirect
 	github.com/signalfx/sapm-proto v0.4.0 // indirect
-	golang.org/x/net v0.0.0-20201021035429-f5854403a974 // indirect
+	golang.org/x/net v0.0.0-20210405180319-a5a99cb37ef4 // indirect
 	golang.org/x/oauth2 v0.0.0-20200107190931-bf48bf16ab8d // indirect
 	golang.org/x/sys v0.0.0-20211116061358-0a5406a5449c // indirect
 	google.golang.org/appengine v1.4.0 // indirect
