@@ -7,7 +7,7 @@ import (
 	"strings"
 )
 
-func TableIoQuery(set map[string]string, metrics []string) (string, error) {
+func TableIoWaitQuery(set map[string]string, metrics []string) string {
 	columns := setColumns(set, metrics)
 
 	query := fmt.Sprintf("SELECT %s FROM performance_schema.table_io_waits_summary_by_table", strings.Join(columns, ", "))
@@ -17,14 +17,14 @@ func TableIoQuery(set map[string]string, metrics []string) (string, error) {
 	} else {
 		where = setWhere(strings.Split(set[OPT_EXCLUDE], ","), false)
 	}
-	return query + where, nil
+	return query + where
 }
 
 func setColumns(set map[string]string, metrics []string) []string {
 	columns := []string{"OBJECT_SCHEMA", "OBJECT_NAME"}
 
 	if all, ok := set[OPT_ALL]; ok && strings.ToLower(all) == "yes" {
-		for _, name := range metric_names {
+		for _, name := range columnNames {
 			columns = append(columns, name)
 		}
 	} else {
@@ -32,7 +32,7 @@ func setColumns(set map[string]string, metrics []string) []string {
 		for _, metric := range metrics {
 			metric = strings.ToLower(metric)
 
-			if _, ok := metric_map[metric]; ok {
+			if _, ok := columnExists[metric]; ok {
 				columns = append(columns, metric)
 			}
 		}

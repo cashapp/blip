@@ -18,11 +18,13 @@ const (
 	OPT_TRUNCATE_TABLE = "truncate-table"
 	OPT_ALL            = "all"
 
+	OPT_EXCLUDE_DEFAULT = "mysql.*,information_schema.*,performance_schema.*,sys.*"
+
 	TRUNCATE_QUERY = "TRUNCATE TABLE performance_schema.table_io_waits_summary_by_table"
 )
 
 var (
-	metric_names = []string{
+	columnNames = []string{
 		"sum_timer_wait",
 		"min_timer_wait",
 		"avg_timer_wait",
@@ -59,13 +61,13 @@ var (
 		"max_timer_delete",
 	}
 
-	metric_map map[string]struct{}
+	columnExists map[string]struct{}
 )
 
 func init() {
-	metric_map = make(map[string]struct{}, len(metric_names))
-	for _, name := range metric_names {
-		metric_map[name] = struct{}{}
+	columnExists = make(map[string]struct{}, len(columnNames))
+	for _, name := range columnNames {
+		columnExists[name] = struct{}{}
 	}
 }
 
@@ -110,7 +112,7 @@ func (t *Table) Help() blip.CollectorHelp {
 			OPT_EXCLUDE: {
 				Name:    OPT_EXCLUDE,
 				Desc:    "Comma-separated list of database or table names to exclude (ignored if " + OPT_INCLUDE + " is set)",
-				Default: "mysql.*,information_schema.*,performance_schema.*,sys.*",
+				Default: OPT_EXCLUDE_DEFAULT,
 			},
 			OPT_TRUNCATE_TABLE: {
 				Name:    OPT_TRUNCATE_TABLE,
@@ -152,15 +154,10 @@ LEVEL:
 			dom.Options = make(map[string]string)
 		}
 		if _, ok := dom.Options[OPT_EXCLUDE]; !ok {
-			dom.Options[OPT_EXCLUDE] = "mysql.*,information_schema.*,performance_schema.*,sys.*"
+			dom.Options[OPT_EXCLUDE] = OPT_EXCLUDE_DEFAULT
 		}
 
-		q, err := TableIoQuery(dom.Options, dom.Metrics)
-		if err != nil {
-			return nil, err
-		}
-
-		o.query = q
+		o.query = TableIoWaitQuery(dom.Options, dom.Metrics)
 
 		if truncate, ok := dom.Options[OPT_TRUNCATE_TABLE]; ok && truncate == "no" {
 			o.truncate = false
