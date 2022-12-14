@@ -1,6 +1,6 @@
 // Copyright 2022 Block, Inc.
 
-package iotable
+package waitiotable
 
 import (
 	"fmt"

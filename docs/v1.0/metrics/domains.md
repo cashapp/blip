@@ -85,14 +85,14 @@ If `enabled`, only InnoDB metrics enabled by the MySQL configuration are collect
 <!-------------------------------------------------------------------------->
 
 {: .config-section-title }
-## io.table
-_Table IO Metrics_
+## wait.io.table
+_Table IO Wait Metrics_
 
 {: .var-table}
 |Blip version|v1.0.??|
 |MySQL config|maybe|
 |Sources|`performance_schema.table_io_waits_summary_by_table`|
-|Options|&bull; `exclude`<br>&bull; `include`<br>&bull; `truncate`|
+|Options|&bull; `exclude`<br>&bull; `include`<br>&bull; `truncate`<br>&bull; `all`|
 |Group keys|`db`, `tbl`|
 
 Metrics from `performance_schema.table_io_waits_summary_by_table`

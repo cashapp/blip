@@ -1,6 +1,6 @@
 // Copyright 2022 Block, Inc.
 
-package iotable
+package waitiotable
 
 import (
 	"context"
@@ -11,7 +11,7 @@ import (
 )
 
 const (
-	DOMAIN = "io.table"
+	DOMAIN = "wait.io.table"
 
 	OPT_EXCLUDE        = "exclude"
 	OPT_INCLUDE        = "include"
@@ -74,7 +74,7 @@ type tableOptions struct {
 	truncate bool
 }
 
-// Table collects table io for domain io.table.
+// Table collects table io for domain wait.io.table.
 type Table struct {
 	db *sql.DB
 	// --
@@ -101,7 +101,7 @@ func (t *Table) Domain() string {
 func (t *Table) Help() blip.CollectorHelp {
 	return blip.CollectorHelp{
 		Domain:      DOMAIN,
-		Description: "Table IO",
+		Description: "Table IO Waits",
 		Options: map[string]blip.CollectorHelpOption{
 			OPT_INCLUDE: {
 				Name: OPT_INCLUDE,
@@ -194,7 +194,7 @@ func (t *Table) Collect(ctx context.Context, levelName string) ([]blip.MetricVal
 
 	cols, err := rows.Columns()
 	if err != nil {
-		return nil, fmt.Errorf("Failed to get columns for io.table: %v", err)
+		return nil, fmt.Errorf("Failed to get columns for wait.io.table: %v", err)
 	}
 
 	values = make([]interface{}, len(cols))
