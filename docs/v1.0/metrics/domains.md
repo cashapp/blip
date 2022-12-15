@@ -442,18 +442,21 @@ For example, it's common to report `max_connections` to gauge the percentage of 
 
 {: .config-section-title }
 ## wait.io.table
-_Table IO Wait Metrics_
+_Table I/O Wait Metrics_
 
 {: .var-table}
 |Blip version|v1.0.0|
-|MySQL config|maybe|
+|MySQL config|yes|
 |Sources|`performance_schema.table_io_waits_summary_by_table`|
 |Options|&bull; `exclude`<br>&bull; `include`<br>&bull; `truncate`<br>&bull; `all`|
 |Group keys|`db`, `tbl`|
 
-Metrics from `performance_schema.table_io_waits_summary_by_table`
+Summarized table I/O wait metrics from `performance_schema.table_io_waits_summary_by_table`.
+All columns in that table can be specified, or use option `all` to collect all columns.
 
 #### Options
+{: .no_toc }
+
 * `include`<br>
 A comma-separated list of database or table names to include (overrides option `exclude`).
 

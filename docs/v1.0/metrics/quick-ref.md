@@ -75,4 +75,4 @@ The rest are reserved for future use.
 |wait|Stage waits||
 |wait.current|Current waits||
 |wait.history|Historical waits||
-|[`wait.io.table`](domains#iotable)|Table IO Wait metrics [`performance_schema.table_io_waits_summary_by_table`](https://dev.mysql.com/doc/refman/5.7/en/performance-schema-table-wait-summary-tables.html#performance-schema-table-io-waits-summary-by-table-table)|v1.0.0|
+|[`wait.io.table`](domains#waitiotable)|Table I/O wait metrics [`performance_schema.table_io_waits_summary_by_table`](https://dev.mysql.com/doc/refman/en/performance-schema-table-wait-summary-tables.html#performance-schema-table-io-waits-summary-by-table-table)|v1.0.0|
