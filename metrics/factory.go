@@ -22,6 +22,7 @@ import (
 	"github.com/cashapp/blip/metrics/tls"
 	"github.com/cashapp/blip/metrics/trx"
 	"github.com/cashapp/blip/metrics/var.global"
+	"github.com/cashapp/blip/metrics/wait.io.table"
 )
 
 // Register registers a factory that makes one or more collector by domain name.
@@ -281,6 +282,8 @@ func (f *factory) Make(domain string, args blip.CollectorFactoryArgs) (blip.Coll
 		return trx.NewTrx(args.DB), nil
 	case "var.global":
 		return varglobal.NewGlobal(args.DB), nil
+	case "wait.io.table":
+		return waitiotable.NewTable(args.DB), nil
 	}
 	return nil, fmt.Errorf("invalid domain: %s", domain)
 }
@@ -302,4 +305,5 @@ var builtinCollectors = []string{
 	"trx",
 	"tls",
 	"var.global",
+	"wait.io.table",
 }

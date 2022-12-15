@@ -437,3 +437,35 @@ _MySQL System Variables_
 
 These are not technically metrics, but some are required to calculate utilization percentages.
 For example, it's common to report `max_connections` to gauge the percentage of max connections used: `Max_used_connections / max_connections * 100`, which would be `status.global.max_used_connections / var.global.max_connections * 100` in Blip metric naming convention.
+
+<!-------------------------------------------------------------------------->
+
+{: .config-section-title }
+## wait.io.table
+_Table IO Wait Metrics_
+
+{: .var-table}
+|Blip version|v1.0.0|
+|MySQL config|maybe|
+|Sources|`performance_schema.table_io_waits_summary_by_table`|
+|Options|&bull; `exclude`<br>&bull; `include`<br>&bull; `truncate`<br>&bull; `all`|
+|Group keys|`db`, `tbl`|
+
+Metrics from `performance_schema.table_io_waits_summary_by_table`
+
+#### Options
+* `include`<br>
+A comma-separated list of database or table names to include (overrides option `exclude`).
+
+* `exclude`<br>
+Default: `mysql.*,information_schema.*,performance_schema.*,sys.*`<br>
+A comma-separated list of database or table names to exclude (ignored if `include` is set).
+
+* `truncate-table`<br>
+Default: `yes`<br>
+If the source table should be truncated to reset data after each retrieval.
+
+* `all`<br>
+Default: `no`<br>
+If `yes`, all `performance_schema.table_io_waits_summary_by_table` metrics are collected&mdash;all columns.
+If `no` (the default), only the explicitly listed `performance_schema.table_io_waits_summary_by_table` metrics are collected.
