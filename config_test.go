@@ -26,10 +26,6 @@ func TestDefaultConfig(t *testing.T) {
 	if err := got.Validate(); err != nil {
 		t.Errorf("default config is not valid, expected it to be valid: %s", err)
 	}
-
-	// The default config should have minimal config with default values.
-	//expect := blip.Config{}
-	//assert.Equal(t, got, expect)
 }
 
 // TestEnvInterpolation verifies that env vars with special characters, most notably $, are properly interpolated
@@ -54,4 +50,25 @@ func TestEnvInterpolationEmpty(t *testing.T) {
 	cfg := blip.Config{MySQL: blip.ConfigMySQL{Password: fmt.Sprintf("${%s:-bar}", envKey)}}
 	cfg.InterpolateEnvVars()
 	assert.Equal(t, "bar", cfg.MySQL.Password)
+}
+
+func TestApplyDefaultConfig(t *testing.T) {
+	// Defaults apply when the value isn't set
+	df := blip.DefaultConfig()
+	my := blip.Config{}
+	my.ApplyDefaults(df)
+	if my.API.Bind != blip.DEFAULT_API_BIND {
+		t.Errorf("api.bind=%s, expected %s", my.API.Bind, blip.DEFAULT_API_BIND)
+	}
+
+	// But when a value is set, it overrides the default
+	my = blip.Config{
+		API: blip.ConfigAPI{
+			Bind: ":1234",
+		},
+	}
+	my.ApplyDefaults(df)
+	if my.API.Bind != ":1234" {
+		t.Errorf("api.bind=%s, expected :1234", my.API.Bind)
+	}
 }

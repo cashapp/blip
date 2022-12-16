@@ -7,6 +7,7 @@ import (
 	"crypto/x509"
 	"fmt"
 	"io/ioutil"
+	"net"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -231,6 +232,14 @@ func (c *Config) InterpolateEnvVars() {
 	}
 }
 
+func (c *Config) ApplyDefaults(b Config) {
+	c.API.ApplyDefaults(b)
+	c.HTTP.ApplyDefaults(b)
+	c.MonitorLoader.ApplyDefaults(b)
+	// Blip doesn't set defaults for sinks; they're responsible for that
+	// when created
+}
+
 // ///////////////////////////////////////////////////////////////////////////
 // Blip server
 // ///////////////////////////////////////////////////////////////////////////
@@ -251,11 +260,24 @@ func DefaultConfigAPI() ConfigAPI {
 }
 
 func (c ConfigAPI) Validate() error {
+	// Since API does run and bind until server.Run, we check the bind addr
+	// here to catch an invalid bind during server.Boot
+	ln, err := net.Listen("tcp", c.Bind)
+	if err != nil {
+		return fmt.Errorf("api.bind: %s", err)
+	}
+	ln.Close()
 	return nil
 }
 
 func (c *ConfigAPI) InterpolateEnvVars() {
 	c.Bind = interpolateEnv(c.Bind)
+}
+
+func (c *ConfigAPI) ApplyDefaults(b Config) {
+	if c.Bind == "" {
+		c.Bind = b.API.Bind
+	}
 }
 
 // --------------------------------------------------------------------------
@@ -274,6 +296,12 @@ func (c ConfigHTTP) Validate() error {
 
 func (c *ConfigHTTP) InterpolateEnvVars() {
 	c.Proxy = interpolateEnv(c.Proxy)
+}
+
+func (c *ConfigHTTP) ApplyDefaults(b Config) {
+	if c.Proxy == "" {
+		c.Proxy = b.HTTP.Proxy
+	}
 }
 
 // --------------------------------------------------------------------------
@@ -319,6 +347,9 @@ func (c *ConfigMonitorLoader) InterpolateEnvVars() {
 	for i := range c.Files {
 		c.Files[i] = interpolateEnv(c.Files[i])
 	}
+}
+
+func (c *ConfigMonitorLoader) ApplyDefaults(b Config) {
 }
 
 // ///////////////////////////////////////////////////////////////////////////
