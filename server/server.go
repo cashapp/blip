@@ -131,7 +131,6 @@ func (s *Server) Boot(env blip.Env, plugins blip.Plugins, factories blip.Factori
 
 	// LoadConfig plugins takes priority if defined. Else, load --config file,
 	// which defaults to blip.yaml.
-	var cfg blip.Config
 	if plugins.LoadConfig != nil {
 		blip.Debug("call plugins.LoadConfig")
 		s.cfg, err = plugins.LoadConfig(blip.DefaultConfig())
@@ -147,7 +146,7 @@ func (s *Server) Boot(env blip.Env, plugins blip.Plugins, factories blip.Factori
 			s.cmdline.Options.Config = blip.DEFAULT_CONFIG_FILE
 			required = false
 		}
-		s.cfg, err = blip.LoadConfig(s.cmdline.Options.Config, cfg, required)
+		s.cfg, err = blip.LoadConfig(s.cmdline.Options.Config, blip.DefaultConfig(), required)
 
 		// Apply config file on top of defaults, so if a value is set in the config
 		// file, it overrides the default value (if any)
@@ -159,7 +158,7 @@ func (s *Server) Boot(env blip.Env, plugins blip.Plugins, factories blip.Factori
 	}
 	s.cfg.InterpolateEnvVars()
 	blip.Debug("config: %#v", s.cfg)
-	if err := cfg.Validate(); err != nil {
+	if err := s.cfg.Validate(); err != nil {
 		event.Errorf(event.BOOT_CONFIG_INVALID, err.Error())
 		return err
 	}
@@ -175,7 +174,7 @@ func (s *Server) Boot(env blip.Env, plugins blip.Plugins, factories blip.Factori
 	// If HTTP factory not provided, then use default with config.http, which
 	// is why its creation is delayed until now
 	if factories.HTTPClient == nil {
-		factories.HTTPClient = httpClientFactory{cfg: cfg.HTTP}
+		factories.HTTPClient = httpClientFactory{cfg: s.cfg.HTTP}
 	}
 
 	if factories.DbConn == nil {
@@ -227,7 +226,7 @@ func (s *Server) Boot(env blip.Env, plugins blip.Plugins, factories blip.Factori
 	// ----------------------------------------------------------------------
 	// API
 	if !s.cfg.API.Disable {
-		s.api = NewAPI(cfg, s.monitorLoader)
+		s.api = NewAPI(s.cfg, s.monitorLoader)
 	} else {
 		blip.Debug("API disabled")
 	}
