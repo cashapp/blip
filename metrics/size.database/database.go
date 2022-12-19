@@ -157,7 +157,8 @@ func (c *Database) Collect(ctx context.Context, levelName string) ([]blip.Metric
 		metrics = append(metrics, blip.MetricValue{
 			Name:  "bytes",
 			Type:  blip.GAUGE,
-			Group: map[string]string{"db": ""}, // "" = total
+			Group: map[string]string{"db": ""},
+			Value: total,
 		})
 	}
 
