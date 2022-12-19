@@ -134,7 +134,7 @@ func (s *Server) Boot(env blip.Env, plugins blip.Plugins, factories blip.Factori
 	if plugins.LoadConfig != nil {
 		blip.Debug("call plugins.LoadConfig")
 		s.cfg, err = plugins.LoadConfig(blip.DefaultConfig())
-		// Do not apply defaults; plugin is responsible for that, or not in case
+		// Do not apply defaults; plugin is responsible for that in case
 		// it wants full control of the config (which isn't advised but allowed).
 	} else {
 		// If --config specified, then file is required to exist.
