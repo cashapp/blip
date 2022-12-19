@@ -126,7 +126,7 @@ type Plugins struct {
 }
 
 // Factories are interfaces that override certain object creation of Blip.
-// Factories are optional, but if  if specified the override the built-in factories.
+// Factories are optional, but if specified the override the built-in factories.
 type Factories struct {
 	AWSConfig  AWSConfigFactory
 	DbConn     DbFactory
