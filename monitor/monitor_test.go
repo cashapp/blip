@@ -18,7 +18,14 @@ import (
 )
 
 func TestMonitor(t *testing.T) {
-	//blip.Debugging = true
+	_, _, err := test.Connection("mysql57")
+	if err != nil {
+		if test.Build {
+			t.Skip("mysql57 not running")
+		} else {
+			t.Fatal(err)
+		}
+	}
 
 	moncfg := blip.ConfigMonitor{
 		MonitorId: "tm1",
@@ -100,7 +107,7 @@ func TestMonitor(t *testing.T) {
 	}
 	assert.Equal(t, expectMetricValues, gotMetrics.Values["var.global"])
 
-	err := mon.Stop()
+	err = mon.Stop()
 	if err != nil {
 		t.Error(err)
 	}

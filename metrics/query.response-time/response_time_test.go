@@ -13,7 +13,7 @@ import (
 func TestCollectP(t *testing.T) {
 	_, db, err := test.Connection("mysql80")
 	if err != nil {
-		t.Fatal(err)
+		t.Skip("mysql80 not running")
 	}
 	defer db.Close()
 

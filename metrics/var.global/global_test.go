@@ -4,56 +4,30 @@ package varglobal
 
 import (
 	"context"
-	"database/sql"
-	"fmt"
-	"log"
-	"os"
 	"testing"
 
-	_ "github.com/go-sql-driver/mysql"
 	"github.com/stretchr/testify/assert"
 
 	"github.com/cashapp/blip/test"
 )
 
-var (
-	db *sql.DB
-)
-
-// First Method that gets run before all tests.
-func TestMain(m *testing.M) {
-	var err error
-
-	// Read plans from files
-
-	// Connect to MySQL
-	dsn := fmt.Sprintf(
-		"%s:%s@tcp(%s:%s)/?parseTime=true",
-		"root",
-		"test",
-		"localhost",
-		"33570",
-	)
-	db, err = sql.Open("mysql", dsn)
-	if err != nil {
-		log.Fatal(err)
-	}
-	err = db.Ping()
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	code := m.Run() // run tests
-	os.Exit(code)
-}
-
 func TestPrepareForSingleLevelAndNoSource(t *testing.T) {
 	// Given a LevelPlan for a collector with single level and no supplied source,
 	// test that Prepare correctly constructs the query for that level (ie: select query)
+	_, db, err := test.Connection("mysql57")
+	if err != nil {
+		if test.Build {
+			t.Skip("mysql57 not running")
+		} else {
+			t.Fatal(err)
+		}
+	}
+	defer db.Close()
+
 	c := NewGlobal(db)
 
 	defaultPlan := test.ReadPlan(t, "")
-	_, err := c.Prepare(context.Background(), defaultPlan)
+	_, err = c.Prepare(context.Background(), defaultPlan)
 	if err != nil {
 		t.Error(err)
 	}
@@ -68,6 +42,15 @@ func TestPrepareWithAllSources(t *testing.T) {
 	// Given a LevelPlan for a collector with single level and a custom source,
 	// test that Prepare correctly constructs the query for that level
 	// using that source query.
+	_, db, err := test.Connection("mysql57")
+	if err != nil {
+		if test.Build {
+			t.Skip("mysql57 not running")
+		} else {
+			t.Fatal(err)
+		}
+	}
+	defer db.Close()
 
 	// Test this for all source types ie; auto, select, pfs and show
 	queries := map[string]string{
@@ -93,21 +76,37 @@ func TestPrepareWithAllSources(t *testing.T) {
 }
 
 func TestPrepareWithCustomInvalidSource(t *testing.T) {
-
 	// Given a LevelPlan for a collector with single level and a custom source,
 	// which is invalid, test that Prepare returns an error
+	_, db, err := test.Connection("mysql57")
+	if err != nil {
+		if test.Build {
+			t.Skip("mysql57 not running")
+		} else {
+			t.Fatal(err)
+		}
+	}
+	defer db.Close()
 
 	c := NewGlobal(db)
 	plan := test.ReadPlan(t, "")
 	plan.Levels["kpi"].Collect[DOMAIN].Options[OPT_SOURCE] = "this_causes_error"
-	_, err := c.Prepare(context.Background(), plan)
+	_, err = c.Prepare(context.Background(), plan)
 	assert.Error(t, err)
 }
 
 func TestPrepareWithInvalidMetricName(t *testing.T) {
-
 	// Given a LevelPlan for a collector with single level and
 	// invalid metricname, test that Prepare returns an error
+	_, db, err := test.Connection("mysql57")
+	if err != nil {
+		if test.Build {
+			t.Skip("mysql57 not running")
+		} else {
+			t.Fatal(err)
+		}
+	}
+	defer db.Close()
 
 	c := NewGlobal(db)
 
@@ -116,7 +115,7 @@ func TestPrepareWithInvalidMetricName(t *testing.T) {
 	dom.Metrics = []string{"max_connections'); DROP TABLE students;--,", "max_prepared_stmt_count"}
 	plan.Levels["kpi"].Collect[DOMAIN] = dom
 
-	_, err := c.Prepare(context.Background(), plan)
+	_, err = c.Prepare(context.Background(), plan)
 	assert.Error(t, err)
 }
 
@@ -124,13 +123,21 @@ func TestPrepareWithInvalidMetricName(t *testing.T) {
 var fourMetrics = []string{"max_connections", "max_prepared_stmt_count", "innodb_log_file_size", "innodb_max_dirty_pages_pct"}
 
 func TestCollectWithSingleLevelPlanAndNoSource(t *testing.T) {
-
 	// Given a plan with single level containing a list of metrics for domain
 	// and no custom source, verify that those metrics are retrieved correctly.
+	_, db, err := test.Connection("mysql57")
+	if err != nil {
+		if test.Build {
+			t.Skip("mysql57 not running")
+		} else {
+			t.Fatal(err)
+		}
+	}
+	defer db.Close()
 
 	c := NewGlobal(db)
 	plan := test.ReadPlan(t, "../../test/plans/var_global.yaml")
-	_, err := c.Prepare(context.Background(), plan)
+	_, err = c.Prepare(context.Background(), plan)
 	if err != nil {
 		t.Error(err)
 	}
@@ -143,9 +150,17 @@ func TestCollectWithSingleLevelPlanAndNoSource(t *testing.T) {
 }
 
 func TestCollectWithAllSources(t *testing.T) {
-
 	// Given a level plan with custom source option
 	// collect should return the list of metrics correctly.
+	_, db, err := test.Connection("mysql57")
+	if err != nil {
+		if test.Build {
+			t.Skip("mysql57 not running")
+		} else {
+			t.Fatal(err)
+		}
+	}
+	defer db.Close()
 
 	// Test this for all source types ie; auto, select, pfs and show
 
@@ -170,13 +185,21 @@ func TestCollectWithAllSources(t *testing.T) {
 }
 
 func TestCollectWithMultipleLevels(t *testing.T) {
-
 	// Given a plan with multiple levels containing a list of metrics for each level
 	// verify that those metrics are retrieved correctly only at their respective levels.
+	_, db, err := test.Connection("mysql57")
+	if err != nil {
+		if test.Build {
+			t.Skip("mysql57 not running")
+		} else {
+			t.Fatal(err)
+		}
+	}
+	defer db.Close()
 
 	c := NewGlobal(db)
 	plan := test.ReadPlan(t, "../../test/plans/var_global_2_levels.yaml")
-	_, err := c.Prepare(context.Background(), plan)
+	_, err = c.Prepare(context.Background(), plan)
 	if err != nil {
 		t.Error(err)
 	}
@@ -196,13 +219,21 @@ func TestCollectWithMultipleLevels(t *testing.T) {
 }
 
 func TestCollectWithOneNonExistentMetric(t *testing.T) {
-
 	// Given a level plan with single level which contains 3 valid metrics and
 	// 1 non existent metric, it should successfully return 3 metrics
+	_, db, err := test.Connection("mysql57")
+	if err != nil {
+		if test.Build {
+			t.Skip("mysql57 not running")
+		} else {
+			t.Fatal(err)
+		}
+	}
+	defer db.Close()
 
 	c := NewGlobal(db)
 	plan := test.ReadPlan(t, "../../test/plans/var_global_bad_metric.yaml")
-	_, err := c.Prepare(context.Background(), plan)
+	_, err = c.Prepare(context.Background(), plan)
 	if err != nil {
 		t.Error(err)
 	}

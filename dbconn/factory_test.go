@@ -10,6 +10,7 @@ import (
 
 	"github.com/cashapp/blip"
 	"github.com/cashapp/blip/dbconn"
+	"github.com/cashapp/blip/test"
 )
 
 func sysvar(db *sql.DB, name string) (string, error) {
@@ -20,6 +21,14 @@ func sysvar(db *sql.DB, name string) (string, error) {
 
 // --------------------------------------------------------------------------
 func TestConnect(t *testing.T) {
+	if _, _, err := test.Connection("mysql57"); err != nil {
+		if test.Build {
+			t.Skip("mysql57 not running")
+		} else {
+			t.Fatal(err)
+		}
+	}
+
 	// The most basic functionality: connect to the MySQL 5.6 instance in Docker
 	called := false
 	modifyDB := func(*sql.DB, string) {
@@ -31,7 +40,7 @@ func TestConnect(t *testing.T) {
 	cfg := blip.ConfigMonitor{
 		Username: "root",
 		Password: "test",
-		Hostname: "127.0.0.1:33560", // 5.6
+		Hostname: "127.0.0.1:" + test.MySQLPort["mysql57"],
 	}
 
 	// Make makes the connection (sql.DB) or returns an error

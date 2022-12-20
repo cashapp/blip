@@ -4,16 +4,12 @@ package heartbeat_test
 
 import (
 	"database/sql"
-	"fmt"
-	"log"
-	"os"
 	"testing"
 	"time"
 
-	_ "github.com/go-sql-driver/mysql"
-
 	"github.com/cashapp/blip"
 	"github.com/cashapp/blip/heartbeat"
+	"github.com/cashapp/blip/test"
 	"github.com/cashapp/blip/test/mock"
 )
 
@@ -21,33 +17,6 @@ const (
 	blip_writer_db    = "blip_test"
 	blip_writer_table = blip_writer_db + ".heartbeat"
 )
-
-var (
-	db *sql.DB
-)
-
-// First Method that gets run before all tests.
-func TestMain(m *testing.M) {
-	dsn := fmt.Sprintf(
-		"%s:%s@tcp(%s:%s)/?parseTime=true",
-		"root",
-		"test",
-		"localhost",
-		"33570",
-	)
-	var err error
-	db, err = sql.Open("mysql", dsn) // sets global db
-	if err != nil {
-		log.Fatal(err)
-	}
-	err = db.Ping()
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	code := m.Run() // run tests
-	os.Exit(code)
-}
 
 func setupHeartbeatTable(db *sql.DB) error {
 	// Before each test, totally recreate the heartbeat db and table so each
@@ -94,7 +63,15 @@ func heartbreatRows(db *sql.DB) ([]hbRows, error) {
 // --------------------------------------------------------------------------
 
 func TestWriter(t *testing.T) {
-	blip.Debugging = true
+	_, db, err := test.Connection("mysql57")
+	if err != nil {
+		if test.Build {
+			t.Skip("mysql57 not running")
+		} else {
+			t.Fatal(err)
+		}
+	}
+	defer db.Close()
 
 	// Test that the Blip heartbeat writer writes heatbeat rows to its table,
 	// a.k.a "it works"
@@ -173,7 +150,15 @@ func TestWriter(t *testing.T) {
 }
 
 func TestReader(t *testing.T) {
-	blip.Debugging = true
+	_, db, err := test.Connection("mysql57")
+	if err != nil {
+		if test.Build {
+			t.Skip("mysql57 not running")
+		} else {
+			t.Fatal(err)
+		}
+	}
+	defer db.Close()
 
 	heartbeat.ReadErrorWait = 500 * time.Millisecond
 	defer func() { heartbeat.ReadErrorWait = 1 * time.Second }()
