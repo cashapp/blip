@@ -129,17 +129,13 @@ func (s *Server) Boot(env blip.Env, plugins blip.Plugins, factories blip.Factori
 	event.Send(event.BOOT_CONFIG_LOADING)
 	status.Blip(status.SERVER, "boot: loading config")
 
-	// Always start with a default config, else we'll lack some basic config
-	// like the API addr:port to listen on. If strict, it's a zero config except
-	// for the absolute most minimal/must-have config values. Else, the default
-	// (not strict) config is a more realistic set of defaults.
-	cfg := blip.DefaultConfig()
-
-	// Load config file. User-provided LoadConfig plugin takes priority if set.
-	// Else, try to load --config.
+	// LoadConfig plugins takes priority if defined. Else, load --config file,
+	// which defaults to blip.yaml.
 	if plugins.LoadConfig != nil {
 		blip.Debug("call plugins.LoadConfig")
-		cfg, err = plugins.LoadConfig(cfg)
+		s.cfg, err = plugins.LoadConfig(blip.DefaultConfig())
+		// Do not apply defaults; plugin is responsible for that in case
+		// it wants full control of the config (which isn't advised but allowed).
 	} else {
 		// If --config specified, then file is required to exist.
 		// If not specified, then use default if it exist (not required).
@@ -150,23 +146,22 @@ func (s *Server) Boot(env blip.Env, plugins blip.Plugins, factories blip.Factori
 			s.cmdline.Options.Config = blip.DEFAULT_CONFIG_FILE
 			required = false
 		}
-		cfg, err = blip.LoadConfig(s.cmdline.Options.Config, cfg, required)
+		s.cfg, err = blip.LoadConfig(s.cmdline.Options.Config, blip.DefaultConfig(), required)
+
+		// Apply config file on top of defaults, so if a value is set in the config
+		// file, it overrides the default value (if any)
+		s.cfg.ApplyDefaults(blip.DefaultConfig())
 	}
 	if err != nil {
 		event.Sendf(event.BOOT_ERROR, err.Error())
 		return err
 	}
-
-	// Extensively validate the config. Once done, the config is immutable,
-	// except for plans and monitors which might come from dynamic sources,
-	// like tables.
-	if err := cfg.Validate(); err != nil {
+	s.cfg.InterpolateEnvVars()
+	blip.Debug("config: %#v", s.cfg)
+	if err := s.cfg.Validate(); err != nil {
 		event.Errorf(event.BOOT_CONFIG_INVALID, err.Error())
 		return err
 	}
-
-	cfg.InterpolateEnvVars()
-	s.cfg = cfg // final immutable config
 	event.Send(event.BOOT_CONFIG_LOADED)
 
 	if s.cmdline.Options.PrintConfig {
@@ -179,7 +174,7 @@ func (s *Server) Boot(env blip.Env, plugins blip.Plugins, factories blip.Factori
 	// If HTTP factory not provided, then use default with config.http, which
 	// is why its creation is delayed until now
 	if factories.HTTPClient == nil {
-		factories.HTTPClient = httpClientFactory{cfg: cfg.HTTP}
+		factories.HTTPClient = httpClientFactory{cfg: s.cfg.HTTP}
 	}
 
 	if factories.DbConn == nil {
@@ -231,7 +226,7 @@ func (s *Server) Boot(env blip.Env, plugins blip.Plugins, factories blip.Factori
 	// ----------------------------------------------------------------------
 	// API
 	if !s.cfg.API.Disable {
-		s.api = NewAPI(cfg, s.monitorLoader)
+		s.api = NewAPI(s.cfg, s.monitorLoader)
 	} else {
 		blip.Debug("API disabled")
 	}

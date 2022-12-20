@@ -88,6 +88,7 @@ func (api *API) Run() error {
 			return nil
 		default:
 			event.Errorf(event.SERVER_API_ERROR, err.Error())
+			time.Sleep(1 * time.Second) // between crashes
 		}
 	}
 }

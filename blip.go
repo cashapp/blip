@@ -89,19 +89,44 @@ type SinkFactoryArgs struct {
 	Tags      map[string]string // config.monitor.tags
 }
 
-// Plugins are function callbacks that let you override specific functionality of Blip.
-// Every plugin is optional: if specified, it overrides the built-in functionality.
+// Plugins are function callbacks that override specific functionality of Blip.
+// Plugins are optional, but if specified it overrides the built-in functionality.
 type Plugins struct {
-	LoadConfig       func(Config) (Config, error)
-	LoadMonitors     func(Config) ([]ConfigMonitor, error)
-	LoadPlans        func(ConfigPlans) ([]Plan, error)
-	ModifyDB         func(*sql.DB, string)
-	StartMonitor     func(ConfigMonitor) bool
+	// LoadConfig loads the Blip config on startup. It's passed the Blip default
+	// config that should be applied like:
+	//
+	//   mycfg.ApplyDefaults(def.DefaultConfig())
+	//
+	// mycfg is the custom config loaded by the plugin, and def is the default
+	// config passed to the plugin. Alternatively, the plugin can set values in
+	// def (without unsetting default values). Without defaults, Blip might not
+	// work as expected.
+	//
+	// Do not call InterpolateEnvVars. Blip calls that after loading the config.
+	LoadConfig func(Config) (Config, error)
+
+	// LoadMonitors loads monitors on startup and reloads them on POST /monitors/reload.
+	LoadMonitors func(Config) ([]ConfigMonitor, error)
+
+	// LoadPlans loads plans on startup.
+	LoadPlans func(ConfigPlans) ([]Plan, error)
+
+	// ModifyDB modifies the *sql.DB connection pool. Use with caution.
+	ModifyDB func(*sql.DB, string)
+
+	// StartMonitor allows a monitor to start by returning true. Else the monitor
+	// is loaded but not started. This is used to load all monitors but start only
+	// certain monitors.
+	StartMonitor func(ConfigMonitor) bool
+
+	// TransformMetrics transforms metrics before they are sent to sinks.
+	// This is called for all monitors, metrics, and sinks. Use Metrics.MonitorId
+	// to determine the source of the metrics.
 	TransformMetrics func(*Metrics) error
 }
 
-// Factories are interfaces that let you override certain object creation of Blip.
-// Every factory is optional: if specified, it overrides the built-in factory.
+// Factories are interfaces that override certain object creation of Blip.
+// Factories are optional, but if specified the override the built-in factories.
 type Factories struct {
 	AWSConfig  AWSConfigFactory
 	DbConn     DbFactory
