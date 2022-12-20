@@ -2,47 +2,125 @@
 layout: default
 parent: Metrics
 title: Reporting
-nav_order: 3
 ---
 
 # Reporting
 {: .no_toc }
 
 Blip does not have a single format or protocol for reporting metrics.
-Instead, it has well-defined structures for collecting metrics that are passed to [metric sinks](../sinks/), which convert and send metrics in various formats and protocols depending on the sink.
+Instead, after [collecting metrics](collecting) Blip uses metric [sinks](../sinks/) to translate the Blip [metric data structure](#metric-data-structure) to a sink-specific protocol.
 
-In YAML, the basic structure of Blip metrics is:
+Normally, a sink sends metrics somewhere, but a sink can do anything with the metrics&mdash;Blip does not impose any restrictions on sinks.
+For example, the default [log sink](../sinks/log) dumps metrics to `STDOUT`.
+
+Blip has several [built-in sinks](../sinks/), but unless you happen to use one of them, you will need to write a [custom sink](../develop/sinks) to make Blip report metrics in your environment.
+Start by understanding how Blip reports metrics internally (as detailed on this page), then read [Develop / Sinks](../develop/sinks).
+
+* TOC
+{:toc}
+
+## Metrics
+
+### Types
+
+Blip metric types are standard:
+
+* `COUNTER`
+* `GAUGE`
+* `BOOL`
+* `EVENT` (reserved for future use)
+
+Blip automatically uses the correct metric type for all metrics.
+
+Blip, like MySQL, does not distinguish between "counter" and "cumulative counter".
+Blip counter metrics can reset to zero if MySQL is restarted; otherwise, the value only increases.
+
+### Values
+
+All values, regardless of type, are `float64`.
+
+Negative values are allowed.
+Some [derived metrics](collecting#derived-metrics) use negative values as documented in the [domain reference](domains).
+MySQL metrics are not supposed to be negative, but there are MySQL bugs that cause negative values.
+
+### Units
+
+MySQL metrics use a variety of units&mdash;from picoseconds to seconds.
+When the MySQL metric unit is documented and consistent, Blip reports the value as-is.
+For example, `innodb.buffer_flush_avg_time` is documented as "Avg time (ms) spent for flushing recently.", therefore Blip reports the value as-is: as milliseconds.
+
+When the MySQL metric unit is variable, Blip uses the following units:
+
+|Metric Type|Unit|
+|-----------|----|
+|Query time|microseconds (μs)
+|Lock time|microseconds (μs)
+|Wait time|microseconds (μs)
+|Replication (lag)|milliseconds (ms)
+|Data size|bytes
+
+For example, query response time ranges from nanoseconds to seconds (with microsecond precision) depending on the source.
+But regardless of the source, Blip reports query time as _microseconds (μs)_.
+
+{: .note}
+To convert units, use the [TransformMetrics plugin](../develop/integration-api#plugins) or write a [custom sink](../develop/sinks)
+
+Blip does _not_ suffix metric names with units, and it does not strip the few MySQL metrics that have unit suffixes.
+
+### Renaming
+
+Blip never renames MySQL metrics on collection or within its [metric data structure](#metric-data-structure).
+Metrics can be renamed _after_ collection by using the [TransformMetrics plugin](../develop/integration-api#plugins) or writing a [custom sink](../develop/sinks).
+
+## Metric Data Structure
+
+Internally, Blip stores metrics in a [`Metrics` data structure](https://pkg.go.dev/github.com/cashapp/blip#Metrics):
 
 ```
-domain:
-  - metric:
-      value: <float64>
-      type: counter|gauge|...
-      group:
-        key1: val1
-      meta:
-        key1: val1
+type Metrics struct {
+	Begin     time.Time                // when collection started
+	End       time.Time                // when collection completed
+	MonitorId string                   // ID of monitor (MySQL)
+	Plan      string                   // plan name
+	Level     string                   // level name
+	State     string                   // state of monitor
+	Values    map[string][]MetricValue // keyed on domain
+}
 ```
 
-All metrics belong to a single [domain](domains).
-Each domain collector can collect any number of metrics.
-Each metric has a type and value (see [Conventions > Metrics](conventions#metrics)).
-[Groups](#groups) and [Meta](#meta) are detailed below.
+[Metric values](https://pkg.go.dev/github.com/cashapp/blip#MetricValue) (the last field in the struct) are reported per-domain.
+To visual the metric values data structure, in YAML it would be:
 
-A realistic example of two metrics from the [`status.global` domain](domains#statusglobal):
+```yaml
+status.global: # domain
 
+  - name:  queries
+    value: 5382      
+    type:  1 # counter
+    group:
+      key1: "val1"
+    meta:
+      key1: "val1"
+
+  - name: threads_running
+    value: 15
+    type:  2 # gauge
 ```
-global.status:
-  - threads_running:
-      value: 16
-      type: gauge
-  - queries:
-      value: 138923
-      type: counter
-```
 
-The metric sink determines how those 2 metrics are reported.
-For example, a Prometheus sink might report them in Exposition format:
+{: .note }
+**Blip metrics are not stored or reported in YAML. Examples are for illustration only.**
+
+All metrics belong to a single [domain](domains), and each domain can collect any number of metrics.
+
+All metrics have a name, type, and value.
+Blip automatically sets the type and value of every metric.
+The name is set by MySQL (for [MySQL metrics](collecting#mysql-metrics)) or Blip (for [derived metrics](collecting#derived-metrics)).
+Blip lowercases all metric names, even MySQL metric names.
+
+Some metrics have [groups](#groups) and [meta](#meta).
+
+Metric [sinks](../sinks) convert the metric data structures to a sink-specific data structure.
+For example, [Prometheus emulation](../prometheus) acts as a pseudo-sink to convert and report Blip metrics in [Exposition format](https://github.com/prometheus/docs/blob/main/content/docs/instrumenting/exposition_formats.md):
 
 ```
 # TYPE mysql_global_status_threads_running gauge
@@ -51,68 +129,61 @@ mysql_global_status_threads_running 16
 mysql_global_status_queries 138923
 ```
 
-Blip [conventions](conventions) terminate at each metric sink.
+After Blip sends metrics to a sink, the sink fully owns the metrics; Blip no longer references the metrics.
 
-## Groups
+### Groups
 
-Certain [domains](domains) (as documented) implicitly or explicitly group metrics.
-In both cases, group key-value pairs are set for each metric, and metrics are uniquely identified using _all_ group keys.
+Certain [domains](domains) set group key-value pairs to distinguish different metrics with the same name.
+For example, the [`size.database` domain](domains#sizedata) groups metrics by database name.
+Each metric is grouped on `db`:
+
+```yaml
+size.database:
+  - bytes:
+      value: 50920482048
+      type: 2 # gauge
+      group:
+        db: "foo"
+  - bytes:
+      value: 8920482048
+      type: 2 # gauge
+      group:
+        db: "bar"
+  - bytes:
+      value: 59840964096
+      type: 2 # gauge
+      group:
+        db: "" # all databases
+```
+
+The metric name is the same&mdash;`bytes`&mdash;but there are 3 instances of the metric for each of the 3 groups: `db=foo`, `db=bar`, and `db=""`.
+The last group, `db=""`, is how this domain represents the metric for all databases (the global group).
+
+<mark>When set, groups are required to uniquely identify metrics.</mark>
+In the example above, the derived metric name `bytes` does not unique identify a metric; you must include the group keys.
+How the group keys are included is sink-specific, but most translate the groups to tags, labels, or dimensions.
 
 {: .note }
 _Groups_, _labels_, and _dimensions_ serve the same purpose.
 Blip uses the term _group_ because it's similar to MySQL `GROUP BY`.
 
-_Implicit grouping_ means the metrics collector groups metrics automatically (or as configured in the plan by [collector options](collectors#options)).
-For example, the [`size.data` collector](domains#sizedata), which collects database and table sizes, groups metrics by database name.
-As a result, each metric has a group key on `db`, like the following example:
+### Meta
 
-```
-size.database:
-  - bytes:
-      value: 50920482048
-      type: gauge
-      group:
-        db: foo
-  - bytes:
-      value: 8920482048
-      type: gauge
-      group:
-        db: bar
-  - bytes:
-      value: 59840964096
-      type: gauge
-      group:
-        db: ""  # all databases
-```
+Certain [domains](domains) set metadata about metrics as documented.
+An example is [`query.response-time`](domains#queryresponse-time):
 
-The metric is the same&mdash;`bytes`&mdash;but there are 3 instances of the metric for each of the 3 groups: `db=foo`, `db=bar`, and `db=""`.
-The last group, `db=""`, is how this collector represents the metric for all databases (the global group).
-
-_Explicit grouping_ refers to MySQL-grouped metrics&mdash;see [Sub-domains](#sub-domains).
-For example, the [`status.host` collector](domains#statushost) is explicitly grouped by `host`.
-As a result, each metric has a group key on `host`, like `host=10.1.1.1`.
-
-## Meta
-
-Certain [domains](domains) (as documented) set metadata about a metric.
-The canonical example is the `response_time` [collector metric](conventions#collector-metrics) reported by the [`query.global` collector](domains#queryglobal):
-
-```
-query.global:
-  - response_time:
-      value: 130493
-      type: gauge
+```yaml
+query.response-time:
+  - p95:
+      value: 500.2
+      type: 2 # gauge
       meta:
-        p95: p948
-  - response_time:
-      value: 255001
-      type: gauge
-      meta:
-        p999: p997
+        p95: "95.8"
 ```
 
-As shown above, there are 2 `response_time` metrics that differ by `meta=p95` and `meta=p999`: the former is the 95th percentile response time, and the latter is the 99.9th percentile response time.
+The domain collects the P95 query response time value, but due to how MySQL calculates percentiles, it might not be the exact P95.
+In the metadata, the collector adds the collected percentile (`p95`) and the real percentile value: 95.8.
 
-Blip uses meta rather than prefixing or suffixing the metric name (see [Conventions > Metrics > Naming](conventions#naming)).
-This makes metrics (by name) consistent: the metric is always `response_time`, not `pN_response_time` or `response_time_pN` where `N` could be any number.
-It also allows for a greater variety of metrics without special case exceptions to naming or structure; for example, average response time could be denoted by meta key `avg`.
+Another example is [`repl`](domains#repl): it sets meta key `source` equal to `Source_Host` (or `Master_Host`) from `SHOW REPLICA STATUS`.
+
+Unlike [groups](#groups), meta does _not_ uniquely identify metrics and is optional.

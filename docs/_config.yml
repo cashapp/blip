@@ -1,6 +1,6 @@
 title: Blip
-description: >-
-  Sublime MySQL monitoring
+description: "Sublime MySQL monitoring"
+incremental: true
 baseurl: /blip
 twitter_username: cashapp
 github_username: cashapp
@@ -10,8 +10,11 @@ exclude:
   - Gemfile
   - Gemfile.lock
   - README.md
+  - .jekyll-cache
+  - serve.sh
+  - build.sh
 
-remote_theme: pmarsceill/just-the-docs
+remote_theme: just-the-docs/just-the-docs
 search_enabled: true
 aux_links:
   "Blip":

@@ -20,18 +20,21 @@ import (
 // Exporter emulates a Prometheus mysqld_exporter. It implement prom.Exporter.
 type Exporter struct {
 	cfg    blip.ConfigExporter
+	plan   blip.Plan
 	engine *Engine
 	// --
 	promRegistry *prometheus.Registry
 	*sync.Mutex
-	levelName string
-	prepared  bool
-	event     event.MonitorReceiver
+	prepared bool
+	event    event.MonitorReceiver
 }
 
-func NewExporter(cfg blip.ConfigExporter, engine *Engine) *Exporter {
+var _ prom.Exporter = Exporter{}
+
+func NewExporter(cfg blip.ConfigExporter, plan blip.Plan, engine *Engine) *Exporter {
 	e := &Exporter{
 		cfg:          cfg,
+		plan:         plan,
 		engine:       engine,
 		promRegistry: prometheus.NewRegistry(),
 		Mutex:        &sync.Mutex{},
@@ -41,12 +44,16 @@ func NewExporter(cfg blip.ConfigExporter, engine *Engine) *Exporter {
 	return e
 }
 
+func (e Exporter) Plan() blip.Plan {
+	return e.plan
+}
+
 // --------------------------------------------------------------------------
 // Implement Prometheus collector
 
 // Scrape collects and returns metrics in Prometheus exposition format.
 // This function is called in response to GET /metrics.
-func (e *Exporter) Scrape() (string, error) {
+func (e Exporter) Scrape() (string, error) {
 	// Gather calls the Collect method of the exporter
 	mfs, err := e.promRegistry.Gather()
 	if err != nil {
@@ -62,24 +69,20 @@ func (e *Exporter) Scrape() (string, error) {
 	return buf.String(), nil
 }
 
-func (e *Exporter) Describe(descs chan<- *prometheus.Desc) {
+func (e Exporter) Describe(descs chan<- *prometheus.Desc) {
 	// Left empty intentionally to make the collector unchecked.
 }
 
 var noop = func() {}
 
 // Collect collects metrics. It is called indirectly via Scrpe.
-func (e *Exporter) Collect(ch chan<- prometheus.Metric) {
+func (e Exporter) Collect(ch chan<- prometheus.Metric) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
 	e.Lock()
 	if !e.prepared {
-		plan := blip.PromPlan()
-		for levelName := range plan.Levels {
-			e.levelName = levelName
-		}
-		if err := e.engine.Prepare(ctx, plan, noop, noop); err != nil {
+		if err := e.engine.Prepare(ctx, e.plan, noop, noop); err != nil {
 			blip.Debug(err.Error())
 			e.Unlock()
 			return
@@ -88,7 +91,7 @@ func (e *Exporter) Collect(ch chan<- prometheus.Metric) {
 	}
 	e.Unlock()
 
-	metrics, err := e.engine.Collect(ctx, e.levelName)
+	metrics, err := e.engine.Collect(ctx, "prom")
 	if err != nil {
 		e.event.Errorf(event.ENGINE_COLLECT_ERROR, "%s; see monitor status or event log for details", err)
 	}

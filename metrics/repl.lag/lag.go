@@ -5,36 +5,43 @@ package repllag
 import (
 	"context"
 	"database/sql"
+	"strconv"
 	"time"
 
 	"github.com/cashapp/blip"
 	"github.com/cashapp/blip/heartbeat"
+	"github.com/cashapp/blip/sqlutil"
 )
 
 const (
 	DOMAIN = "repl.lag"
 
-	OPT_AUTO   = "auto"
-	OPT_WRITER = "writer"
-	OPT_TABLE  = "table"
-	OPT_SOURCE = "source"
-
-	DEFAULT_WRITER = "blip"
-	DEFAULT_TABLE  = "blip.heartbeat"
+	OPT_SOURCE_ID            = "source-id"
+	OPT_SOURCE_ROLE          = "source-role"
+	OPT_TABLE                = "table"
+	OPT_WRITER               = "writer"
+	OPT_REPL_CHECK           = "repl-check"
+	OPT_REPORT_NO_HEARTBEAT  = "report-no-heartbeat"
+	OPT_REPORT_NOT_A_REPLICA = "report-not-a-replica"
+	OPT_NETWORK_LATENCY      = "network-latency"
 )
 
 type Lag struct {
-	db        *sql.DB
-	lagReader heartbeat.Reader
-	atLevel   map[string]bool
+	db              *sql.DB
+	lagReader       heartbeat.Reader
+	atLevel         map[string]bool
+	dropNoHeartbeat map[string]bool
+	dropNotAReplica map[string]bool
 }
 
 var _ blip.Collector = &Lag{}
 
 func NewLag(db *sql.DB) *Lag {
 	return &Lag{
-		db:      db,
-		atLevel: map[string]bool{},
+		db:              db,
+		atLevel:         map[string]bool{},
+		dropNoHeartbeat: map[string]bool{},
+		dropNotAReplica: map[string]bool{},
 	}
 }
 
@@ -47,22 +54,12 @@ func (c *Lag) Help() blip.CollectorHelp {
 		Domain:      DOMAIN,
 		Description: "Replication lag",
 		Options: map[string]blip.CollectorHelpOption{
-			OPT_AUTO: {
-				Name:    OPT_AUTO,
-				Desc:    "Try to work if configure",
-				Default: "yes",
-				Values: map[string]string{
-					"yes": "Enable if configured, else disable (no error)",
-					"no":  "Error unless configured",
-				},
-			},
 			OPT_WRITER: {
 				Name:    OPT_WRITER,
 				Desc:    "Type of heartbeat writer",
-				Default: DEFAULT_WRITER,
+				Default: "blip",
 				Values: map[string]string{
 					"blip": "Native Blip replication lag",
-					//"pt-heartbeat": "Percona pt-heartbeat",
 					//"pfs":    "MySQL Performance Schema",
 					///"legacy": "Second_Behind_Slave|Replica from SHOW SHOW|REPLICA STATUS",
 				},
@@ -70,18 +67,49 @@ func (c *Lag) Help() blip.CollectorHelp {
 			OPT_TABLE: {
 				Name:    OPT_TABLE,
 				Desc:    "Heartbeat table",
-				Default: DEFAULT_TABLE,
+				Default: blip.DEFAULT_HEARTBEAT_TABLE,
 			},
-			OPT_SOURCE: {
-				Name: OPT_SOURCE,
-				Desc: "Source MySQL instance (suggested: %%{monitor.meta.repl-source})",
+			OPT_SOURCE_ID: {
+				Name: OPT_SOURCE_ID,
+				Desc: "Source ID as reported by heartbeat writer; mutually exclusive with " + OPT_SOURCE_ROLE,
+			},
+			OPT_SOURCE_ROLE: {
+				Name: OPT_SOURCE_ROLE,
+				Desc: "Source role as reported by heartbeat writer; mutually exclusive with " + OPT_SOURCE_ID,
+			},
+			OPT_REPL_CHECK: {
+				Name: OPT_REPL_CHECK,
+				Desc: "MySQL global variable (without @@) to check if instance is a replica",
+			},
+			OPT_REPORT_NO_HEARTBEAT: {
+				Name:    OPT_REPORT_NO_HEARTBEAT,
+				Desc:    "Report no heartbeat as -1",
+				Default: "no",
+				Values: map[string]string{
+					"yes": "Enabled: report no heartbeat as repl.lag.current = -1",
+					"no":  "Disabled: drop repl.lag.current if no heartbeat",
+				},
+			},
+			OPT_REPORT_NOT_A_REPLICA: {
+				Name:    OPT_REPORT_NOT_A_REPLICA,
+				Desc:    "Report not a replica as -1",
+				Default: "no",
+				Values: map[string]string{
+					"yes": "Enabled: report not a replica repl.lag.current = -1",
+					"no":  "Disabled: drop repl.lag.current if not a replica",
+				},
+			},
+			OPT_NETWORK_LATENCY: {
+				Name:    OPT_NETWORK_LATENCY,
+				Desc:    "Network latency (milliseconds)",
+				Default: "50",
 			},
 		},
 		Metrics: []blip.CollectorMetric{
 			{
-				Name: "max",
+				Name: "current",
 				Type: blip.GAUGE,
-				Desc: "Maximum replication lag (milliseconds) during collect interval",
+				Desc: "Current replication lag (milliseconds)",
 			},
 		},
 	}
@@ -95,29 +123,42 @@ LEVEL:
 			continue LEVEL // not collected in this level
 		}
 
-		source := dom.Options[OPT_SOURCE]
-		if source == "" {
-			blip.Debug("%s: no source, ignoring", plan.MonitorId)
-			continue
-		}
-
 		table := dom.Options[OPT_TABLE]
 		if table == "" {
-			table = DEFAULT_TABLE
+			table = blip.DEFAULT_HEARTBEAT_TABLE
+		}
+
+		c.dropNoHeartbeat[level.Name] = !blip.Bool(dom.Options[OPT_REPORT_NO_HEARTBEAT])
+		c.dropNotAReplica[level.Name] = !blip.Bool(dom.Options[OPT_REPORT_NOT_A_REPLICA])
+
+		netLatency := 50 * time.Millisecond
+		if s, ok := dom.Options[OPT_NETWORK_LATENCY]; ok {
+			n, err := strconv.Atoi(s)
+			if err != nil {
+				blip.Debug("%s: invalid network-latency: %s: %s (ignoring; using default 50 ms)", plan.MonitorId, s, err)
+			} else {
+				netLatency = time.Duration(n) * time.Millisecond
+			}
 		}
 
 		switch dom.Options[OPT_WRITER] {
-		case DEFAULT_WRITER, "":
+		case "", "blip": // "" == default == blip
 			if c.lagReader == nil {
 				// Only 1 reader per plan
-				c.lagReader = heartbeat.NewBlipReader(
-					c.db,
-					table,
-					source,
-					&heartbeat.SlowFastWaiter{NetworkLatency: 50 * time.Millisecond}, // todo OPT_NETWORK_LATENCY
-				)
+				c.lagReader = heartbeat.NewBlipReader(heartbeat.BlipReaderArgs{
+					MonitorId:  plan.MonitorId,
+					DB:         c.db,
+					Table:      table,
+					SourceId:   dom.Options[OPT_SOURCE_ID],
+					SourceRole: dom.Options[OPT_SOURCE_ROLE],
+					ReplCheck:  sqlutil.CleanObjectName(dom.Options[OPT_REPL_CHECK]), // @todo sanitize better
+					Waiter: heartbeat.SlowFastWaiter{
+						MonitorId:      plan.MonitorId,
+						NetworkLatency: netLatency,
+					},
+				})
 				go c.lagReader.Start()
-				blip.Debug("started heartbeat.Reader for %s %s", plan.Name, level.Name)
+				blip.Debug("%s: started reader: %s/%s (network latency: %s)", plan.MonitorId, plan.Name, level.Name, netLatency)
 			}
 			c.atLevel[level.Name] = true
 		}
@@ -138,14 +179,22 @@ func (c *Lag) Collect(ctx context.Context, levelName string) ([]blip.MetricValue
 	if !c.atLevel[levelName] {
 		return nil, nil
 	}
-	lag, _, err := c.lagReader.Lag(ctx)
+	lag, err := c.lagReader.Lag(ctx)
 	if err != nil {
 		return nil, err
 	}
+	if !lag.Replica {
+		if c.dropNotAReplica[levelName] {
+			return nil, nil
+		}
+	} else if lag.Milliseconds == -1 && c.dropNoHeartbeat[levelName] {
+		return nil, nil
+	}
 	m := blip.MetricValue{
-		Name:  "lag",
+		Name:  "current",
 		Type:  blip.GAUGE,
-		Value: float64(lag),
+		Value: float64(lag.Milliseconds),
+		Meta:  map[string]string{"source": lag.SourceId},
 	}
 	return []blip.MetricValue{m}, nil
 }

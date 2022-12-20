@@ -8,13 +8,22 @@ import (
 
 	"github.com/cashapp/blip"
 	"github.com/cashapp/blip/monitor"
+	"github.com/cashapp/blip/plan/default"
+	"github.com/cashapp/blip/test"
 )
 
 func TestProm(t *testing.T) {
 	// Test that the Prometheus-emulating Exporter scrapes from MySQL
+	_, db, err := test.Connection("mysql57")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
 	exp := monitor.NewExporter(
 		blip.ConfigExporter{},
-		monitor.NewEngine(blip.ConfigMonitor{MonitorId: monitorId1}, db),
+		default_plan.Exporter(),
+		monitor.NewEngine(blip.ConfigMonitor{MonitorId: "exp1"}, db),
 	)
 
 	got, err := exp.Scrape()

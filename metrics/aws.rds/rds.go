@@ -159,7 +159,7 @@ func (m *RDS) Collect(ctx context.Context, levelName string) ([]blip.MetricValue
 	}
 
 	now := time.Now()
-	begin := now.Add(-2 * time.Minute).Round(time.Second) // see code comment above
+	begin := now.Add(-2 * time.Minute).Round(time.Minute) // see code comment above
 
 	input.StartTime = &begin
 	input.EndTime = &now
@@ -187,17 +187,30 @@ func (m *RDS) Collect(ctx context.Context, levelName string) ([]blip.MetricValue
 			m.latestTs[levelName][*r.Label] = r.Timestamps[j]
 			m := blip.MetricValue{
 				Name:  metric,
-				Type:  blip.GAUGE,
+				Type:  blip.GAUGE, // almost all RDS metrics are guages
 				Value: r.Values[j],
 				Meta: map[string]string{
-					"ts": fmt.Sprintf("%d", r.Timestamps[j].Unix()),
+					"ts": fmt.Sprintf("%d", r.Timestamps[j].UnixMilli()), // must be milliseconds
 				},
+			}
+			if isCounter[metric] {
+				m.Type = blip.COUNTER
 			}
 			metrics = append(metrics, m)
 		}
 	}
 
 	return metrics, nil
+}
+
+var isCounter = map[string]bool{
+	"AbortedClients":       true,
+	"BacktrackWindowAlert": true,
+	"CPUCreditBalance":     true,
+	"CPUCreditUsage":       true,
+	"EngineUptime":         true,
+	"NumBinaryLogFiles":    true,
+	"RowLockTime":          true,
 }
 
 /*

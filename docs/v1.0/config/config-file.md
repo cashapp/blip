@@ -2,7 +2,6 @@
 layout: default
 title: "Config File"
 parent: Configure
-nav_order: 2
 ---
 
 {: .floating-toc }
@@ -11,8 +10,7 @@ nav_order: 2
 
 # Config File
 
-Blip configuration is specified in a single YAML file (see [Specifying a Config File](blip#specifying-a-config-file)).
-Concetpually, the Blip config file has three parts as shown and defined below.
+Blip configuration is specified in a single [config file](blip#config-file) that has three sections:
 
 ```yaml
 ---
@@ -23,29 +21,45 @@ Concetpually, the Blip config file has three parts as shown and defined below.
 # Monitors
 monitors: []
 ```
+<br>
 
 _Server config_
-: Top-level sections that configure the `blip` instance, which is called the "server": API, monitor loading, and so forth
+: Server config is top-level sections that configure the Blip binary (`blip`), which is called the _server_ because it runs the monitors and has an external [API](../api).
+Server config is optional.
 
 _Monitor defaults_
-: Top-level sections that provide default values for each monitor: hostname, username, and so on
+: Monitor defaults are top-level sections that configure default values for each monitor: hostname, username, and so on.
+Monitor defaults are commonly configured to avoid repeating the same config for each monitor.
 
 _Monitors_
-: List items under the `monitors` section, one for each MySQL instance to monitor: hostname, username, and so on
+: Monitors are a list of MySQL instances to monitor.
+Each monitor in the list inherits config from the monitor defaults.
+For example, if a monitor does not explicitly set the MySQL hostname, it inherits the value from monitor defaults if set.
 
-A simple Blip config file for monitoring a single MySQL instance looks like:
+<br>
+The simplest possible Blip config for monitoring a single MySQL instance looks like:
 
 ```yaml
 monitors:
   - hostname: db.local
-    username: metrics
-    password: "myVerySecurePassword"
+    username: blip
+    password: "foo"
 ```
 
-Since no server config is specified, `blip` uses  built-in defaults (see [Zero Config](blip#zero-config)), which is probably fine for the server.
+That uses the [default plan](../plans/defaults) to collect metrics.
+You will likely write your own custom plan, which is configured like:
 
-{: .src }
-{ [config.go](https://github.com/cashapp/blip/blob/main/config.go) }
+```yaml
+plans:
+  files: my-plan.yaml
+monitors:
+  - hostname: db.local
+    username: blip
+    password: "bar"
+```
+
+In this case, the monitor inherits the only plan.
+See [Plans / Loading](../plans/loading) for details on how plans are loaded and shared.
 
 # Conventions
 
@@ -55,97 +69,24 @@ To reference sections, subsections, and specific user-configurable variables wit
 : Any top-level section. For example: `api`, `plans`, and `monitors`.
 
 `SECTION[.SUB...].VAR`
-: A user-configurable variable in the `SECTION` with optional subections (`SUB`). For example: `mysql.username` (section = `mysql`, variable = `username`), or `monitors.heartbeat.freq` (section = 'monitors', subsection = 'heartbeat', variable = 'freq`).
+: A user-configurable variable in the `SECTION` with optional subsections (`SUB`). For example: `mysql.username` (section = `mysql`, variable = `username`), or `monitors.heartbeat.freq` (section = `monitors`, subsection = `heartbeat`, variable = `freq`).
 
 Note the difference between `heartbeat` and `monitors.heartbeat`: the former is the top-level [monitor default](#monitor-defaults); the latter is a [monitor config](#monitors) that inherts the monitor defaults, if any.
 
-Outside this section of the docs, we prefix all config references with `config.`.
-For example, elsewhere in the docs, we write `config.api` to make it clear that we're refering to the `api` section of the Blip config file.
-
-All section and variable names are `lowercase-and-hyphenated`.
-(But string values that you specifiy can by anything you want.)
+In the Blip documentation outside this page, config file references begin with `config.`.
+For example, `config.api` refers to the [`api`](#api) server config section of the Blip config file.
 
 `disable` and `disable-auto-...` are used to disable features.
 There are no "enable" prefixes or variables.
 Instead, some features of either off or auto by default.
 If off by default, the feature is enabled by specifying a variable noted in the docs.
-For example, `heartbeat` is off by default and enabled when `heartbeat.freq` is specififed.
+For example, `heartbeat` is off by default and enabled when `heartbeat.freq` is specified.
 If auto by default, the feature is disabled by specifying `disable-auto-FEATURE: true`, where `FEATURE` is the feature name.
-For example, `aws-rds.disable-auto-region: true` to disable auto-detecting the AWS region.
+For example, `aws.disable-auto-region: true` to disable auto-detecting the AWS region.
 
-<br><br><br>
+Blip uses `lowercase-kebab-case` for all sections and variable names.
 
-# Interpolation
-
-Blip automatically interploates environment variables and monitor variables in the config file _and_ plans.
-
-Environment variable
-: `${FOO}`
-
-Environment variable with default value
-: `${FOO:-default}`
-
-Monitor variable
-: `%{monitor.VAR}`
-
-{: .note }
-**NOTE**: `${}` and `%{}` are always required.
-
-Environment variable interpolation is a simple implementation of the shell standard.
-In Blip, only the two cases shown above are supported, and `default` must be a literal value (it cannot be another `${}`).
-
-Monitor variables are scoped to (only work within) a single monitor.
-For example:
-
-```yaml
-monitors:
-  - hostname: db.local
-    username: metrics
-    tags:
-      hostname: %{monitor.hostname}
-```
-
-The result is `monitors.tags.hostname = "db.local"` because `%{monitor.hostname}` refers to the local `monitors.hostname` variable.
-Blip is remarkably flexible, so this works the other way, too:
-
-```yaml
-monitors:
-  - hostname: %{monitor.tags.hostname}
-    username: metrics
-    tags:
-      hostname: db.local
-```
-
-The result is `monitors.hostname = "db.local"` because `%{monitor.tags.hostname}` refers to the local `monitrs.tags.hostname` variable.
-
-{: .note }
-Singular "monitor" in `%{monitor.VAR}`, not plural, to emphasize that the reference is only to the single monitor in which it appears
-
-`%{monitor.VAR}` references outside [monitors](#monitors) or [monitor defaults](#monitor-defaults) are ignored and reuslt in the literal string: "%{monitor.VAR}".
-
-You can use both in a single value, like:
-
-```yaml
-tls:
-  ca: "${SECRETS_DIR}/%{monitor.hostname}"
-
-monitors:
-  - hostname: db1
-  - hostname: db2
-```
-
-Top-level `tls.ca` specifies a monitor default that applies to all monitors that don't explicily set the varaible.
-If `SECRETS_DIR = /secrets`, the result is:
-
-```yaml
-monitors:
-  - hostname: db1
-    tls:
-      ca: /secrets/db1
-  - hostname: db2
-    tls:
-      ca: /secrets/db2
-```
+---
 
 # Server Config
 
@@ -156,7 +97,7 @@ The `api` section configures the [Blip API](../api/).
 
 ```yaml
 api:
-  bind: "127.0.0.1:9070"
+  bind: "127.0.0.1:7522"
   disable: false
 ```
 
@@ -165,7 +106,7 @@ api:
 {: .var-table }
 |**Type**|string|
 |**Valid values**|`addr:port`, `:port`|
-|**Default value**|`127.0.0.1:9070`|
+|**Default value**|`127.0.0.1:7522`|
 
 The `bind` variable sets the interface address and port that the API listens on.
 
@@ -173,7 +114,7 @@ The `bind` variable sets the interface address and port that the API listens on.
 
 {: .var-table }
 |**Type**|bool|
-|**Valid values**|`true`, `false`|
+|**Valid values**|`true` or `false`|
 |**Default value**|`false`|
 
 The `disable` variable disables the Blip API.
@@ -185,25 +126,30 @@ The `monitor-loader` section configures how Blip finds and loads MySQL instances
 
 ```yaml
 monitor-loader:
-  freq: ""
-  files: []
-  stop-loss: ""
   aws:
     regions: []
+  files: []
   local:
     disable-auto: false
     disable-auto-root: false
+  stop-loss: ""
 ```
 
-### `freq`
+### aws
+
+The `aws` subsection of the `monitor-loader` section configure built-in support for loading Amazon RDS instances.
+By default, this feature is disabled.
+To enable, specify `regions`.
+
+### `regions`
 
 {: .var-table }
-|**Type**|string|
-|**Valid values**|[Go duration string](https://pkg.go.dev/time#ParseDuration)|
+|**Type**|list of strings|
+|**Valid values**|AWS region names or "auto" to auto-detect|
 |**Default value**||
 
-The `freq` variable enables automatic monitor reloading.
-It's off by default, which means moniitors are loaded only once at startup.
+The `regions` variable sets which AWS regions to query for RDS instances.
+If `auto` is specified, Blip queries [EC2 IMDS](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ec2-instance-metadata.html), which only works if Blip is running on an EC2 instance with an [EC2 instance profile](https://docs.aws.amazon.com/IAM/latest/UserGuide/id_roles_use_switch-role-ec2_instance-profiles.html) that allows [rds:DescribeDBInstances](https://docs.aws.amazon.com/AmazonRDS/latest/APIReference/API_DescribeDBInstances.html).
 
 ### `files`
 
@@ -212,27 +158,16 @@ It's off by default, which means moniitors are loaded only once at startup.
 |**Valid values**|file names|
 |**Default value**||
 
-The `files` variable specifies YAML files to load monitors from. Each file must have a `monitors` section.
+The `files` variable specifies YAML files to load monitors from.
+Each file must have a `monitors` section, like:
 
-### `stop-loss`
+```yaml
+---
+monitors:
+  - hostname: db.local
+```
 
-{: .var-table }
-|**Type**|string|
-|**Valid values**|&bull;&nbsp;"N%" (percentage) where N is an integer btween 0 and 100 (exclusive)<br>&bull;&nbsp;"N" where N is an integer greater than 0|
-|**Default value**||
-
-The `stop-loss` variable enables the [stop-lost feature](../server/monitor-loader#stop-loss).
-
-### aws
-
-### `regions`
-
-{: .var-table }
-|**Type**|list of strings|
-|**Valid values**|AWS region names|
-|**Default value**||
-
-The `regions` variable sets which AWS regions to query for RDS intances.
+File paths are relative to the current working directory of `blip`.
 
 ### local
 
@@ -241,15 +176,16 @@ The `local` subsection has only two variables:
 `disable-auto: true`
 `disable-auto-root: true`
 
-## `strict`
+### `stop-loss`
 
 {: .var-table }
-|**Type**|bool|
-|**Valid values**|`true`, `false`|
-|**Default value**|`false`|
+|**Type**|string|
+|**Valid values**|&bull;&nbsp;"N%" (percentage) where N is an integer between 0 and 100 (exclusive)<br>&bull;&nbsp;"N" where N is an integer greater than 0|
+|**Default value**||
 
-The `strict` variable enables strict mode, which is disabled by default.
-In strict mode, Blip returns certains errors rather than ignoring them.
+The `stop-loss` variable enables the [stop-lost feature](../monitors/loading#stop-loss).
+
+---
 
 # Monitor Defaults
 
@@ -273,52 +209,23 @@ The default `username` and `password` are applied to the 10 monitors because non
 If a monitor explicitly sets one of the variables, then its explicit value is used instead of the default value.
 
 {: .note }
-Monitor defaults are convenient, but explicit monitor configuraiton is more clear, so use monitor defatuls sparingly.
+Monitor defaults are convenient, but explicit monitor configuration is more clear, so use monitor defaults sparingly.
 The intended use case is for variables that _must_ be consistent for all monitors.
-For example, if Blip monitors Amazon RDS instances in region `us-east-1`, then setting monitor default `aws-rds.region: "us-east-1"` makes sense.
+For example, if Blip monitors Amazon RDS instances in region `us-east-1`, then setting monitor default `aws.region: "us-east-1"` makes sense.
 
 {: .config-section-title}
-## aws-rds
+## aws
 
-The `aws-rds` section configures Amazon RDS for MySQL.
+The `aws` section configures Amazon RDS for MySQL.
 
 ```yaml
-aws-rds:
-  iam-auth-token: false
-  password-secret: ""
-  region: ""
+aws:
   disable-auto-region: false
   disable-auto-tls: false
+  iam-auth: false
+  password-secret: ""
+  region: ""
 ```
-
-### `iam-auth-token`
-
-{: .var-table }
-|**Type**|bool|
-|**Valid values**|`true` or `false`|
-|**Default value**|`false`|
-
-The `iam-auth-token` variable enables [IAM database authentication](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/UsingWithRDS.IAMDBAuth).
-
-When enabled, IAM authentication is the prefered authentication method
-
-### `password-secret`
-
-{: .var-table }
-|**Type**|string|
-|**Valid values**|AWS Secrets Manager ARN|
-|**Default value**||
-
-The `password-secret` variables sets the AWS Secrets Manager ARN that contains the MySQL user password.
-
-### `region`
-
-{: .var-table }
-|**Type**|string|
-|**Valid values**||
-|**Default value**||
-
-The `region` variable sets the AWS region.
 
 ### `disable-auto-region`
 
@@ -336,34 +243,54 @@ The `disable-auto-region` variable enables/disables automatic detection of the A
 |**Valid values**|`true` or `false`|
 |**Default value**|`false`|
 
-The `disable-auto-tls` variables enables/disables automatic use of the Amazon RDS certifcate authority (CA).
-By default, Blip uses the 2019 AWS RDS CA, which is built-in (you don't need to configure anything).
-See [AWS](../cloud/aws) for details.
+The `disable-auto-tls` variables disables automatic use of the Amazon RDS certificate authority (CA).
+By default, Blip uses the Amazon RDS CA-2019 certificate, which is built-in (you don't need to configure anything).
+See [Cloud / AWS / TLS](../cloud/aws#tls) for details.
+
+### `iam-auth`
+
+{: .var-table }
+|**Type**|bool|
+|**Valid values**|`true` or `false`|
+|**Default value**|`false`|
+
+The `iam-auth` variable enables [IAM database authentication](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/UsingWithRDS.IAMDBAuth).
+When enabled, an IAM authentication token is generated by Blip and used as the password.
+
+See [Cloud / AWS / IAM Authentication](../cloud/aws#iam-authentication) for details.
+
+### `password-secret`
+
+{: .var-table }
+|**Type**|string|
+|**Valid values**|AWS Secrets Manager ARN|
+|**Default value**||
+
+The `password-secret` variables sets the AWS Secrets Manager ARN that contains the MySQL user password.
+
+### `region`
+
+{: .var-table }
+|**Type**|string|
+|**Valid values**|"auto" or any valid AWS Region|
+|**Default value**|"auth"|
+
+The `region` variable sets the AWS region used to create an AWS configuration (which includes the AWS credentials).
+
+See [Cloud / AWS / IAM Authentication](../cloud/aws#region) for details.
 
 {: .config-section-title}
 ## exporter
 
-The `exporter` section configure Blip to emulate Prometheus `mysqld_exporter`.
+The `exporter` section configure Blip to [emulate Prometheus `mysqld_exporter`](../prometheus).
 
 ```yaml
 exporter:
-  mode: ""
   flags:
     web.listen-address: "127.0.0.1:9104"
     web.telemetry-path: "/metrics"
+  mode: ""
 ```
-
-### `mode`
-
-{: .var-table }
-|**Type**|string|
-|**Valid values**|`dual` or `legacy`|
-|**Default value**||
-
-The `mode` variables enables the [Prometheus emualation feature](../prometheus/).
-When set to `dual`, Blip runs normally _and_ emulates Prometheus.
-When set to `legacy`, Blip runs _only_ emulates Prometheus.
-The feature is disabled by default.
 
 ### `flags`
 
@@ -377,14 +304,39 @@ The `flag` variable is a key-value map of strings for certain Prometheus mysqld_
 * `web.listen-address` (default: `127.0.0.1:9104`)
 * `web.telemetry-path` (default: `/metrics`)
 
+### `mode`
+
+{: .var-table }
+|**Type**|string|
+|**Valid values**|`dual` or `legacy`|
+|**Default value**||
+
+The `mode` variables enables [Prometheus emulation](../prometheus).
+When set to `dual`, Blip runs normally _and_ emulates Prometheus.
+When set to `legacy`, Blip runs _only_ emulates Prometheus.
+The feature is disabled by default.
+
+### `plan`
+
+{: .var-table }
+|**Type**|string|
+|**Valid values**|Plan name|
+|**Default value**|`default-exporter`|
+
+The `plan` variables specifies which plan to load.
+The plan must have only 1 level.
+See [Prometheus emulation](../prometheus#plan) for details.
+
 {: .config-section-title}
 ## heartbeat
 
-The `heartbeat` section configures the [Blip heartbeat feature](../hearbeat/).
+The `heartbeat` section configures the [Blip heartbeat](../heartbeat).
 
 ```yaml
 heartbeat:
   freq: ""
+  role: ""
+  source-id: ""
   table: blip.heartbeat
 ```
 
@@ -392,21 +344,53 @@ heartbeat:
 
 {: .var-table }
 |**Type**|string|
-|**Valid values**|[Go duration string](https://pkg.go.dev/time#ParseDuration)|
+|**Valid values**|[Go duration string](https://pkg.go.dev/time#ParseDuration) greater than zero|
 |**Default value**||
 
-The `freq` variables sets how frequently heartbeats are written.
-See [Hearbeat](../hearbeat/) for details.
+The `freq` variable enables [Blip heartbeats](../hearbeat) at the specified frequency.
+A frequency of "1s" or "2s" is suggested because heartbeat frequency does _not_ determine replication lag accuracy or reporting.
+See [Heartbeat > Accuracy](../heartbeat#accuracy) for details.
+
+See [`repl.lag` metric collector](../metrics/domains#repllag) for reporting replication lag.
+
+To disable heartbeat, remove `freq` or set to an empty string (zero is not a valid value).
+
+### `role`
+
+{: .var-table }
+|**Type**|string|
+|**Valid values**|User-defined|
+|**Default value**||
+
+The `role` variable sets the role that the monitor reports in the [heartbeat table](../heartbeat#table).
+For example, this might be a region like "us-east-1".
+
+See [Heartbeat > Topology](../heartbeat#replication-topology) to learn how `role` and `source-id` are used.
+
+### `source-id`
+
+{: .var-table }
+|**Type**|string|
+|**Valid values**|User-defined|
+|**Default value**|`%{monitor.id}`|
+
+The `source-id` variable sets the source ID that the monitor reports in the [heartbeat table](../heartbeat#table).
+This overrides the default value, which is often necessary in the cloud where MySQL instances do not have user-defined hostnames, especially with respect to replication.
+
+See [Heartbeat > Topology](../heartbeat#replication-topology) to learn how `role` and `source-id` are used.
 
 ### `table`
 
 {: .var-table }
 |**Type**|string|
 |**Valid values**|valid MySQL table name|
-|**Default value**||
+|**Default value**|`blip.heartbeat`|
 
-The `table` variables sets the Blip heartbeat table.
+The `table` variable sets the Blip heartbeat table (where heartbeat are written).
 The default database is `blip` if the table name is not database-qualified like `db.heartbeat`.
+
+The table must already exist; Blip does not create the table.
+See [Heartbeat > Table](../heartbeat#table) for details.
 
 {: .config-section-title}
 ## mysql
@@ -420,12 +404,22 @@ mysql:
   password: ""
   password-file: ""
   socket: ""
-  timeout-connect: "5s"
+  timeout-connect: "10s"
   username: "blip"
 ```
 
-This is the most important and common seciton since it configures how Blip connects to MySQL.
-It's also the only section that becomes top-level in each [monitor config](#monitors): in a monitor config, omit `mysql:` and configure these variables at the top level.
+As monitor defaults, this section is specified as shown above: top-level with the variables specified under `mysql:`.
+For each monitor in the [`monitors`](#monitors) section, these variables are top-level (omit the `mysql:` header).
+For example:
+
+```yaml
+monitors:
+  - hostname: ""
+    mycnf: ""
+    # Other mysql section variables
+```
+
+_These are the only variables the become top-level in [`monitors`](#monitors)._
 
 ### `hostname`
 
@@ -456,6 +450,7 @@ Blip reads the `[client]` section of the my.cnf file:
 |ssl-ca|[`tls.ca`](#ca)|
 |ssl-cert|[`tls.cert`](#cert)|
 |ssl-key|[`tls.key`](#key)|
+|ssl-mode|(Special handling)|
 |user|[`username`](#username)|
 
 ### `username`
@@ -510,51 +505,22 @@ The `plans` section configures the source of [plans](../plans/).
 
 ```yaml
 plans:
-  files: ["plan.yaml"]
+  files:
+    - plan1.yaml
+    - plan2.yaml
   table: "blip.plans"
   monitor: {}
-  adjust:
+  change:
     # See below
 ```
 
-### `files`
+### change
 
-{: .var-table }
-|**Type**|list of strings|
-|**Valid values**|file names|
-|**Default value**|`plans.yaml`|
-
-The `files` variable is a list of file names from which to load plans.
-Blip attempts to load the default, `plans.yaml`, but it is not required and does not cause an error if the file does not exist.
-Instead, in this case, Blip uses a default built-in plan.
-If plan files are explicitly configured, Blip only reads those plan files.
-
-### `monitor`
-
-{: .var-table }
-|**Type**|dictonary|
-|**Valid values**|[Monitor](#monitors)|
-|**Default value**||
-
-The `monitor` variable configures the MySQL instance from which the [`table`](#table-1) is loaded.
-
-### `table`
-
-{: .var-table }
-|**Type**|string|
-|**Valid values**|valid MySQL table name|
-|**Default value**||
-
-The `table` variable configures the MySQL table name from which plans are loaded.
-See
-
-### adjust
-
-The `adjust` subection of the `plan` section configures the [Level Plan Adjuster (LPA) feature](../monitor/level-adjuster.hmtml).
+The `change` subsection of the `plan` section configures [plan changing](../plans/changing) based on the state of MySQL.
 
 ```yaml
 plans:
-  adjust:
+  change:
     offline:
       after: ""
       plan: ""
@@ -569,7 +535,7 @@ plans:
       plan: ""
 ```
 
-Each of the four sections (corresponding to the four [connection states](../monitor/level-adjuster#connection-states)) have the same two variables:
+Each of the four sections&mdash;`offline`, `standby`, `read-only`, and `active`&mdash;have the same two variables:
 
 #### `after`
 
@@ -589,45 +555,81 @@ The `after` variable sets how long before the state takes effect.
 
 The `plan` variable sets the plan to load when the state takes effect.
 
+### `disable-default-plans`
+
+{: .var-table }
+|**Type**|string|
+|**Valid values**|`true` or `false`|
+|**Default value**|`false`|
+
+The `disable-default-plans` variable enables/disables [default plans](../plans/loading#default).
+
+### `files`
+
+{: .var-table }
+|**Type**|list of strings|
+|**Valid values**|file names|
+|**Default value**||
+
+The `files` variable is a list of file names from which to load plans.
+File paths are relative to the current working directory of `blip`.
+See [Plans / Loading](../plans/loading) for details.
+
+### `monitor`
+
+{: .var-table }
+|**Type**|dictionary|
+|**Valid values**|[Monitor](#monitors)|
+|**Default value**||
+
+The `monitor` variable configures the MySQL instance from which the [`table`](#table-1) is loaded.
+
+### `table`
+
+{: .var-table }
+|**Type**|string|
+|**Valid values**|valid MySQL table name|
+|**Default value**||
+
+The `table` variable is the MySQL table name from which plans are loaded.
+See [Plans / Table](../plans/table).
+
 {: .config-section-title}
 ## sinks
 
-The `sinks` section configures [built-in metrics sinks](../metrics/sinks#built-in) and [custom metrics sinks](../metrics/sinks#custom).
+The `sinks` section configures [built-in metric sinks](../sinks/) and [custom metrics sinks](../develop/sinks).
 This section is a map of maps:
 
 ```yaml
 sinks:
-  sinkName1:
-    option1: value1
-  sinkName2:
-    option1: value1
+  sink-foo:
+    # Options for sink-foo:
+    key1: value1
+  sink-bar:
+    # Options for sink-bar:
+    key1: value1
 ```
 
-Blip has three built-in sinks named `log`, `singalfx`, and `chronosphere`.
-The options for each are listed below.
+Keys are sink names.
+Values for each are a key-value map (of strings) as options for the named sink.
 
-### chronosphere
+The key-value options for each sink are sink-specific and passed directly to the sink.
+The sink validates the options.
+For built-in sinks, see [Sinks](../sinks/) for each one's options.
+For custom sinks, the options are whatever you program the custom sink to accept.
 
-|Key|Value|Default|
-|---|-----|-------|
-|`url`|Remote write URL|`http://127.0.0.1:3030/openmetrics/write`|
+{: .note }
+Blip does not distinguish between built-in and custom sinks.
+The built-in sinks are merely sink plugins automatically registered on startup;
+they implement the same interface as custom sinks.
 
-### log
-
-The Blip built-in `log` sink has no options.
-
-### signalfix
-
-|Key|Value|Default|
-|---|-----|-------|
-|`auth-token`|API authentication token||
-|`auth-token-file`|File to read API auth token from||
+If no sinks are specified, Blip use the sink defined by package variable `sink.Default`, which is [log](../sinks/log).
 
 {: .config-section-title}
 ##  tags
 
 The `tags` section sets user-defined key-value pairs (as strings) that are passed to each sink.
-For example (using [interpolation](#interpolation)):
+For example (using [interpolation](interpolation)):
 
 ```yaml
 tags:
@@ -640,8 +642,8 @@ Blip calls these "tags", but each sink might have a different term for the same 
 For example, with SignalFx these are called "dimensions".
 But the concept is the same: metadata (usually string key-value pairs) attached to metrics that describe or annotate the metrics for grouping, aggregation, or filtering when display in graphs/charts.
 
-The [built-in metrics sinks](../metrics/sinks#built-in) automatically send all tags with metrics.
-For example, the `signalfx` sink sends the tags as SingalFx dimensions.
+The [default sinks](../sinks) automatically send all tags with metrics.
+For example, the [`signalfx` sink](../sinks/signalfx) sends all tags as SignalFx dimensions.
 
 {: .config-section-title}
 ## tls
@@ -653,12 +655,14 @@ tls:
   ca: ""
   cert: ""
   key: ""
+  disable: false
+  skip-verify: false
 ```
 
 You can specify only `tls.ca`, or `tls.cert` and `tls.key`, or all three; any other combination is invalid.
 
 {: .note}
-By default, Blip does not use TLS for MySQL connections _except_ when using AWS; see section [`aws-rds`](#aws-rds) or [AWS](../cloud/aws).
+By default, Blip does not use TLS for MySQL connections _except_ when using AWS; see section [`aws`](#aws) or [AWS](../cloud/aws).
 
 ### `ca`
 
@@ -686,6 +690,25 @@ The `cert` variables sets the public certificate file.
 |**Default value**||
 
 The `key` variables sets the private key file.
+
+### `disable`
+
+{: .var-table }
+|**Type**|bool|
+|**Valid values**|`true` or `false`|
+|**Default value**|`false`|
+
+The `disable` variable disables TLS even if configured.
+`ssl-mode=DISABLED` in a [`mycnf`](#mycnf) file also disables TLS.
+
+### `skip-verify`
+
+{: .var-table }
+|**Type**|bool|
+|**Valid values**|`true` or `false`|
+|**Default value**|`false`|
+
+Do not verify the server address (MySQL hostname).
 
 # Monitors
 
@@ -718,7 +741,7 @@ Section [`exporter`](#exporter) is exactly the same in a monitor.
 
 <b>Refer to [Monitor Defaults](#monitor-defaults) for configuring MySQL instances, and remember: [`mysql`](#mysql) variables are top-level in a monitor (omit `mysql:` and include the variables directly).<b>
 
-Monitors have two variables that only appear in monitors: `id` and `meta`.
+Monitors have three variables that only appear in monitors: `id`, `meta`, and `plan`.
 
 ### `id`
 
@@ -746,7 +769,7 @@ monitors:
 Since tags are passed to sinks (which report metrics), all sinks will receive the monitor ID.
 (Sinks receive the monitor ID at the code-level too, so technically this example is not necessary.)
 
-Monitor IDs are not garuanteed to be stable&mdash;they might change between Blip versions.
+Monitor IDs are not guaranteed to be stable&mdash;they might change between Blip versions.
 Therefore, do not rely on them outside of Blip for truly stable, unique MySQL instance identification.
 
 ### `meta`
@@ -756,45 +779,21 @@ Therefore, do not rely on them outside of Blip for truly stable, unique MySQL in
 |**Valid values**|any strings|
 |**Default value**||
 
-The `meta` variable is a map of key-value strings extrensic to Blip.
+The `meta` variable is a map of key-value strings for user-defined monitor metadata.
 
-"Extrensic to Blip" is a fancy but succinct way of saying that `meta` data is not used by Blip, but it can be used by you.
-For example by contrast, all other variables are used by Blip in some way, for some purpose.
-But not `meta`.
-However, you can still reference `meta` in the config file and [plans](../plans/): `%{monitor.meta.KEY}`.
+No part of Blip uses or requires monitor metadata.
+Unlike [`tags`](#tags) and [_metric_ metadata](../metrics/reporting#meta), Blip does not copy or send monitor metadata.
+This makes monitor metadata useful for advanced or automated configurations because it allows you to add custom configuration and reference it with [interpolation](interpolation).
 
-`meta` solves at least one problem: passing the source DSN for a replica from monitor config to plan.
-Imagine you have two MySQL instances: `source.db` and `replica.db`, where the latter replicates from the former.
-Problem is: there is no configuration section to define the source MySQL instance.
+Monitor metadata is optional.
+When useful, the Blip documentation will shown to use it.
 
-{: .note}
-Configuring replication sources in Blip is not an easy problem to solve because replication topologies change when replicas are used for high availability, and [MySQL Group Replication](https://dev.mysql.com/doc/refman/8.0/en/group-replication) has different requirements.
+### `plan`
 
-To solve this problem, you configure the source DSN in `meta`:
+{: .var-table }
+|**Type**|string|
+|**Valid values**|any string|
+|**Default value**||
 
-```yaml
-monitors:
-  - hostname: replica.db
-    meta:
-      source-host: source.db
-      source-user: repl
-      source-pass: pleaseDontLag
-```
-
-You could configure it in [`tags`](#tags), too, but tags are copied to sinks whereas metadata is not.
-Therefore, this configuration is better placed in `meta` than `tags`.
-
-Then in the plan, reference the metadata:
-
-```yaml
-replication:
-  freq: 5s
-  collect:
-    repl:
-      options:
-        source-host: %{monitor.meta.source-host}
-        source-user: %{monitor.meta.source-user}
-        source-pass: %{monitor.meta.source-pass}
-      metrics:
-        - lag
-```
+The `plan` variable selects the [shared plan](../plans/loading#shared) for the monitor to use if [`change`](#change) is not configured.
+The default (no value) selects a plan according to [plan precedence](../plans/loading#precedence).

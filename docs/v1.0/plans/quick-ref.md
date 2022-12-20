@@ -2,57 +2,55 @@
 layout: default
 parent: Plans
 title: "Quick Reference"
-nav_order: 10
 ---
 
 # Quick Reference
+
+The following is a _quick references_, not a complete or valid example.
+See [File](file) for details.
 
 ### Interpolation
 
 ```
 ${ENV_VAR}
 %{monitor.hostname}
+%{monitor.meta.region}
 ```
 
 ### Plan File
 
-Following is a full Blip config file (YAML syntax).
-This is only a reference to show all configuration variables.
-
 ```yaml
----
-level:
+# Level "kpi" every 5 seconds
+kpi:
   freq: 5s
   collect:
     status.global:
       metrics:
-        - queries
-    status.host:
-      options:
-        host: 10.1.1.1
+        - Queries
+        - Threads_running
+    repl:
+      errors:
+        access-denied: "report-once,drop,stop"
       metrics:
-        - threads_running
+        - running
 
-    query.global:
-      options:
-        response_time_percentiles: "p95,p99,p999"
-      metrics:
-        - response_time
-    var:
-      options:
-      	opt_1: value_1
-        opt_N: value_N
-      metrics:
-        - metric_1
-        - metric_N
-level_N:
-  freq: 10s
+# Level "standard" every 20 seconds
+standard:
+  freq: 20s
+  status.global:
+    metrics:
+     - Select_full_join
+     - Select_full_range_join
+     - Select_scan
   collect:
-    domain_1:
+    innodb:
       options:
-      	opt_1: value_1
-        opt_N: value_N
-      metrics:
-        - metric_1
-        - metric_N
+        all: "yes"
+
+# Level "data-size" every 1 minute
+standard:
+  freq: 1m
+  collect:
+    size.database:
+      # All databases by default; no options or metrics
 ```

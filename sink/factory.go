@@ -3,27 +3,27 @@
 package sink
 
 import (
+	"context"
 	"fmt"
 	"strconv"
 	"sync"
 	"time"
 
 	"github.com/cashapp/blip"
-	"github.com/cashapp/blip/event"
 )
+
+// Default is the default sink if config.sinks is not specified.
+var Default = "log"
 
 func Register(name string, f blip.SinkFactory) error {
 	r.Lock()
 	defer r.Unlock()
 	_, ok := r.factory[name]
 	if ok {
-		if blip.Strict {
-			return fmt.Errorf("sink %s already registered", name)
-		}
-		blip.Debug("re-register sink %s", name)
+		return fmt.Errorf("sink %s already registered", name)
 	}
 	r.factory[name] = f
-	event.Sendf(event.REGISTER_SINK, name)
+	blip.Debug("register sink %s", name)
 	return nil
 }
 
@@ -49,10 +49,30 @@ func Make(args blip.SinkFactoryArgs) (blip.Sink, error) {
 
 // --------------------------------------------------------------------------
 
+type noopSink struct{}
+
+func (s noopSink) Send(ctx context.Context, m *blip.Metrics) error {
+	return nil
+}
+
+func (s noopSink) Status() string {
+	return ""
+}
+
+func (s noopSink) Name() string {
+	return "noop"
+}
+
+var noop = noopSink{}
+
+// --------------------------------------------------------------------------
+
 func init() {
+	Register("datadog", f)
 	Register("chronosphere", f)
 	Register("signalfx", f)
 	Register("log", f)
+	Register("noop", f)
 }
 
 type repo struct {
@@ -79,6 +99,9 @@ func (f *factory) Make(args blip.SinkFactoryArgs) (blip.Sink, error) {
 	// Built-in log sink is special (simple), so return early if that
 	if args.SinkName == "log" {
 		return NewLogSink(args.MonitorId)
+	}
+	if args.SinkName == "noop" {
+		return noop, nil
 	}
 
 	// ----------------------------------------------------------------------
@@ -125,6 +148,15 @@ func (f *factory) Make(args blip.SinkFactoryArgs) (blip.Sink, error) {
 			return nil, err
 		}
 		retryArgs.Sink, err = NewSignalFx(args.MonitorId, args.Options, args.Tags, httpClient)
+		if err != nil {
+			return nil, err
+		}
+	case "datadog":
+		httpClient, err := f.HTTPClient.MakeForSink("datadog", args.MonitorId, args.Options, args.Tags)
+		if err != nil {
+			return nil, err
+		}
+		retryArgs.Sink, err = NewDatadog(args.MonitorId, args.Options, args.Tags, httpClient)
 		if err != nil {
 			return nil, err
 		}

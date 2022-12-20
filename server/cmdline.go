@@ -13,26 +13,24 @@ import (
 
 // Options represents typical command line options: --addr, --config, etc.
 type Options struct {
-	Config        string `env:"BLIP_CONFIG" default:"blip.yaml"`
-	Debug         bool   `env:"BLIP_DEBUG"`
+	Config        string `arg:"env:BLIP_CONFIG"`
+	Debug         bool   `arg:"env:BLIP_DEBUG"`
 	Help          bool
-	Plans         string `env:"BLIP_PLANS"`
-	PrintConfig   bool   `arg:"--print-config"`
-	PrintDomains  bool   `arg:"--print-domains"`
-	PrintMonitors bool   `arg:"--print-monitors"`
-	PrintPlans    bool   `arg:"--print-plans"`
-	Strict        bool   `env:"BLIP_STRICT"`
-	Run           bool   `env:"BLIP_RUN" default:"true"`
-	Version       bool   `arg:"-v"`
+	Log           bool `arg:"env:BLIP_LOG"`
+	PrintConfig   bool `arg:"--print-config"`
+	PrintDomains  bool `arg:"--print-domains"`
+	PrintMonitors bool `arg:"--print-monitors"`
+	PrintPlans    bool `arg:"--print-plans"`
+	Run           bool `arg:"env:BLIP_RUN" default:"true"`
+	Version       bool `arg:"-v"`
 }
 
 // CommandLine represents options (--addr, etc.) and args: entity type, return
 // labels, and query predicates. The caller is expected to copy and use the embedded
 // structs separately, like:
 //
-//   var o config.Options = cmdLine.Options
-//   for i, arg := range cmdline.Args {
-//
+//	var o config.Options = cmdLine.Options
+//	for i, arg := range cmdline.Args {
 type CommandLine struct {
 	Options
 	Args []string `arg:"positional"`
@@ -67,17 +65,15 @@ func printHelp() {
 		"  --config         Config file (default: %s)\n"+
 		"  --debug          Print debug to stderr\n"+
 		"  --help           Print help and exit\n"+
-		"  --plans          Plans files (default: %s)\n"+
+		"  --log            Log info events to STDOUT\n"+
 		"  --print-config   Print config on boot\n"+
 		"  --print-domains  Print metric domains\n"+
 		"  --print-monitors Print monitors on boot\n"+
-		"  --print-plans    Print level plans on boot\n"+
-		"  --run            Run Blip (if false, boot then exit)\n"+
-		"  --strict         Enable strict mode\n"+
+		"  --run            Run monitors (if false, boot then exit)\n"+
 		"  --version        Print version and exit\n"+
 		"\n"+
 		"blip %s\n",
-		blip.DEFAULT_CONFIG_FILE, blip.DEFAULT_PLANS_FILES, blip.VERSION,
+		blip.DEFAULT_CONFIG_FILE, blip.VERSION,
 	)
 }
 

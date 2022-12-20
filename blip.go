@@ -56,7 +56,7 @@ type MetricValue struct {
 	// Boolean values are reported as 0 and 1.
 	Value float64
 
-	// Type is the metric type: COUNTER, COUNTER, and other const.
+	// Type is the metric type: GAUGE, COUNTER, and other const.
 	Type byte
 
 	// Group is the set of name-value pairs that determine the group to which
@@ -89,19 +89,44 @@ type SinkFactoryArgs struct {
 	Tags      map[string]string // config.monitor.tags
 }
 
-// Plugins are function callbacks that let you override specific functionality of Blip.
-// Every plugin is optional: if specified, it overrides the built-in functionality.
+// Plugins are function callbacks that override specific functionality of Blip.
+// Plugins are optional, but if specified it overrides the built-in functionality.
 type Plugins struct {
-	LoadConfig       func(Config) (Config, error)
-	LoadMonitors     func(Config) ([]ConfigMonitor, error)
-	LoadPlans        func(ConfigPlans) ([]Plan, error)
-	ModifyDB         func(*sql.DB)
-	StartMonitor     func(ConfigMonitor) bool
+	// LoadConfig loads the Blip config on startup. It's passed the Blip default
+	// config that should be applied like:
+	//
+	//   mycfg.ApplyDefaults(def.DefaultConfig())
+	//
+	// mycfg is the custom config loaded by the plugin, and def is the default
+	// config passed to the plugin. Alternatively, the plugin can set values in
+	// def (without unsetting default values). Without defaults, Blip might not
+	// work as expected.
+	//
+	// Do not call InterpolateEnvVars. Blip calls that after loading the config.
+	LoadConfig func(Config) (Config, error)
+
+	// LoadMonitors loads monitors on startup and reloads them on POST /monitors/reload.
+	LoadMonitors func(Config) ([]ConfigMonitor, error)
+
+	// LoadPlans loads plans on startup.
+	LoadPlans func(ConfigPlans) ([]Plan, error)
+
+	// ModifyDB modifies the *sql.DB connection pool. Use with caution.
+	ModifyDB func(*sql.DB, string)
+
+	// StartMonitor allows a monitor to start by returning true. Else the monitor
+	// is loaded but not started. This is used to load all monitors but start only
+	// certain monitors.
+	StartMonitor func(ConfigMonitor) bool
+
+	// TransformMetrics transforms metrics before they are sent to sinks.
+	// This is called for all monitors, metrics, and sinks. Use Metrics.MonitorId
+	// to determine the source of the metrics.
 	TransformMetrics func(*Metrics) error
 }
 
-// Factories are interfaces that let you override certain object creation of Blip.
-// Every factory is optional: if specified, it overrides the built-in factory.
+// Factories are interfaces that override certain object creation of Blip.
+// Factories are optional, but if specified the override the built-in factories.
 type Factories struct {
 	AWSConfig  AWSConfigFactory
 	DbConn     DbFactory
@@ -120,7 +145,7 @@ type AWS struct {
 }
 
 type AWSConfigFactory interface {
-	Make(AWS) (aws.Config, error)
+	Make(AWS, string) (aws.Config, error)
 }
 
 type DbFactory interface {
@@ -131,7 +156,7 @@ type HTTPClientFactory interface {
 	MakeForSink(sinkName, monitorId string, opts, tags map[string]string) (*http.Client, error)
 }
 
-// Monitor states used by level plan adjuster (LPA).
+// Monitor states used for plan changing: https://cashapp.github.io/blip/v1.0/plans/changing
 const (
 	STATE_NONE      = ""
 	STATE_OFFLINE   = "offline"
@@ -141,14 +166,9 @@ const (
 )
 
 var (
-	Strict    = false
 	Debugging = false
 	debugLog  = log.New(os.Stderr, "", log.LstdFlags|log.Lmicroseconds)
 )
-
-func init() {
-	log.SetFlags(log.LstdFlags | log.Lmicroseconds)
-}
 
 func Debug(msg string, v ...interface{}) {
 	if !Debugging {
@@ -196,4 +216,8 @@ func SetOrDefault(a, b string) string {
 		return a
 	}
 	return b
+}
+
+var FormatTime func(time.Time) string = func(t time.Time) string {
+	return t.Format(time.RFC3339)
 }

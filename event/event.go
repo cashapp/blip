@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/cashapp/blip"
@@ -31,15 +32,21 @@ type Receiver interface {
 	Recv(Event)
 }
 
+var once sync.Once
+
 // SetReceiver sets the receiver used by Blip to handle events. The default
 // receiver is Log. To override the default, call this function to set a new
 // receiver before calling Server.Boot.
 func SetReceiver(r Receiver) {
-	receiver = r
+	// Don't override becuase it's set only once. If user calls before
+	// Server.Start, then we keep their receiver. Else, Server.Start calls
+	// to set a built-in Log receiver.
+	once.Do(func() { receiver = r })
 }
 
 // receiver is the private package Receiver that the public packages below use.
-// It defaults to a Log type receiver, but users can call SetReceiver to override.
+// It defaults to a Log type receiver (set by Server.Start), but users can call
+// SetReceiver (before Server.Start) to override.
 var receiver Receiver = Log{}
 
 // Send sends an event with no additional message.
@@ -117,28 +124,27 @@ var stderr = log.New(os.Stderr, "", log.LstdFlags|log.Lmicroseconds)
 // Log is the default Receiver that uses the Go built-in log package to print
 // certain events to STDOUT and error events to STDERR. Call SetReceiver to
 // override this default.
-type Log struct{}
+type Log struct {
+	All bool
+}
 
 func (s Log) Recv(e Event) {
 	// Always print error events to STDERR
 	if e.Error {
-		stderr.Printf("[%s] [%s] ERROR: %s", e.MonitorId, e.Event, e.Message)
+		stderr.Printf("[%-25s] [%s] ERROR: %s", e.Event, e.MonitorId, e.Message)
 		return
 	}
 
-	// If debugging, debug-print all events
+	// Log all events? If true, then log to stdout.
+	if s.All {
+		stdout.Printf("[%-25s] [%s] %s", e.Event, e.MonitorId, e.Message)
+		return
+	}
+
+	// If debugging, print all events
 	if blip.Debugging {
-		blip.Debug("[%s] [%s] %s", e.MonitorId, e.Event, e.Message)
+		stdout.Printf("[%-25s] [%s] %s", e.Event, e.MonitorId, e.Message)
 		return
-	}
-
-	// Print certain non-error events to STDOUT because there are a lot
-	// of events, but we don't want to be noisy
-	switch e.Event {
-	case SERVER_RUN_WAIT:
-		stdout.Printf("blip %s listening %s", blip.VERSION, e.Message)
-	case SERVER_RUN_STOP:
-		stdout.Printf("blip %s stopped: %s", blip.VERSION, e.Message)
 	}
 }
 

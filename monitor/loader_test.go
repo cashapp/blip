@@ -34,7 +34,7 @@ func TestLoaderLoadOne(t *testing.T) {
 	// prevent it from actually running the monitor.
 	planName := "../test/plans/lpc_1_5_10.yaml"
 	moncfg := blip.ConfigMonitor{
-		MonitorId: monitorId1,
+		MonitorId: "m1",
 		Username:  "root",
 		Password:  "test",
 		Hostname:  "127.0.0.1:33560", // 5.6
@@ -50,6 +50,9 @@ func TestLoaderLoadOne(t *testing.T) {
 		Factories: blip.Factories{
 			DbConn: dbconn.NewConnFactory(nil, nil),
 		},
+		Plugins: blip.Plugins{TransformMetrics: func(metrics *blip.Metrics) error {
+			return nil
+		}},
 		PlanLoader: plan.NewLoader(nil),
 		RDSLoader:  aws.RDSLoader{ClientFactory: mock.RDSClientFactory{}},
 	}

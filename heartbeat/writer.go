@@ -14,9 +14,10 @@ import (
 )
 
 const BLIP_TABLE_DDL = `CREATE TABLE IF NOT EXISTS heartbeat (
-  monitor_id varchar(500)      NOT NULL PRIMARY KEY,  -- source
-  ts         timestamp(3)      NOT NULL,              -- heartbeat
-  freq       smallint unsigned NOT NULL               -- milliseconds
+  src_id   varchar(200)      NOT NULL PRIMARY KEY,
+  src_role varchar(200)          NULL DEFAULT NULL,
+  ts       timestamp(3)      NOT NULL,  -- heartbeat
+  freq     smallint unsigned NOT NULL   -- milliseconds
 ) ENGINE=InnoDB`
 
 // WriteTimeout is how long to wait for MySQL to execute any heartbeat write.
@@ -37,11 +38,10 @@ var ReadOnlyWait = 20 * time.Second
 type Writer struct {
 	monitorId string
 	db        *sql.DB
-	cfg       blip.ConfigHeartbeat
+	srcId     string
+	srcRole   string
 	freq      time.Duration
 	table     string
-	timeout   time.Duration
-	retryWait time.Duration
 }
 
 func NewWriter(monitorId string, db *sql.DB, cfg blip.ConfigHeartbeat) *Writer {
@@ -54,20 +54,24 @@ func NewWriter(monitorId string, db *sql.DB, cfg blip.ConfigHeartbeat) *Writer {
 
 	freq, _ := time.ParseDuration(cfg.Freq)
 
+	srcId := cfg.SourceId
+	if srcId == "" {
+		srcId = monitorId
+	}
+
 	return &Writer{
 		monitorId: monitorId,
 		db:        db,
-		cfg:       cfg,
+		srcId:     srcId,
+		srcRole:   cfg.Role,
 		freq:      freq,
 		table:     sqlutil.SanitizeTable(cfg.Table, blip.DEFAULT_DATABASE),
 	}
 }
 
-const blip_hb_writer = "heartbeat-writer"
-
 func (w *Writer) Write(stopChan, doneChan chan struct{}) error {
 	defer close(doneChan)
-	defer status.Monitor(w.monitorId, blip_hb_writer, "stopped")
+	defer status.Monitor(w.monitorId, status.HEARTBEAT_WRITER, "stopped")
 
 	var (
 		err    error
@@ -79,26 +83,32 @@ func (w *Writer) Write(stopChan, doneChan chan struct{}) error {
 	// or it updates an existing row with the current timestamp and frequency.
 	// This must be done else the simpler UPDATE statements below, which is the
 	// real heartbeat, will fail because there's no match row.
-	ping := fmt.Sprintf("INSERT INTO %s (monitor_id, ts, freq) VALUES ('%s', NOW(3), %d) ON DUPLICATE KEY UPDATE ts=NOW(3), freq=%d",
-		w.table, w.monitorId, w.freq.Milliseconds(), w.freq.Milliseconds())
-	blip.Debug("hb writing: %s", ping)
+	var ping string
+	if w.srcRole != "" {
+		ping = fmt.Sprintf("INSERT INTO %s (src_id, src_role, ts, freq) VALUES ('%s', '%s', NOW(3), %d) ON DUPLICATE KEY UPDATE ts=NOW(3), freq=%d, src_role='%s'",
+			w.table, w.srcId, w.srcRole, w.freq.Milliseconds(), w.freq.Milliseconds(), w.srcRole)
+	} else {
+		ping = fmt.Sprintf("INSERT INTO %s (src_id, src_role, ts, freq) VALUES ('%s', NULL, NOW(3), %d) ON DUPLICATE KEY UPDATE ts=NOW(3), freq=%d, src_role=NULL",
+			w.table, w.monitorId, w.freq.Milliseconds(), w.freq.Milliseconds())
+	}
+	blip.Debug("%s: first heartbeat: %s", w.monitorId, ping)
 	for {
-		status.Monitor(w.monitorId, blip_hb_writer, "first insert")
+		status.Monitor(w.monitorId, status.HEARTBEAT_WRITER, "first insert")
 		ctx, cancel = context.WithTimeout(context.Background(), WriteTimeout)
 		_, err = w.db.ExecContext(ctx, ping)
 		cancel()
 		if err == nil { // success
-			status.Monitor(w.monitorId, blip_hb_writer, "sleep")
+			status.Monitor(w.monitorId, status.HEARTBEAT_WRITER, "sleep")
 			break
 		}
 
 		// Error --
-		blip.Debug("%s: first insert, failed: %s", w.monitorId, err)
+		blip.Debug("%s: first heartbeat failed: %s", w.monitorId, err)
 		if sqlutil.ReadOnly(err) {
-			status.Monitor(w.monitorId, blip_hb_writer, "init: MySQL is read-only, sleeping %s", ReadOnlyWait)
+			status.Monitor(w.monitorId, status.HEARTBEAT_WRITER, "init: MySQL is read-only, sleeping %s", ReadOnlyWait)
 			time.Sleep(ReadOnlyWait)
 		} else {
-			status.Monitor(w.monitorId, blip_hb_writer, "init: error: %s (sleeping %s)", err, InitErrorWait)
+			status.Monitor(w.monitorId, status.HEARTBEAT_WRITER, "init: error: %s (sleeping %s)", err, InitErrorWait)
 			time.Sleep(InitErrorWait)
 		}
 
@@ -117,27 +127,28 @@ func (w *Writer) Write(stopChan, doneChan chan struct{}) error {
 	// to void 2 wasted round trips: prep (waste), exec, close (waste).
 	// This risk of SQL injection is miniscule because both table and monitorId
 	// are sanitized, and Blip should only have write privs on its heartbeat table.
-	ping = fmt.Sprintf("UPDATE %s SET ts=NOW(3) WHERE monitor_id='%s'", w.table, w.monitorId)
-	blip.Debug(ping)
+	ping = fmt.Sprintf("UPDATE %s SET ts=NOW(3) WHERE src_id='%s'", w.table, w.srcId)
+	blip.Debug("%s: heartbeat: %s", w.monitorId, ping)
 	for {
 		time.Sleep(w.freq)
 
-		status.Monitor(w.monitorId, blip_hb_writer, "write")
+		status.Monitor(w.monitorId, status.HEARTBEAT_WRITER, "write")
 		ctx, cancel = context.WithTimeout(context.Background(), WriteTimeout)
 		_, err = w.db.ExecContext(ctx, ping)
 		cancel()
 		if err != nil {
+			blip.Debug("%s: %s", w.monitorId, err.Error())
 			if sqlutil.ReadOnly(err) {
-				status.Monitor(w.monitorId, blip_hb_writer, "MySQL is read-only, sleeping %s", ReadOnlyWait)
+				status.Monitor(w.monitorId, status.HEARTBEAT_WRITER, "MySQL is read-only, sleeping %s", ReadOnlyWait)
 				time.Sleep(ReadOnlyWait)
 			} else {
-				status.Monitor(w.monitorId, blip_hb_writer, "write error: %s", err)
+				status.Monitor(w.monitorId, status.HEARTBEAT_WRITER, "write error: %s", err)
 				// No special sleep on random errors; keep trying to write at freq
 			}
 		} else {
 			// Set status on successful Exec here, not before Sleep, so it
 			// doesn't overwrite status set on Exec error; "sleep" = "write OK"
-			status.Monitor(w.monitorId, blip_hb_writer, "sleep")
+			status.Monitor(w.monitorId, status.HEARTBEAT_WRITER, "sleep")
 		}
 
 		// Was Stop called?

@@ -1,69 +1,70 @@
 ---
 layout: default
-title: "Plans"
+title: "4. Plans"
 parent: Introduction
 nav_order: 4
 ---
 
 # Plans
 
-A _level plan_ (or _plan_ for short) configures which metrics to collect.
-Plans solve three problems:
+Blip _plans_ specify which metrics to collect and how often.
 
-* Which metrics to collect?
-* How to collect those metrics?
-* How _often_ to collect those metrics?
+Plans solve two problems:
+* MySQL metrics are unorganized
+* Metrics should be collected at different frequencies
 
-The first problem arises because there are over 1,000 MySQL metrics but 0 standards for which metrics to collect.
-Some engineers collect nearly all metrics and use what they need in graphs.
-Some engineers collect as few metrics as possible due to costs.
-Some engineers don't know what to collect, relying on monitor defaults to be useful.
+The [previous part](metrics) of the introduction addresses the first problem: domains organize MySQL metrics.
+This part addresses the second problem.
 
-Plans help solve the first problem by not hard-coding which metcis to collect.
-Write a plan to collect only the metrics you need.
+Consider metric `Queries` (used to calculate QPS) versus a metric to report database size.
+`Queries` should be collected every few seconds because QPS a key performance indicator (KPI), so higher resolution (collected more frequently) is better.
+But database size should be collect every few minutes because it does not change quickly, so lower resolution (collected less frequently) is better.
+Plans make this possible; here's a snippet for this example:
+
+```yaml
+kpi:                # level name
+  freq: 1s          # collection frequency
+  collect:
+    status.global:  # domain
+      metrics:
+        - Queries   # metrics in domain
+size:
+  freq: 5m
+  collect:
+    size.database:
+      # Defaults
+```
+
+The plan snippet above has two levels: `kpi` and `size`.
+A _level_ is defined by a unique collection frequency: `1s` and `5m`, respectively.
+Metrics listed for each level are collected at the specified frequency.
 
 <div class="note">
-Blip has a built-in default plan that collects more than 60 of the most important MySQL metrics, which might be all you need.
+Writing a plan is optional.
+Blip has a default plan that collects more than 60 of the most important MySQL metrics.
 </div>
 
-The second problem arises because there are many versions and distributions of MySQL, which makes some metrics a moving target.
-For example: where do you collect a MySQL replication lag metric?
-The oldest and perhaps still most common source is `Seconds_Behind_Master` in the `SHOW SLAVE STATUS` output.
-But those two changed to `Seconds_Behind_Source` and `SHOW REPLICA STATUS`, respectively.
-And what if you don't use those and, instead, use [pt-heartbeat](https://www.percona.com/doc/percona-toolkit/LATEST/pt-heartbeat) or the Blip built-in heartbeat?
-Or what if you're running [MySQL Group Replication](https://dev.mysql.com/doc/refman/8.0/en/group-replication)?
-Or what if you run MySQL in the cloud and the cloud provider emits its own replication lag metric?
-
-Plans help solve the second problem by using _metric domains_ (or _domains_ for short) to name logically-related group of MySQL metrics.
-Probably the most well known group is `SHOW GLOBAL STATUS`, to which Blip gives the domain name `status.global`.
-A replication lag metric is scoped within the `repl` domain (short for "replication"), which hides (abstarcts way) the technical details of how it's collected.
-When you write a plan that collects replication lag, the plan works everywhere because domains specify _which_ metrics to collect, not necessarily _how_ to collect them.
-
-The third problem arises from cost and storage limits: if everything was fast and free, you would collect all metrics every 1 second.
-But this is (almost) never done because it requires signfiicant storage and processing, which lead to significant costs.
-Instead, the norm is collecting all metrics every 10, 20, or 30 seconds.
-But even 10 seconds is too long for a busy database because, for example, at only 5,000 QPS, that resolution averages out the metrics for 50,000 queries.
-
-Plans help solve the third problem by allowing you to collect different metrics at different frequencies&mdash;which is the "level" in the full term: "level plan".
-It helps to remember as: "Higher the level, higher the wait (time between collection)."
-For example, imagine three levels as shown below.
+When frequencies overlap, Blip automatically collects all metrics in the overlapping levels.
+This is called _leveling up_ because levels are sorted ascending by frequency and Blip calculates the highest level to collect.
+For example, suppose a plan specifies three levels:
 
 ![Three Levels](/blip/assets/img/three-levels.png)
 
-Level 1, the base level, is collected frqeuently (shortest wait time): every 5 seconds.
-Level 2 is collected less frequently: every 20 seconds.
-Level 3, the highest level, is collected the most infrequently (longest wait time): every 30 seconds.
-
-Blip automatically combines levels when they overlap and collects all metrics at that time.
+When these frequencies overlap (measured in seconds), Blip collects each overlapping level:
 
 ![Three Levels](/blip/assets/img/level-times.png)
 
-At 20 seconds (since Blip started collecting metrics for this plan), Blip collects metrics for both levels 1 and 2 because `20 mod 5 = 0` and `20 mod 20 = 0`, respectively.
-At 30 seconds, Blip collects metrics for both levels 1 anbd 3 because `30 mod 5 = 0` and `30 mod 20 = 0`, respectively.
-And at 60 seconds, Blip collecgts metrics for all three levels because `60 mod freq = 0`.
+At 5, 10, and 15 seconds, Blip collects only level 1.
+At 20 seconds, Blip collects metrics for both levels 1 and 2 because `20 mod 5 = 0` and `20 mod 20 = 0`, respectively.
+At 30 seconds, Blip collects metrics for both levels 1 and 3 because `30 mod 5 = 0` and `30 mod 20 = 0`, respectively.
+And at 60 seconds, Blip collects metrics for all three levels because `60 mod freq = 0`.
+Then the cycle repeats: at time 65 seconds, Blip collects only level 1 again, and so forth.
+
+Each monitor has its own plan&mdash;or copy of a shared plan.
+Although the common use case is a single plan for all monitors, Blip can collect different metrics&mdash;at different frequencies&mdash;for each monitor.
 
 Blip plans can do more, but for this introduction it's sufficient to know that they allow you to fine-tune metrics collection, which increases the quality of monitoring while reducing costs.
 
 ---
 
-Keep going: [Quick Start&nbsp;&darr;](../quick-start/)
+Last page; keep going: [Sinks&nbsp;&darr;](sinks)

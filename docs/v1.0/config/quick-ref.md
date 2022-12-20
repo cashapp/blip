@@ -2,12 +2,11 @@
 layout: default
 title: "Quick Reference"
 parent: Configure
-nav_order: 10
 ---
 
 # Quick Reference
 
-The following are _quick references_, not complete or valid examples.
+The following is a _quick references_, not a complete or valid example.
 See [Config File](config-file) for details.
 
 ### Interpolation
@@ -15,6 +14,7 @@ See [Config File](config-file) for details.
 ```
 ${ENV_VAR}
 %{monitor.hostname}
+%{monitor.meta.region}
 ```
 
 ### Config File
@@ -22,60 +22,60 @@ ${ENV_VAR}
 ```yaml
 ---
 # ---------------------------------------------------------------------------
-# Blip server
+# Server config
 # ---------------------------------------------------------------------------
 
 api:
-  bind: 127.1:7090
+  bind: 127.0.0.1:7522
   disable: false
 
+http:
+  proxy: "http://proxy.internal"
+
 monitor-loader:
-  freq: 60s
-  files: [one.yaml, two.yaml]
-  stop-loss: 50%
   aws:
-    regions: ["auto","us-east-1"]
+    regions: ["auto", "us-east-1"]
+  files:
+    - "some-mysql.yaml"
+    - "more-mysql.yaml"
   local:
     disable-auto: true
     disable-auto-root: true
-
-strict: true
+  stop-loss: 50%
 
 # ---------------------------------------------------------------------------
-# Defaults for monitors
+# Monitor defaults
 # ---------------------------------------------------------------------------
 
-aws-rds:
-  iam-auth-token: true
-  password-secret: "arn::::"
-  region: "us-east-1"
+aws:
+  auth-token: true
   disable-auto-region: false
   disable-auto-tls: false
+  password-secret: "arn::::"
+  region: "us-east-1"
 
 exporter:
-  mode: dual|legacy
   flags:
-    web.listen-address: :9001
+    web.listen-address: "127.0.0.1:9104"
+    web.telemetry-path: "/metrics"
+  mode: "dual" # or "legacy"
 
 heartbeat:
-  freq: 1s
-  table: blip.heartbeat
+  freq: 2s
+  source-id: "source-host.local"
+  role: "west-side"
+  table: "blip.heartbeat"
 
 mysql:
-  mycnf: my.cnf
-  username: blip
-  password: blip
-  password-file: ""
+  mycnf: "/app/my.cnf"
+  password: "..."
+  password-file: "/var/shm/blip-passwd"
+  socket: "/var/lib/mysql.sock"
   timeout-connect: 5s
+  username: "blip"
 
 plans:
-  files:
-    - none.yaml
-    - ro-plan.yaml
-    - active-plan.yaml
-  table: blip.plans
-  monitor: <monitor>
-  adjust:
+  change:
     offline:
       after: 1s
       plan: none.yaml
@@ -88,83 +88,78 @@ plans:
     active:
       after: 1s
       plan: active-plan.yaml
+  disable-default-plans: false
+  files:
+    - none.yaml
+    - ro-plan.yaml
+    - active-plan.yaml
+    - special.yaml
+  monitor: <monitor>
+  table: "blip.plans"
 
 sinks:
+  chronosphere:
+    # See Sinks > chorosphere
+  datadog:
+    # See Sinks > datadog
+  log:
+    # No options
+  noop:
+    # No options
   retry:
     buffer-size: 60
     send-timeout: 5s
     send-retry-wait: 200ms
-  chronosphere:
-    url: "http://127.0.0.1:3030/openmetrics/write"
   signalfx:
-    auth-token: ""
-    auth-token-file: ""
-  log:
-    # No options
+    # See Sinks > signalfx
 
 tags:
   env: ${ENVIRONMENT:-dev}
   dc: ${DATACENTER:-local}
-  hostname: %{monitor.hostname}
+  hostname: "%{monitor.hostname}"
 
 tls:
-  ca: local.ca
-  cert: /secrets/$%{monitor.hostname}.crt
-  key: /secrets/%{monitor.hostname}.key
+  ca: "local.ca"
+  cert: "/secrets/%{monitor.hostname}.crt"
+  disable: false
+  key: "/secrets/%{monitor.hostname}.key"
+  skip-verify: false
 
 # ---------------------------------------------------------------------------
-# MySQL instances to monitor
+# Monitors (MySQL instances)
 # ---------------------------------------------------------------------------
 
 monitors:
-  - id: host1
-    # mysql:
+  - id: host1 # Optional; Blip auto-sets based on MySQL config
+
+    # -----------------------------------------------
+    # mysql section variables are specified directly:
     hostname: host1.local
-    socket: /tmp/mysql.sock
     mycnf: my.cnf
     username: metrics
     password: foo
     password-file: /dev/shm/mypasswd
+    socket: /tmp/mysql.sock
     timeout-connect: 5s
-    aws-rds:
-      password-secret: "arn::::"
-      iam-auth-token: true
-    exporter:
-      mode: dual|legacy
-      flags:
-        "web.listen-address": 127.0.0.1:9104
-        "web.telemetry-path": /metrics
-    heartbeat:
-      freq: 1s
-      table: blip.heartbeat
-    ha:
-      # Reserved
-    plans:
-      table: "blip.plans"
-      #monitor: <monitor>
-      adjust:
-        readonly:
-          after: 2s
-          plan: ro.yaml
-        active:
-          after: 1s
-          plan: rw.yaml
-    sinks:
-      signalfx:
-        auth-token: ""
-        auth-token-file: ""
-      log:
-        # No options
-      chronosphere:
-        url: http://127.0.0.1:3030/openmetrics/write
-    tags:
-      env: staging
-      monitor-id: %{monitor.id}
+
+    # ----------------------------------------------------------------------
+    # Use a shared plan from top-level config.plans instead of monitor plans
+    plan: "special.yaml"
+
+    # -----------------------------------------------------------
+    # Override monitor defaults by specifying a top-level section
     tls:
-      ca: my-ca
-      cert: ${SECRETS}/%{monitor.hostname}.cert
-      key:  ${SECRETS}/%{monitor.hostname}.key
+      ca: new.ca # overrides monitor default 'tls.ca: local.ca'
+
+    # ---------------------------------------------------
+    # Meta values unique to monitor (no monitor defaults)
     meta:
-      source: host2.local
-      canary: no
+      repl-source: source-db.local
+      canary: yes
+
+    # ----------------------------------------------
+    # Tags override monitor defaults or set new tags
+    tags:
+      hostname: "host1"  # overrides monitor default
+      foo:      "bar"    # new tag
 ```

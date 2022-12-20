@@ -59,11 +59,11 @@ func (c *Database) Help() blip.CollectorHelp {
 			},
 			OPT_INCLUDE: {
 				Name: OPT_INCLUDE,
-				Desc: "Comma-separate list of database names to include (overrides option " + OPT_INCLUDE + ")",
+				Desc: "Comma-separated list of database names to include (overrides option " + OPT_EXCLUDE + ")",
 			},
 			OPT_EXCLUDE: {
 				Name:    OPT_EXCLUDE,
-				Desc:    "Comma-separate list of database names to exclude (ignored if " + OPT_EXCLUDE + " set)",
+				Desc:    "Comma-separated list of database names to exclude (ignored if " + OPT_INCLUDE + " set)",
 				Default: "mysql,information_schema,performance_schema,sys",
 			},
 			OPT_LIKE: {
@@ -157,7 +157,8 @@ func (c *Database) Collect(ctx context.Context, levelName string) ([]blip.Metric
 		metrics = append(metrics, blip.MetricValue{
 			Name:  "bytes",
 			Type:  blip.GAUGE,
-			Group: map[string]string{"db": ""}, // "" = total
+			Group: map[string]string{"db": ""},
+			Value: total,
 		})
 	}
 

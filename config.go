@@ -7,6 +7,7 @@ import (
 	"crypto/x509"
 	"fmt"
 	"io/ioutil"
+	"net"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -18,13 +19,8 @@ import (
 )
 
 const (
-	ENV_STRICT = "BLIP_STRICT"
-	ENV_DEBUG  = "BLIP_DEBUG"
-
 	DEFAULT_CONFIG_FILE = "blip.yaml"
 	DEFAULT_DATABASE    = "blip"
-
-	INTERNAL_PLAN_NAME = "blip"
 )
 
 var envvar = regexp.MustCompile(`\${([\w_.-]+)(?:(\:\-)([\w_.-]*))?}`)
@@ -44,7 +40,7 @@ func interpolateEnv(v string) string {
 	if v2 == "" && m[2] != "" {
 		return m[3]
 	}
-	return envvar.ReplaceAllString(v, v2)
+	return envvar.ReplaceAllLiteralString(v, v2)
 }
 
 // setBool sets c to the value of b if c is nil (not set). Pointers are required
@@ -87,28 +83,27 @@ func validFreq(freq, config string) error {
 		return nil
 	}
 	if freq == "0" {
-		return fmt.Errorf("invalid %s: 0: must be greater than zero", config)
+		return fmt.Errorf("invalid config.%s: 0: must be greater than zero", config)
 	}
 	d, err := time.ParseDuration(freq)
 	if err != nil {
-		return fmt.Errorf("invalid %s: %s: %s", config, freq, err)
+		return fmt.Errorf("invalid config.%s: %s: %s", config, freq, err)
 	}
 	if d <= 0 {
-		return fmt.Errorf("invalid %s: %s (%d): value <= 0; must be greater than zero", config, freq, d)
+		return fmt.Errorf("invalid config.%s: %s (%d): value <= 0; must be greater than zero", config, freq, d)
 	}
 	return nil
 }
 
-func LoadConfig(filePath string, cfg Config) (Config, error) {
+func LoadConfig(filePath string, cfg Config, required bool) (Config, error) {
 	file, err := filepath.Abs(filePath)
 	if err != nil {
 		return Config{}, err
 	}
 	Debug("config file: %s (%s)", filePath, file)
 
-	// Config file must exist
 	if _, err := os.Stat(file); err != nil {
-		if cfg.Strict {
+		if required {
 			return Config{}, fmt.Errorf("config file %s does not exist", filePath)
 		}
 		Debug("config file doesn't exist")
@@ -121,11 +116,20 @@ func LoadConfig(filePath string, cfg Config) (Config, error) {
 		return Config{}, fmt.Errorf("cannot read config file: %s", err)
 	}
 
-	if err := yaml.Unmarshal(bytes, &cfg); err != nil {
+	if err := yaml.UnmarshalStrict(bytes, &cfg); err != nil {
 		return cfg, fmt.Errorf("cannot decode YAML in %s: %s", file, err)
 	}
 
 	return cfg, nil
+}
+
+func fileExists(filePath string) bool {
+	file, err := filepath.Abs(filePath)
+	if err != nil {
+		return false
+	}
+	_, err = os.Stat(file)
+	return err == nil
 }
 
 // Config represents the Blip startup configuration.
@@ -135,10 +139,9 @@ type Config struct {
 	HTTP          ConfigHTTP          `yaml:"http,omitempty"`
 	MonitorLoader ConfigMonitorLoader `yaml:"monitor-loader,omitempty"`
 	Sinks         ConfigSinks         `yaml:"sinks,omitempty"`
-	Strict        bool                `yaml:"strict"`
 
 	// Monitor defaults
-	AWS       ConfigAWSRDS           `yaml:"aws-rds,omitempty"`
+	AWS       ConfigAWS              `yaml:"aws,omitempty"`
 	Exporter  ConfigExporter         `yaml:"exporter,omitempty"`
 	HA        ConfigHighAvailability `yaml:"ha,omitempty"`
 	Heartbeat ConfigHeartbeat        `yaml:"heartbeat,omitempty"`
@@ -150,21 +153,13 @@ type Config struct {
 	Monitors []ConfigMonitor `yaml:"monitors,omitempty"`
 }
 
-func DefaultConfig(strict bool) Config {
-	if strict {
-		return Config{
-			Strict:   strict,
-			API:      DefaultConfigAPI(),
-			Monitors: []ConfigMonitor{},
-		}
-	}
-
+func DefaultConfig() Config {
 	return Config{
 		API:           DefaultConfigAPI(),
 		MonitorLoader: DefaultConfigMonitorLoader(),
 		Sinks:         DefaultConfigSinks(),
 
-		AWS:       DefaultConfigAWSRDS(),
+		AWS:       DefaultConfigAWS(),
 		Exporter:  DefaultConfigExporter(),
 		HA:        DefaultConfigHA(),
 		Heartbeat: DefaultConfigHeartbeat(),
@@ -172,14 +167,15 @@ func DefaultConfig(strict bool) Config {
 		Plans:     DefaultConfigPlans(),
 		TLS:       DefaultConfigTLS(),
 
-		// Default config does not have any monitors. If a real config file
-		// does not specify any, Server.LoadMonitors() will attemp to
-		// auto-detect a local MySQL instance, starting with DefaultConfigMontor().
+		// Default config does not have any monitors (MySQL instances).
+		// If the user does not specify any, Blip attempts to auto-detect
+		// local MySQL instances.
 		Monitors: []ConfigMonitor{},
 	}
 }
 
 func (c Config) Validate() error {
+	// Blip server
 	if err := c.API.Validate(); err != nil {
 		return err
 	}
@@ -192,6 +188,7 @@ func (c Config) Validate() error {
 	if err := c.MonitorLoader.Validate(); err != nil {
 		return err
 	}
+	// Monitor defaults
 	if err := c.AWS.Validate(); err != nil {
 		return err
 	}
@@ -217,15 +214,12 @@ func (c Config) Validate() error {
 }
 
 func (c *Config) InterpolateEnvVars() {
-	for k, v := range c.Tags {
-		c.Tags[k] = interpolateEnv(v)
-	}
-
+	// Blip server
 	c.API.InterpolateEnvVars()
 	c.HTTP.InterpolateEnvVars()
 	c.Sinks.InterpolateEnvVars()
 	c.MonitorLoader.InterpolateEnvVars()
-
+	// Monitor defaults
 	c.AWS.InterpolateEnvVars()
 	c.Exporter.InterpolateEnvVars()
 	c.HA.InterpolateEnvVars()
@@ -233,6 +227,17 @@ func (c *Config) InterpolateEnvVars() {
 	c.MySQL.InterpolateEnvVars()
 	c.Plans.InterpolateEnvVars()
 	c.TLS.InterpolateEnvVars()
+	for k, v := range c.Tags {
+		c.Tags[k] = interpolateEnv(v)
+	}
+}
+
+func (c *Config) ApplyDefaults(b Config) {
+	c.API.ApplyDefaults(b)
+	c.HTTP.ApplyDefaults(b)
+	c.MonitorLoader.ApplyDefaults(b)
+	// Blip doesn't set defaults for sinks; they're responsible for that
+	// when created
 }
 
 // ///////////////////////////////////////////////////////////////////////////
@@ -245,7 +250,7 @@ type ConfigAPI struct {
 }
 
 const (
-	DEFAULT_API_BIND = "127.0.0.1:9070"
+	DEFAULT_API_BIND = "127.0.0.1:7522"
 )
 
 func DefaultConfigAPI() ConfigAPI {
@@ -255,11 +260,24 @@ func DefaultConfigAPI() ConfigAPI {
 }
 
 func (c ConfigAPI) Validate() error {
+	// Since API does run and bind until server.Run, we check the bind addr
+	// here to catch an invalid bind during server.Boot
+	ln, err := net.Listen("tcp", c.Bind)
+	if err != nil {
+		return fmt.Errorf("api.bind: %s", err)
+	}
+	ln.Close()
 	return nil
 }
 
 func (c *ConfigAPI) InterpolateEnvVars() {
 	c.Bind = interpolateEnv(c.Bind)
+}
+
+func (c *ConfigAPI) ApplyDefaults(b Config) {
+	if c.Bind == "" {
+		c.Bind = b.API.Bind
+	}
 }
 
 // --------------------------------------------------------------------------
@@ -280,10 +298,15 @@ func (c *ConfigHTTP) InterpolateEnvVars() {
 	c.Proxy = interpolateEnv(c.Proxy)
 }
 
+func (c *ConfigHTTP) ApplyDefaults(b Config) {
+	if c.Proxy == "" {
+		c.Proxy = b.HTTP.Proxy
+	}
+}
+
 // --------------------------------------------------------------------------
 
 type ConfigMonitorLoader struct {
-	Freq     string                   `yaml:"freq,omitempty"`
 	Files    []string                 `yaml:"files,omitempty"`
 	StopLoss string                   `yaml:"stop-loss,omitempty"`
 	AWS      ConfigMonitorLoaderAWS   `yaml:"aws,omitempty"`
@@ -291,12 +314,16 @@ type ConfigMonitorLoader struct {
 }
 
 type ConfigMonitorLoaderAWS struct {
-	Regions     []string `yaml:"regions,omitempty"`
-	DisableAuto bool     `yaml:"disable-auto"`
+	Regions []string `yaml:"regions,omitempty"`
 }
 
 func (c ConfigMonitorLoaderAWS) Automatic() bool {
-	return len(c.Regions) == 0 && c.DisableAuto == false
+	for i := range c.Regions {
+		if c.Regions[i] == "auto" {
+			return true
+		}
+	}
+	return false
 }
 
 type ConfigMonitorLoaderLocal struct {
@@ -309,9 +336,6 @@ func DefaultConfigMonitorLoader() ConfigMonitorLoader {
 }
 
 func (c ConfigMonitorLoader) Validate() error {
-	if err := validFreq(c.Freq, "monitor-loader.freq"); err != nil {
-		return err
-	}
 	if _, _, err := StopLoss(c.StopLoss); err != nil {
 		return err
 	}
@@ -319,11 +343,13 @@ func (c ConfigMonitorLoader) Validate() error {
 }
 
 func (c *ConfigMonitorLoader) InterpolateEnvVars() {
-	c.Freq = interpolateEnv(c.Freq)
 	c.StopLoss = interpolateEnv(c.StopLoss)
 	for i := range c.Files {
 		c.Files[i] = interpolateEnv(c.Files[i])
 	}
+}
+
+func (c *ConfigMonitorLoader) ApplyDefaults(b Config) {
 }
 
 // ///////////////////////////////////////////////////////////////////////////
@@ -346,16 +372,22 @@ type ConfigMonitor struct {
 	// but these monitor.tags take precedent (are not overwritten by config.tags).
 	Tags map[string]string `yaml:"tags,omitempty"`
 
-	AWS       ConfigAWSRDS           `yaml:"aws-rds,omitempty"`
+	AWS       ConfigAWS              `yaml:"aws,omitempty"`
 	Exporter  ConfigExporter         `yaml:"exporter,omitempty"`
 	HA        ConfigHighAvailability `yaml:"ha,omitempty"`
 	Heartbeat ConfigHeartbeat        `yaml:"heartbeat,omitempty"`
 	Plans     ConfigPlans            `yaml:"plans,omitempty"`
+	Plan      string                 `yaml:"plan,omitempty"`
 	Sinks     ConfigSinks            `yaml:"sinks,omitempty"`
 	TLS       ConfigTLS              `yaml:"tls,omitempty"`
 
 	Meta map[string]string `yaml:"meta,omitempty"`
 }
+
+const (
+	DEFAULT_MONITOR_USERNAME        = "blip"
+	DEFAULT_MONITOR_TIMEOUT_CONNECT = "10s"
+)
 
 func DefaultConfigMonitor() ConfigMonitor {
 	return ConfigMonitor{
@@ -364,7 +396,7 @@ func DefaultConfigMonitor() ConfigMonitor {
 
 		Tags: map[string]string{},
 
-		AWS:       DefaultConfigAWSRDS(),
+		AWS:       DefaultConfigAWS(),
 		Exporter:  DefaultConfigExporter(),
 		HA:        DefaultConfigHA(),
 		Heartbeat: DefaultConfigHeartbeat(),
@@ -385,7 +417,6 @@ func (c *ConfigMonitor) ApplyDefaults(b Config) {
 	if c.Hostname == "" {
 		c.Hostname = b.MySQL.Hostname
 	}
-
 	if c.MyCnf == "" && b.MySQL.MyCnf != "" {
 		c.MyCnf = b.MySQL.MyCnf
 	}
@@ -398,18 +429,20 @@ func (c *ConfigMonitor) ApplyDefaults(b Config) {
 	if c.TimeoutConnect == "" && b.MySQL.TimeoutConnect != "" {
 		c.TimeoutConnect = b.MySQL.TimeoutConnect
 	}
-
-	for bk, bv := range b.Tags {
-		if _, ok := c.Tags[bk]; ok {
-			continue
+	if len(b.Tags) > 0 {
+		if c.Tags == nil {
+			c.Tags = map[string]string{}
 		}
-		c.Tags[bk] = bv
+		for bk, bv := range b.Tags {
+			if _, ok := c.Tags[bk]; ok {
+				continue
+			}
+			c.Tags[bk] = bv
+		}
 	}
-
 	if c.Sinks == nil {
 		c.Sinks = ConfigSinks{}
 	}
-
 	c.AWS.ApplyDefaults(b)
 	c.Exporter.ApplyDefaults(b)
 	c.HA.ApplyDefaults(b)
@@ -439,6 +472,7 @@ func (c *ConfigMonitor) InterpolateEnvVars() {
 	c.HA.InterpolateEnvVars()
 	c.Heartbeat.InterpolateEnvVars()
 	c.Plans.InterpolateEnvVars()
+	c.Plan = interpolateEnv(c.Plan)
 	c.Sinks.InterpolateEnvVars()
 	c.TLS.InterpolateEnvVars()
 }
@@ -463,6 +497,7 @@ func (c *ConfigMonitor) InterpolateMonitor() {
 	c.HA.InterpolateMonitor(c)
 	c.Heartbeat.InterpolateMonitor(c)
 	c.Plans.InterpolateMonitor(c)
+	c.Plan = c.interpolateMon(c.Plan)
 	c.Sinks.InterpolateMonitor(c)
 	c.TLS.InterpolateMonitor(c)
 }
@@ -496,7 +531,7 @@ func (c *ConfigMonitor) interpolateMon(v string) string {
 
 func (c *ConfigMonitor) fieldValue(f string) string {
 	switch strings.ToLower(f) {
-	case "monitorid", "monitor-id":
+	case "monitorid", "monitor-id", "id":
 		return c.MonitorId
 	case "mycnf":
 		return c.MyCnf
@@ -519,23 +554,23 @@ func (c *ConfigMonitor) fieldValue(f string) string {
 
 // --------------------------------------------------------------------------
 
-type ConfigAWSRDS struct {
-	AuthToken         *bool  `yaml:"auth-token,omitempty"`
+type ConfigAWS struct {
+	IAMAuth           *bool  `yaml:"iam-auth,omitempty"`
 	PasswordSecret    string `yaml:"password-secret,omitempty"`
 	Region            string `yaml:"region,omitempty"`
 	DisableAutoRegion *bool  `yaml:"disable-auto-region,omitempty"`
 	DisableAutoTLS    *bool  `yaml:"disable-auto-tls,omitempty"`
 }
 
-func DefaultConfigAWSRDS() ConfigAWSRDS {
-	return ConfigAWSRDS{}
+func DefaultConfigAWS() ConfigAWS {
+	return ConfigAWS{}
 }
 
-func (c ConfigAWSRDS) Validate() error {
+func (c ConfigAWS) Validate() error {
 	return nil
 }
 
-func (c *ConfigAWSRDS) ApplyDefaults(b Config) {
+func (c *ConfigAWS) ApplyDefaults(b Config) {
 	if c.PasswordSecret == "" {
 		c.PasswordSecret = b.AWS.PasswordSecret
 	}
@@ -543,18 +578,17 @@ func (c *ConfigAWSRDS) ApplyDefaults(b Config) {
 		c.Region = b.AWS.Region
 	}
 
-	c.AuthToken = setBool(c.AuthToken, b.AWS.AuthToken)
+	c.IAMAuth = setBool(c.IAMAuth, b.AWS.IAMAuth)
 	c.DisableAutoRegion = setBool(c.DisableAutoRegion, b.AWS.DisableAutoRegion)
 	c.DisableAutoTLS = setBool(c.DisableAutoTLS, b.AWS.DisableAutoTLS)
-
 }
 
-func (c *ConfigAWSRDS) InterpolateEnvVars() {
+func (c *ConfigAWS) InterpolateEnvVars() {
 	c.PasswordSecret = interpolateEnv(c.PasswordSecret)
 	c.Region = interpolateEnv(c.Region)
 }
 
-func (c *ConfigAWSRDS) InterpolateMonitor(m *ConfigMonitor) {
+func (c *ConfigAWS) InterpolateMonitor(m *ConfigMonitor) {
 	c.PasswordSecret = m.interpolateMon(c.PasswordSecret)
 	c.Region = m.interpolateMon(c.Region)
 }
@@ -567,11 +601,13 @@ const (
 
 	DEFAULT_EXPORTER_LISTEN_ADDR = "127.0.0.1:9104"
 	DEFAULT_EXPORTER_PATH        = "/metrics"
+	DEFAULT_EXPORTER_PLAN        = "default-exporter"
 )
 
 type ConfigExporter struct {
 	Flags map[string]string `yaml:"flags,omitempty"`
 	Mode  string            `yaml:"mode,omitempty"`
+	Plan  string            `yaml:"plan,omitempty"`
 }
 
 func DefaultConfigExporter() ConfigExporter {
@@ -579,8 +615,11 @@ func DefaultConfigExporter() ConfigExporter {
 }
 
 func (c ConfigExporter) Validate() error {
-	if c.Mode != "" && (c.Mode != EXPORTER_MODE_DUAL && c.Mode != EXPORTER_MODE_LEGACY) {
-		return fmt.Errorf("invalid mode: %s; valid values: dual, legacy", c.Mode)
+	if c.Mode == "" {
+		return nil // exporter not enabled; skip the rest
+	}
+	if c.Mode != EXPORTER_MODE_DUAL && c.Mode != EXPORTER_MODE_LEGACY {
+		return fmt.Errorf("invalid config.exporter.mode: %s; valid values: dual, legacy", c.Mode)
 	}
 	return nil
 }
@@ -588,6 +627,16 @@ func (c ConfigExporter) Validate() error {
 func (c *ConfigExporter) ApplyDefaults(b Config) {
 	if c.Mode == "" && b.Exporter.Mode != "" {
 		c.Mode = b.Exporter.Mode
+	}
+	if c.Mode == "" {
+		return // exporter not enabled; skip the rest
+	}
+
+	if c.Plan == "" && b.Exporter.Plan != "" {
+		c.Plan = b.Exporter.Plan
+	}
+	if c.Plan == "" {
+		c.Plan = DEFAULT_EXPORTER_PLAN
 	}
 	if len(b.Exporter.Flags) > 0 {
 		if c.Flags == nil {
@@ -601,6 +650,7 @@ func (c *ConfigExporter) ApplyDefaults(b Config) {
 
 func (c *ConfigExporter) InterpolateEnvVars() {
 	interpolateEnv(c.Mode)
+	interpolateEnv(c.Plan)
 	for k := range c.Flags {
 		c.Flags[k] = interpolateEnv(c.Flags[k])
 	}
@@ -608,6 +658,7 @@ func (c *ConfigExporter) InterpolateEnvVars() {
 
 func (c *ConfigExporter) InterpolateMonitor(m *ConfigMonitor) {
 	m.interpolateMon(c.Mode)
+	m.interpolateMon(c.Plan)
 	for k := range c.Flags {
 		c.Flags[k] = m.interpolateMon(c.Flags[k])
 	}
@@ -616,8 +667,10 @@ func (c *ConfigExporter) InterpolateMonitor(m *ConfigMonitor) {
 // --------------------------------------------------------------------------
 
 type ConfigHeartbeat struct {
-	Freq  string `yaml:"freq,omitempty"`
-	Table string `yaml:"table,omitempty"`
+	Freq     string `yaml:"freq,omitempty"`
+	SourceId string `yaml:"source-id,omitempty"`
+	Role     string `yaml:"role,omitempty"`
+	Table    string `yaml:"table,omitempty"`
 }
 
 const (
@@ -632,6 +685,9 @@ func (c ConfigHeartbeat) Validate() error {
 	if err := validFreq(c.Freq, "heartbeat.freq"); err != nil {
 		return err
 	}
+	if c.Freq == "" && (c.SourceId != "" || c.Role != "" || c.Table != "") {
+		return fmt.Errorf("invalid config.heartbeat: freq is not set but other values are set; set freq to enable heartbeat")
+	}
 	return nil
 }
 
@@ -642,6 +698,12 @@ func (c *ConfigHeartbeat) ApplyDefaults(b Config) {
 	if c.Table == "" {
 		c.Table = b.Heartbeat.Table
 	}
+	if c.SourceId == "" {
+		c.SourceId = b.Heartbeat.SourceId
+	}
+	if c.Role == "" {
+		c.Role = b.Heartbeat.Role
+	}
 	if c.Freq != "" && c.Table == "" {
 		c.Table = DEFAULT_HEARTBEAT_TABLE
 	}
@@ -649,11 +711,15 @@ func (c *ConfigHeartbeat) ApplyDefaults(b Config) {
 
 func (c *ConfigHeartbeat) InterpolateEnvVars() {
 	c.Freq = interpolateEnv(c.Freq)
+	c.SourceId = interpolateEnv(c.SourceId)
+	c.Role = interpolateEnv(c.Role)
 	c.Table = interpolateEnv(c.Table)
 }
 
 func (c *ConfigHeartbeat) InterpolateMonitor(m *ConfigMonitor) {
 	c.Freq = m.interpolateMon(c.Freq)
+	c.SourceId = m.interpolateMon(c.SourceId)
+	c.Role = m.interpolateMon(c.Role)
 	c.Table = m.interpolateMon(c.Table)
 }
 
@@ -682,29 +748,21 @@ func (c *ConfigHighAvailability) InterpolateMonitor(m *ConfigMonitor) {
 
 // --------------------------------------------------------------------------
 
+// ConfigMySQL are monitor defaults for each MySQL connection.
 type ConfigMySQL struct {
+	Hostname       string `yaml:"hostname,omitempty"`
 	MyCnf          string `yaml:"mycnf,omitempty"`
-	Username       string `yaml:"username,omitempty"`
 	Password       string `yaml:"password,omitempty"`
 	PasswordFile   string `yaml:"password-file,omitempty"`
+	Socket         string `yaml:"socket,omitempty"`
 	TimeoutConnect string `yaml:"timeout-connect,omitempty"`
-
-	// Only from my.cnf:
-	Socket   string `yaml:"-"` // socket
-	Hostname string `yaml:"-"` // host
-	TLSCert  string `yaml:"-"` // ssl-cert
-	TLSKey   string `yaml:"-"` // ssl-key
-	TLSCA    string `yaml:"-"` // ssl-ca
+	Username       string `yaml:"username,omitempty"`
 }
-
-const (
-	DEFAULT_MONITOR_USERNAME        = "blip"
-	DEFAULT_MONITOR_TIMEOUT_CONNECT = "5s"
-)
 
 func DefaultConfigMySQL() ConfigMySQL {
 	return ConfigMySQL{
-		Username: DEFAULT_MONITOR_USERNAME,
+		Username:       DEFAULT_MONITOR_USERNAME,
+		TimeoutConnect: DEFAULT_MONITOR_TIMEOUT_CONNECT,
 	}
 }
 
@@ -752,17 +810,24 @@ func (c *ConfigMySQL) InterpolateMonitor(m *ConfigMonitor) {
 	c.TimeoutConnect = m.interpolateMon(c.TimeoutConnect)
 }
 
+func (c ConfigMySQL) Redacted() string {
+	if c.Password != "" {
+		c.Password = "..."
+	}
+	return fmt.Sprintf("%+v", c)
+}
+
 // --------------------------------------------------------------------------
 
 type ConfigPlans struct {
-	Files   []string           `yaml:"files,omitempty"`
-	Table   string             `yaml:"table,omitempty"`
-	Monitor *ConfigMonitor     `yaml:"monitor,omitempty"`
-	Adjust  ConfigPlanAdjuster `yaml:"adjust,omitempty"`
+	Files               []string         `yaml:"files,omitempty"`
+	Table               string           `yaml:"table,omitempty"`
+	Monitor             *ConfigMonitor   `yaml:"monitor,omitempty"`
+	Change              ConfigPlanChange `yaml:"change,omitempty"`
+	DisableDefaultPlans bool             `yaml:"disable-default-plans"`
 }
 
 const (
-	DEFAULT_PLANS_FILES = "plan.yaml"
 	DEFAULT_PLANS_TABLE = "blip.plans"
 )
 
@@ -779,7 +844,7 @@ func (c *ConfigPlans) ApplyDefaults(b Config) {
 		c.Files = make([]string, len(b.Plans.Files))
 		copy(c.Files, b.Plans.Files)
 	}
-	c.Adjust.ApplyDefaults(b)
+	c.Change.ApplyDefaults(b)
 }
 
 func (c *ConfigPlans) InterpolateEnvVars() {
@@ -787,8 +852,7 @@ func (c *ConfigPlans) InterpolateEnvVars() {
 		c.Files[i] = interpolateEnv(c.Files[i])
 	}
 	c.Table = interpolateEnv(c.Table)
-
-	c.Adjust.InterpolateEnvVars()
+	c.Change.InterpolateEnvVars()
 }
 
 func (c *ConfigPlans) InterpolateMonitor(m *ConfigMonitor) {
@@ -796,11 +860,10 @@ func (c *ConfigPlans) InterpolateMonitor(m *ConfigMonitor) {
 		c.Files[i] = m.interpolateMon(c.Files[i])
 	}
 	c.Table = m.interpolateMon(c.Table)
-
-	c.Adjust.InterpolateMonitor(m)
+	c.Change.InterpolateMonitor(m)
 }
 
-type ConfigPlanAdjuster struct {
+type ConfigPlanChange struct {
 	Offline  ConfigStatePlan `yaml:"offline,omitempty"`
 	Standby  ConfigStatePlan `yaml:"standby,omitempty"`
 	ReadOnly ConfigStatePlan `yaml:"read-only,omitempty"`
@@ -812,37 +875,37 @@ type ConfigStatePlan struct {
 	Plan  string `yaml:"plan,omitempty"`
 }
 
-func (c *ConfigPlanAdjuster) ApplyDefaults(b Config) {
+func (c *ConfigPlanChange) ApplyDefaults(b Config) {
 	if c.Offline.After == "" {
-		c.Offline.After = b.Plans.Adjust.Offline.After
+		c.Offline.After = b.Plans.Change.Offline.After
 	}
 	if c.Offline.Plan == "" {
-		c.Offline.Plan = b.Plans.Adjust.Offline.Plan
+		c.Offline.Plan = b.Plans.Change.Offline.Plan
 	}
 
 	if c.Standby.After == "" {
-		c.Standby.After = b.Plans.Adjust.Standby.After
+		c.Standby.After = b.Plans.Change.Standby.After
 	}
 	if c.Standby.Plan == "" {
-		c.Standby.Plan = b.Plans.Adjust.Standby.Plan
+		c.Standby.Plan = b.Plans.Change.Standby.Plan
 	}
 
 	if c.ReadOnly.After == "" {
-		c.ReadOnly.After = b.Plans.Adjust.ReadOnly.After
+		c.ReadOnly.After = b.Plans.Change.ReadOnly.After
 	}
 	if c.ReadOnly.Plan == "" {
-		c.ReadOnly.Plan = b.Plans.Adjust.ReadOnly.Plan
+		c.ReadOnly.Plan = b.Plans.Change.ReadOnly.Plan
 	}
 
 	if c.Active.After == "" {
-		c.Active.After = b.Plans.Adjust.Active.After
+		c.Active.After = b.Plans.Change.Active.After
 	}
 	if c.Active.Plan == "" {
-		c.Active.Plan = b.Plans.Adjust.Active.Plan
+		c.Active.Plan = b.Plans.Change.Active.Plan
 	}
 }
 
-func (c *ConfigPlanAdjuster) InterpolateEnvVars() {
+func (c *ConfigPlanChange) InterpolateEnvVars() {
 	c.Offline.After = interpolateEnv(c.Offline.After)
 	c.Offline.Plan = interpolateEnv(c.Offline.Plan)
 
@@ -856,14 +919,14 @@ func (c *ConfigPlanAdjuster) InterpolateEnvVars() {
 	c.Active.Plan = interpolateEnv(c.Active.Plan)
 }
 
-func (c *ConfigPlanAdjuster) InterpolateMonitor(m *ConfigMonitor) {
+func (c *ConfigPlanChange) InterpolateMonitor(m *ConfigMonitor) {
 	c.Offline.Plan = m.interpolateMon(c.Offline.Plan)
 	c.Standby.Plan = m.interpolateMon(c.Standby.Plan)
 	c.ReadOnly.Plan = m.interpolateMon(c.ReadOnly.Plan)
 	c.Active.Plan = m.interpolateMon(c.Active.Plan)
 }
 
-func (c ConfigPlanAdjuster) Enabled() bool {
+func (c ConfigPlanChange) Enabled() bool {
 	return c.Offline.Plan != "" ||
 		c.Standby.Plan != "" ||
 		c.ReadOnly.Plan != "" ||
@@ -914,9 +977,14 @@ func (c ConfigSinks) InterpolateMonitor(m *ConfigMonitor) {
 // --------------------------------------------------------------------------
 
 type ConfigTLS struct {
-	Cert string `yaml:"cert,omitempty"`
-	Key  string `yaml:"key,omitempty"`
-	CA   string `yaml:"ca,omitempty"`
+	CA         string `yaml:"ca,omitempty"`   // ssl-ca
+	Cert       string `yaml:"cert,omitempty"` // ssl-cert
+	Key        string `yaml:"key,omitempty"`  // ssl-key
+	SkipVerify *bool  `yaml:"skip-verify,omitempty"`
+	Disable    *bool  `yaml:"disable,omitempty"`
+
+	// ssl-mode from a my.cnf (see dbconn.ParseMyCnf)
+	MySQLMode string `yaml:"-"`
 }
 
 func DefaultConfigTLS() ConfigTLS {
@@ -924,7 +992,40 @@ func DefaultConfigTLS() ConfigTLS {
 }
 
 func (c ConfigTLS) Validate() error {
-	return nil
+	if True(c.Disable) || (c.Cert == "" && c.Key == "" && c.CA == "") {
+		return nil // no TLS
+	}
+
+	// Any files specified must exist
+	if c.CA != "" && !fileExists(c.CA) {
+		return fmt.Errorf("config.tls.ca: %s: file does not exist", c.CA)
+	}
+	if c.Cert != "" && !fileExists(c.Cert) {
+		return fmt.Errorf("config.tls.cert: %s: file does not exist", c.Cert)
+	}
+	if c.Key != "" && !fileExists(c.Key) {
+		return fmt.Errorf("config.tls.key: %s: file does not exist", c.Key)
+	}
+
+	// The three valid combination of files:
+	if c.CA != "" && (c.Cert == "" && c.Key == "") {
+		return nil // ca (only) e.g. Amazon RDS CA
+	}
+	if c.Cert != "" && c.Key != "" {
+		return nil // cert + key (using system CA)
+	}
+	if c.CA != "" && c.Cert != "" && c.Key != "" {
+		return nil // ca + cert + key (private CA)
+	}
+
+	if c.Cert == "" && c.Key != "" {
+		return fmt.Errorf("config.tls: missing cert (cert and key are mutually dependent)")
+	}
+	if c.Cert != "" && c.Key == "" {
+		return fmt.Errorf("config.tls: missing key (cert and key are mutually dependent)")
+	}
+
+	return fmt.Errorf("config.tls: invalid combination of files: %+v; valid combinations are: ca; cert and key; ca, cert, and key", c)
 }
 
 func (c *ConfigTLS) ApplyDefaults(b Config) {
@@ -937,6 +1038,11 @@ func (c *ConfigTLS) ApplyDefaults(b Config) {
 	if c.CA == "" {
 		c.CA = b.TLS.CA
 	}
+	if c.MySQLMode == "" {
+		c.MySQLMode = b.TLS.MySQLMode
+	}
+	c.SkipVerify = setBool(c.SkipVerify, b.TLS.SkipVerify)
+	c.Disable = setBool(c.Disable, b.TLS.Disable)
 }
 
 func (c *ConfigTLS) InterpolateEnvVars() {
@@ -951,12 +1057,28 @@ func (c *ConfigTLS) InterpolateMonitor(m *ConfigMonitor) {
 	c.CA = m.interpolateMon(c.CA)
 }
 
-func (c ConfigTLS) LoadTLS() (*tls.Config, error) {
-	if c.Cert == "" && c.Key == "" && c.CA == "" {
+// Set return true if TLS is not disabled and at least one file is specified.
+// If not set, Blip ignores the TLS config. If set, Blip validates, loads, and
+// registers the TLS config.
+func (c ConfigTLS) Set() bool {
+	return !True(c.Disable) && c.MySQLMode != "DISABLED" && (c.CA != "" || c.Cert != "" || c.Key != "")
+}
+
+// Create tls.Config from the Blip TLS config settings. Returns
+func (c ConfigTLS) LoadTLS(server string) (*tls.Config, error) {
+	//  WARNING: ConfigTLS.Valid must be called first!
+	Debug("TLS for %s: %+v", server, c)
+	if !c.Set() {
 		return nil, nil
 	}
 
-	tlsConfig := &tls.Config{}
+	// Either ServerName or InsecureSkipVerify is required else Go will
+	// return an error saying that. If both are set, Go seems to ignore
+	// ServerName.
+	tlsConfig := &tls.Config{
+		ServerName:         server,
+		InsecureSkipVerify: True(c.SkipVerify),
+	}
 
 	// Root CA (optional)
 	if c.CA != "" {
@@ -964,6 +1086,7 @@ func (c ConfigTLS) LoadTLS() (*tls.Config, error) {
 		if err != nil {
 			return nil, err
 		}
+
 		caCertPool := x509.NewCertPool()
 		caCertPool.AppendCertsFromPEM(caCert)
 		tlsConfig.RootCAs = caCertPool
@@ -975,10 +1098,9 @@ func (c ConfigTLS) LoadTLS() (*tls.Config, error) {
 		if err != nil {
 			return nil, err
 		}
+
 		tlsConfig.Certificates = []tls.Certificate{cert}
 		tlsConfig.BuildNameToCertificate()
-	} else {
-		return nil, fmt.Errorf("TLS cert or key not specififed; both are required")
 	}
 
 	return tlsConfig, nil

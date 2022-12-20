@@ -2,38 +2,43 @@
 layout: default
 parent: Metrics
 title: Domains
-nav_order: 4
 ---
 
 # Domains
 {: .no_toc }
 
-This page is the full domain list and reference.
-Blip collects only the domains and metrics specified in [plans](../plans/).
+This page documents the metric domains from which Blip currently collects metrics.
+Use [`--print-domains`](../config/blip#--print-domains) to list these domains from the command line:
 
-Each domain that Blip currently implements begins with a table with these fields:
+```sh
+$ blip --print-domains | less
+```
+
+Each domain begins with a table:
 
 Blip version
-: Blip version collector was added or changed.
+: Blip version domain was added or changed.
 
 MySQL config
-: * _no_ = No config required; all metrics available if MySQL default config
-* _required_ = Metrics require MySQL config as documented
-* _optional_ = Limited metrics unless MySQL config as documented
+: If MySQL must be explicitly or specially configured to provide the metrics.
 
 Sources
-: Usual source of metrics, but might have mulitple sources.
+: MySQL source of metrics.
+
+Derived metrics
+: [Derived metrics](collecting#derived-metrics). Omitted if none.
 
 Group keys
-: [Metric groups](reporting#groups). Omitted if collector does not group metrics.
+: [Metric groups](reporting#groups). Omitted if none.
 
-Meta key-values
-: [Metric meta](reporting#meta) Omitted if collector does not set meta.
+Meta
+: [Metric meta](reporting#meta). Omitted if none.
 
-Collector metrics
-: [Collector metrics](conventions#collector-metrics). Omitted if collector does not report derived metrics.
+Options
+: [Domain options](collecting#options). Omitted if none.
 
-Run `blip --print-domains` to list available domains and [collector options](collectors#options).
+Error policy
+: MySQL error codes handled by optional [error policy](../plans/error-policy). Omitted if none.
 
 ---
 
@@ -42,111 +47,18 @@ Run `blip --print-domains` to list available domains and [collector options](col
 
 ---
 
-{: .config-section-title .dark }
-## access
-_Access statistics_
-
-Not implemented yet but planned.
-
-### access.index
-_Index access statistics_
-
-Not implemented yet but planned.
-
-(Metrics from `sys.schema_index_statistics`.)
-
-### access.table
-_Table access statistics_
-
-Not implemented yet but planned.
-
-(Metrics from `sys.schema_table_statistics`.)
-
-{: .config-section-title .dark }
-## aria
-_MariaDB Aria Storage Engine_
-
-Reserved for future use.
-
-{: .config-section-title .dark }
-## autoinc
-_Auto-increment Columns_
-
-Not implemented yet but planned.
-
-{: .config-section-title .dark }
-## aws
-_Amazon Web Services_
-
-### aws.rds
+{: .config-section-title }
+## aws.rds
 _Amazon RDS for MySQL_
+
+{: .var-table}
+|Blip version|v1.0.0|
+|MySQL config|no|
+|Sources|Amazon RDS API|
 
 Collects [Amazon RDS metrics](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/monitoring-cloudwatch.html#rds-metrics).
 
-Not implemented yet but planned.
-
-### aws.aurora
-_Amazon Aurora_
-
-Not implemented yet but planned.
-
-{: .config-section-title .dark }
-## azure
-_Microsoft Azure_
-
-Reserved for future use.
-
-{: .config-section-title .dark }
-## error
-_MySQL, Client, and Query Errors_
-
-Not implemented yet but planned.
-
-### error.global
-### error.query
-### error.repl
-### error.client
-
-{: .config-section-title .dark }
-## event
-_MySQL Events_
-
-Reserved for future use.
-
-### event.stage
-### event.stmt
-### event.trx
-### event.wait
-
-{: .config-section-title .dark }
-## file
-_Files and Tablespaces_
-
-Reserved for future use.
-
-{: .config-section-title .dark }
-## galera
-_Percona XtraDB Cluster and MariaDB Cluster (wsrep)_
-
-Reserved for future use.
-
-{: .config-section-title .dark }
-## gcp
-_Google Cloud_
-
-Reserved for future use.
-
-{: .config-section-title .dark }
-## gr
-_MySQL Group Replication_
-
-Reserved for future use.
-
-{: .config-section-title .dark }
-## host
-_Host (Client)_
-
-Reserved for future use.
+<!-------------------------------------------------------------------------->
 
 {: .config-section-title }
 ## innodb
@@ -155,270 +67,362 @@ _InnoDB Metrics_
 {: .var-table}
 |Blip version|v1.0.0|
 |MySQL config|maybe|
-|Sources|I_S|
-|Group keys||
-|Meta|subsystem=`SUBSYSTEM` column|
+|Sources|`information_schema.innodb_metrics`|
+|Meta|&bull; `subsystem` = `SUBSYSTEM` column|
+|Options|&bull; `all`|
 
 Metrics from [`INFORMATION_SCHEMA.INNODB_METRICS`](https://dev.mysql.com/doc/refman/en/information-schema-innodb-metrics-table.html).
 
-### innodb.mutex
-_InnoDB Mutexes_
+#### Options
+{: .no_toc }
 
-Reserved for future use.
+* `all`<br>
+Default: `no`<br>
+If `yes`, all InnoDB metrics are collect&mdash;the whole table.
+If `no` (the default), only the explicitly listed InnoDB metrics are collected.
+If `enabled`, only InnoDB metrics enabled by the MySQL configuration are collected (`WHERE status='enabled'` in the table).
 
-(Metrics from `SHOW ENGINE INNODB MUTEX`.)
-
-{: .config-section-title .dark }
-## mariadb
-_MariaDB Enhancements_
-
-Reserved for future use.
-
-{: .config-section-title .dark }
-## ndb
-_MySQL NDB Cluster_
-
-Reserved for future use.
-
-{: .config-section-title .dark }
-## oracle
-_Oracle Cloud and Enterprise Enhancements_
-
-Reserved for future use.
-
-{: .config-section-title .dark }
-## percona
-_Percona Server Enhancements_
-
-Metrics from [Percona User Statistics](https://www.percona.com/doc/percona-server/8.0/diagnostics/user_stats.html).
-
-### percona.userstat.index
-_Percona `userstat` Index Statistics_
-
-{: .var-table}
-|Blip version|v1.0.0|
-|MySQL config|yes|
-|Sources|`INFORMATION_SCHEMA.INDEX_STATISTICS`|
-|Group keys||
-|Meta||
-
-
-### percona.userstat.table
-_Percona `userstat` Table Statistics_
-
-{: .var-table}
-|Blip version|v1.0.0|
-|MySQL config|yes|
-|Sources|`INFORMATION_SCHEMA.TABLE_STATISTICS`|
-|Group keys||
-|Meta||
-
-{: .config-section-title .dark }
-## processlist
-_Processlist_
-
-Reserved for future use.
-
-(Metrics from `SHOW PROCESSLIST` or `I_S.PROCESSLIST`.)
-
-{: .config-section-title .dark }
-## pfs
-_Performance Schema_
-
-Reserved for future use.
-
-(Metrics from `SHOW ENGINE PERFORMANCE_SCHEMA STATUS`.)
-
-{: .config-section-title .dark }
-## pxc
-_Percona XtraDB Cluster_
-
-Reserved for future use, or use `galera`.
+<!-------------------------------------------------------------------------->
 
 {: .config-section-title }
-## query
-_Query Metrics_
-
-### query.global
-_Global Query Response Time_
+## percona.response-time
+_Percona Server Query Response Time_
 
 {: .var-table}
 |Blip version|v1.0.0|
 |MySQL config|yes|
-|Sources|MySQL 8.0 [p_s.events_statements_histogram_global](https://dev.mysql.com/doc/refman/8.0/en/performance-schema-statement-histogram-summary-tables.html), Percona Server 5.7 [RTD plugin](https://www.percona.com/doc/percona-server/5.7/diagnostics/response_time_distribution.html)|
-|Group keys||
-|Meta key-values|&bull; `pN=pA`: where `pN` is configured percentile (default: `p999`) and `pA` is actual percentile (see note 1)|
-|Collector metrics|&bull; `reponse_time` (gauge)<br>|
+|Sources|Percona Server 5.7 [RTD plugin](https://www.percona.com/doc/percona-server/5.7/diagnostics/response_time_distribution.html)|
+|Derived metrics|&bull; `pN` (gauge) for each value in the `percentiles` option|
+|Meta|&bull; `pN=pA`: where `pN` is collected percentile and `pA` is actual percentile|
+|Options|&bull; `flush`<br>&bull; `real-percentiles`|
+|Error policy|&bull; `unknown-table`|
 
-The `query.global` domain includes metrics for all queries, which is currently only response time.
-By default, it reports the P999 (99.9th percentile) reponse time using either MySQL 8.0 [performance_schema.events_statements_histogram_global](https://dev.mysql.com/doc/refman/8.0/en/performance-schema-statement-histogram-summary-tables.html) or Percona Server 5.7 [Response Time Distribution plugin](https://www.percona.com/doc/percona-server/5.7/diagnostics/response_time_distribution.html).
+The `percona.response-time` domain collects query response time percentiles from the Percona Server 5.7 [Response Time Distribution plugin](https://www.percona.com/doc/percona-server/5.7/diagnostics/response_time_distribution.html).
 
-Multiple percentiles can be collected&mdash;`p95`, `p99`, and `p999` for example.
-The metric for each percentile is denoted by meta key `pN`.
+This domain is functionally identical to [`query.response-time`](#queryresponse-time); only one option name is different:
+
+|`percona.response-time`|`query.response-time`|
+|-----------------------|---------------------|
+|`flush`|`truncate-table`|
+
+See [`query.response-time`](#queryresponse-time) for details.
+
+#### Error Policy
+{: .no_toc }
+
+* `unknown-table`<br>
+MySQL error 1109: Unknown table 'query_response_time' in information_schema
+
+<!-------------------------------------------------------------------------->
+
+{: .config-section-title }
+## query.response-time
+_MySQL Query Response Time_
+
+{: .var-table}
+|Blip version|v1.0.0|
+|MySQL config|yes|
+|Sources|MySQL 8.0 [p_s.events_statements_histogram_global](https://dev.mysql.com/doc/refman/8.0/en/performance-schema-statement-histogram-summary-tables.html)|
+|Derived metrics|&bull; `pN` (gauge)<br>|
+|Meta|&bull; `pN=pA`: where `pN` is collected percentile and `pA` is actual percentile|
+|Options|&bull; `real-percentiles`<br>&bull; `truncate-table`|
+|Error policy|&bull; `table-not-exist`|
+
+The `query.response-time` domain collect query response time percentiles.
+By default, it reports the P999 (99.9th percentile) response time in microseconds.
 
 {: .note}
 To convert units, use the [TransformMetrics plugin](../integrate#transformmetrics) or write a [custom sink](../sinks/custom).
 
-#### Collector Metrics
+#### Derived metrics
 {: .no_toc }
 
-* `reponse_time`<br>
+* `pN`<br>
 Type: gauge<br>
-Response time for all queries, reported as a percentile (default: P999) in microseconds.
-The true percentile might be slightly more or less depending on how the histogram buckets are configured (see note 1).
+Response time percentile to collect where `N` between 1 and 999.
+(The "p" prefix is required.)
+`p95` collects the 95th percentile.
+`p999` collects the 99.9th percentile.
+The response time value is reported in microseconds.
+The true percentile might be slightly greater depending on how the histogram buckets are configured.
+For example, if collecting `p95`, the real percentile might be `p95.8`.
 
-#### Notes
+#### Options
 {: .no_toc }
 
-1. MySQL (and Percona Server) use histograms with varible bucket ranges.
+* `real-percentiles`<br>
+Default: yes<br>
+If yes (default), reports the real percentile in meta for each percentile in options.
+MySQL (and Percona Server) use histograms with variable bucket ranges.
 Therefore, the P99 might actually be P98.9 or P99.2.
 Meta key `pN` indicates the configured percentile, and its value `pA` indicates the actual percentile that was used.
 
-### query.id
-_Not implemented yet._
+* `truncate-table`<br>
+Default: no<br>
+Truncate [performance_schema.events_statements_histogram_global](https://dev.mysql.com/doc/refman/8.0/en/performance-schema-statement-histogram-summary-tables.html) after each collection.
+This reset percentile values so that each collection represents the global query response time during the collection interval rather than during the entire uptime of the MySQL.
+However, truncating the table interferes with other tools reading (or truncating) the table.
 
-The `query.id` domain includes metrics for unique queries identified by digest SHA and set in `meta` as `id`.
+#### Error Policy
+{: .no_toc }
+
+* `table-not-exist`<br>
+MySQL error 1146: Table 'performance_schema.events_statements_histogram_global' doesn't exist
+
+<!-------------------------------------------------------------------------->
 
 {: .config-section-title}
 ## repl
 _MySQL Replication_
 
-### repl.lag
+{: .var-table}
+|Blip version|v1.0.0|
+|Sources|&#8805;&nbsp;MySQL 8.0.22: `SHOW REPLICA STATUS`<br>&#8804;&nbsp;MySQL 8.0.21: `SHOW SLAVE STATUS`|
+|MySQL config|no|
+|Derived metrics|&bull; `running` (gauge)|
+|Meta|&bull; `source` = `Source_Host` or `Master_Host`|
+
+The `repl` domain reports a few gauges metrics from the output of `SHOW SLAVE STATUS`, or `SHOW REPLICA STATUS` as of MySQL 8.0.22:
+
+|Replica Status Variable|Collected|
+|-----------------------|---------|
+|Slave_IO_Running       |&#10003;|
+|Slave_SQL_Running      |&#10003;|
+|Relay_Log_Space        |&#10003;|
+|Seconds_Behind_Master  |&#10003;|
+|Auto_Position          |&#10003;|
+
+Although the output has many more fields, most fields are not metric counters or gauges, which is why Blip does not collect them.
+
+#### Derived metrics
+{: .no_toc }
+
+* `running`<br>
+Type: gauge<br>
+
+  |Value|Meaning|
+  |-----|-------|
+  |1|&nbsp;&nbsp;&#9745;	 MySQL is a replica<br>&nbsp;&nbsp;&#9745;	 `Slave_IO_Running=Yes`<br>&nbsp;&nbsp;&#9745;	 `Slave_SQL_Running=Yes`<br>&nbsp;&nbsp;&#9745;	 `Last_Errno=0`<br>|
+  |0|MySQL is a replica, but IO and SQL threads are not running or a replication error occurred|
+  |-1|MySQL is **not a replica**: `SHOW SLAVE|REPLICA STATUS` returns no output|
+
+  Replication lag does not affect the `running` metric: replication can be running but lagging.
+
+<!-------------------------------------------------------------------------->
+
+{: .config-section-title}
+## repl.lag
 _MySQL Replication Lag_
 
 {: .var-table}
 |Blip version|v1.0.0|
-|Sources|[Blip Heartbeat](../heartbeat), ~~Percona pt-heartbeat, or ~~MySQL~~|
-|MySQL config|MySQL: no; other sources: yes|
-|Group keys||
-|Meta||
-|Metrics|&bull; `max` (gauge): Maximum replication lag (milliseconds) observed during collect interval.<br>|
+|Sources|[Blip Heartbeat](../heartbeat)|
+|MySQL config|yes|
+|Derived metrics|&bull; `current` (gauge): Current replication lag (milliseconds)<br>|
+|Meta|&bull; `source` = Option `source-id`|
+|Options|&bull; `network-latency`<br>&bull; `repl-check`<br>&bull; `report-no-heartbeat`<br>&bull; `source-id`<br>&bull; `source-role`<br>&bull; `table`<br>&bull; `writer`|
 
-Requires option `source` in the plan; use `%{monitor.meta.repl-source}` like:
+The `repl.lag` collector measures and reports MySQL replication lag from a source using the [Blip heartbeat](../heartbeat).
+By default, it reports replication lag from the latest timestamp (heartbeat), which presumes there is only one writable node in the replication topology at all times.
+See [Heartbeat](../heartbeat) to learn more.
 
-```yaml
-level:
-  collect:
-    repl.lag:
-      options:
-        source: "%{monitor.meta.repl-source}"
-```
+#### Derived metrics
+{: .no_toc }
 
-Then define `config.monitor.meta.repl-source` in the [monitor meta](../config/config-file#meta):
-```yaml
-monitors:
-  - hostname: replica.db
-    meta:
-      repl-source: source.db
-```
+* `current`<br>
+Type: gauge<br>
+The current replication lag in milliseconds.
+This is an instantaneous measurement: replication lag at one moment.
+As such, it might not detect if lag is "flapping": oscillating between near-zero and a higher value.
+But will always detect if replication is steadily lagged and if the lag increases.
+A future feature might measure and record lag between report intervals.
 
-{: .config-section-title .dark}
-## rocksdb
-_RocksDB Store Engine_
+#### Options
+{: .no_toc }
 
-Reserved for future use.
+* `network-latency`<br>
+Default: 50<br>
+Network latency (in milliseconds) between source and replicas.
+The value must be an integer >= 0.
+(Do not suffix with "ms".)
+See [Heartbeat > Accuracy](../heartbeat#accuracy).
+
+* `repl-check`<br>
+MySQL global system variable, like `server_id`.
+(Do not prefix with "@".)
+If the value is zero, replica lag is not collected.
+See [Heartbeat > Repl Check](../heartbeat#repl-check).
+
+* `report-no-heartbeat`<br>
+Default: no<br>
+If yes, no heartbeat from the source is reported as value -1.
+If no, the metric is dropped if no heartbeat from the source.
+
+* `source-id`<br>
+Source ID to report lag from.
+The default (no value) reports lag from the latest (most recent) timestamp.
+See [Heartbeat > Source Following](../heartbeat#source-following).
+
+* `source-role`<br>
+Source role to report lag from.
+If set, the most recent timestamp is used.
+See [Heartbeat > Source Following](../heartbeat#source-following).
+
+* `table`<br>
+Default: `blip.heartbeat`<br>
+Blip [heartbeat table](../heartbeat#table).
+
+* `writer`<br>
+Default: `blip`<br>
+Type of heartbeat writer.
+Only `blip` is currently supported.
+
+<!-------------------------------------------------------------------------->
 
 {: .config-section-title }
-## size
-_Data, Index, and File Sizes_
-
-### size.binlog
+## size.binlog
 _Binary Log Storage Size_
 
 {: .var-table}
 |Blip version|v1.0.0|
 |Sources|`SHOW BINARY LOGS`|
 |MySQL config|no|
-|Group keys||
-|Meta||
+|Derived metrics|&bull; `bytes`: Total size of all binary logs in bytes|
+|Error policy|&bull; `access-denied`<br>&bull; `binlog-not-enabled`|
 
-#### Collector Metrics
+#### Error Policy
+{: .no_toc }
+
+* `access-denied`
+MySQL error 1227: access denied on `SHOW BINARY LOGS`.
+
+* `binlog-not-enabled`
+MySQL error 1381: binary logging not enabled.
+
+#### Derived metrics
 {: .no_toc }
 
 * `bytes`<br>
 Type: gauge<br>
 Total size of all binary logs in bytes.
 
-### size.data
-_Database and Table Storage Size_
+<!-------------------------------------------------------------------------->
+
+{: .config-section-title }
+## size.database
+_Database Storage Sizes_
 
 {: .var-table}
 |Blip version|v1.0.0|
 |MySQL config|no|
-|Group keys|`db`, `tbl`|
-|Meta||
+|Derived metrics|&bull; `bytes`: Database size in bytes|
+|Group keys|`db`|
 
-### size.index
-_Index Storage Size_
+#### Derived metrics
+{: .no_toc }
 
-### size.file
-_File Storage Size_
+* `bytes`<br>
+Type: gauge<br>
+Database size in bytes.
 
-(Metrics `innodb_undo` and `innodb_temp`.)
+<!-------------------------------------------------------------------------->
 
 {: .config-section-title }
-## status
-_MySQL Status Variables_
+## size.table
+_Table Storage Sizes_
 
-Classic MySQL status variables.
+{: .var-table}
+|Blip version|v1.0.0|
+|MySQL config|no|
+|Derived metrics|&bull; `bytes`: Table size in bytes|
+|Group keys|`db`, `tbl`|
 
-### status.account
-_Status by Account_
+#### Derived metrics
+{: .no_toc }
 
-Reserved for future use.
+* `bytes`<br>
+Type: gauge<br>
+Table size in bytes.
 
-### status.global
+<!-------------------------------------------------------------------------->
+
+{: .config-section-title }
+## status.global
 _Global Status Variables_
 
 {: .var-table}
 |Blip version|v1.0.0|
 |MySQL config|no|
-|Group keys||
-|Meta||
+|Sources|`SHOW GLOBAL STATUS`|
 
-Classic `SHOW GLOBAL STATUS`.
-Might used `performance_schema.global_status` table.
+`status.global` collects the primary source of MySQL server metrics: `SHOW GLOBAL STATUS`.
 
-### status.host
-_Status by Host (Client)_
+<!-------------------------------------------------------------------------->
 
-Reserved for future use.
+{: .config-section-title }
+## stmt.current
+_Statement Metrics_
 
-### status.thread
-_Status by Thread_
+Statements are the second level of the event hierarchy:
 
-Reserved for future use.
+```
+transactions
+└── statements
+    └── stages
+        └── waits
+```
 
-### status.user
-_Status by User_
+All queries are statements, but not all statements are queries.
+For example, "dump binary log" is a statement used by replicas, but it is not a query in the typical sense.
+As a result, this domain is much more low-level than the [`query`](#query) domain even though the metrics are nearly identical.
 
-Reserved for future use.
+Statement metrics are reported as summary statistics: average, maximum, and so forth.
 
-{: .config-section-title .dark }
-## thd
-Threads
+`stmt.current` reports summary statistics for currently running statements.
 
-Reserved for future use.
+<!-------------------------------------------------------------------------->
 
-{: .config-section-title .dark }
+{: .config-section-title }
 ## tls
-TLS (SSL) Status and Configuration
+_TLS (SSL) Status and Configuration_
 
-Not implemented yet but planned.
+{: .var-table}
+|Blip version|v1.0.0|
+|MySQL config|no|
+|Sources|Global variables|
+|Derived metrics|&bull; `enabled`: True (1) if have_ssl=YES, else false (0)|
 
-#### Collector Metrics
+#### Derived metrics
 {: .no_toc }
 
-* enabled (have_ssl)
-* ssl_server_not_before (date-time converted to Unix timestamp)
-* ssl_server_not_after	(date-time converted to Unix timestamp)
-* current_tls_version
+* `enabled`<br>
+Type: bool<br>
+True (1) if `have_ssl = YES`, else false (0).
 
-{: .config-section-title .dark }
-## tokudb
-TokuDB Storage Engine
+{: .note }
+`have_ssl` is deprecated as of MySQL 8.0.26.
+This domain does not currently support the [`tls_channel_status` table](https://dev.mysql.com/doc/refman/8.0/en/performance-schema-tls-channel-status-table.html).
 
-Reserved for future use.
+<!-------------------------------------------------------------------------->
+
+{: .config-section-title }
+## trx
+_Transactions_
+
+{: .var-table}
+|Blip version|v1.0.0|
+|MySQL config|no|
+|Sources|`information_schema.innodb_trx`|
+|Derived metrics|&bull; `oldest`: Time of oldest active trx in seconds|
+
+#### Derived metrics
+{: .no_toc }
+
+* `oldest`<br>
+Type: gauge<br>
+Time of oldest active (still running) transaction in seconds.
+
+<!-------------------------------------------------------------------------->
 
 {: .config-section-title }
 ## var.global
@@ -426,9 +430,45 @@ _MySQL System Variables_
 
 {: .var-table}
 |Blip version|v1.0.0|
-|Sources|SHOW, SELECT @@GLOBAL, p_s|
 |MySQL config|no|
-|Group keys||
-|Meta||
+|Sources|`SHOW GLOBAL VARIABLES`, `SELECT @@GLOBAL.<var>`, Performance Schema|
 
-Classic MySQL `SHOW GLOBAL VARIBLES`.
+`var.global` collects global MySQL system variables ("sysvars").
+
+These are not technically metrics, but some are required to calculate utilization percentages.
+For example, it's common to report `max_connections` to gauge the percentage of max connections used: `Max_used_connections / max_connections * 100`, which would be `status.global.max_used_connections / var.global.max_connections * 100` in Blip metric naming convention.
+
+<!-------------------------------------------------------------------------->
+
+{: .config-section-title }
+## wait.io.table
+_Table I/O Wait Metrics_
+
+{: .var-table}
+|Blip version|v1.0.0|
+|MySQL config|yes|
+|Sources|`performance_schema.table_io_waits_summary_by_table`|
+|Options|&bull; `exclude`<br>&bull; `include`<br>&bull; `truncate`<br>&bull; `all`|
+|Group keys|`db`, `tbl`|
+
+Summarized table I/O wait metrics from `performance_schema.table_io_waits_summary_by_table`.
+All columns in that table can be specified, or use option `all` to collect all columns.
+
+#### Options
+{: .no_toc }
+
+* `include`<br>
+A comma-separated list of database or table names to include (overrides option `exclude`).
+
+* `exclude`<br>
+Default: `mysql.*,information_schema.*,performance_schema.*,sys.*`<br>
+A comma-separated list of database or table names to exclude (ignored if `include` is set).
+
+* `truncate-table`<br>
+Default: `yes`<br>
+If the source table should be truncated to reset data after each retrieval.
+
+* `all`<br>
+Default: `no`<br>
+If `yes`, all `performance_schema.table_io_waits_summary_by_table` metrics are collected&mdash;all columns.
+If `no` (the default), only the explicitly listed `performance_schema.table_io_waits_summary_by_table` metrics are collected.

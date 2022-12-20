@@ -1,32 +1,27 @@
 ---
 layout: default
 parent: Configure
-title: Blip
+title: blip Binary
 nav_order: 1
 ---
 
 # Blip
+{: .no_toc}
 
-## Zero Config
+This page details how to configure the Blip binary (`blip`) that runs monitors.
+To configure (customize) metrics collection, see [Plans](../plans/) and [Metrics](../metrics/).
 
-Blip uses built-it defaults and auto-detection to run and work without specifing any configuration.
-This is called the "zero config".
+* TOC
+{:toc}
 
-The zero config should work on your laptop (presuming a standard MySQL setup), but it is not intended for real production environments.
-At the very least, you will need to specify which MySQL instances to monitor in the `monitors` section of the Blip config file.
+## Config File
 
-## Specifying a Config File
+Blip uses a single YAML file for configuration.
+See [Configure / Config File](config-file) for the full list of Blip config variables.
 
-Blip configuration is specified in a single YAML file.
-There are 3 ways to specify the Blip config file.
+👉 By default, Blip reads `blip.yaml` in the current working directory, if it exits.
 
-By default, Blip uses `blip.yaml` in the current working directory:
-
-```sh
-$ blip
-```
-
-You can specify a config file with the `--config` command-line option:
+You can specify a different config file with the [`--config`](#--config-file) command-line option:
 
 ```sh
 $ blip --config FILE
@@ -58,7 +53,11 @@ Default: `blip.yaml`<br>
 Env var: `BLIP_CONFIG`
 
 {: .help-option }
-Specify Blip configuruation file.
+Specify Blip configuration file.
+The specified file must exist, else Blip will error on boot.
+<br><br>
+Blip will boot successfully if the _default_ file, `blip.yaml`, does not exist in the current working directly.
+In this case, Blip tries to auto-detect a local MySQL instance, which is useful for local development.
 
 ### `--debug`
 
@@ -66,40 +65,45 @@ Specify Blip configuruation file.
 Env var: `BLIP_CONFIG`
 
 {: .help-option }
-Print debug to stderr.
+Print debug to STDERR.
 
 ### `--help`
 
 {: .help-option }
 Print help and exit.
 
-### `--plans FILE[,FILE...]`
+### `--log`
 
 {: .help-option-default }
-Env var: `BLIP_PLANS`
+Default: `false`<br>
+Env var: `BLIP_LOG`
 
 {: .help-option }
-Specify plan files.
+Print all "info" events to STDOUT.
+By default, Blip prints only errors to `STDERR`.
+See [Logging](logging).
 
 ### `--print-config`
 
 {: .help-option }
-Print config.
+Print the [server config](config-file) after booting.
+<br><br>
+This option does not stop Blip from running.
+Specify [`--run=false`](#--run) to print the final server config and exit.
 
 ### `--print-domains`
 
 {: .help-option }
-Print domains and collector options.
+Print domains and collector options, then exit.
 
 ### `--print-monitors`
 
 {: .help-option }
-Print monitors.
-
-### `--print-plans`
-
-{: .help-option }
-Print level plans.
+Print the [monitors](config-file) after booting.
+The monitors are finalized: monitor defaults and [interpolation](interpolation) have been applied.
+<br><br>
+This option does not stop Blip from running.
+Specify [`--run=false`](#--run) to print monitors and exit.
 
 ### `--run`
 
@@ -108,18 +112,31 @@ Default: `true`<br>
 Env var: `BLIP_RUN`
 
 {: .help-option }
-Run Blip and all monitors.
-If `--run=false`, Blip starts and loads everything, but exists before running monitors.
-
-### `--strict`
-
-{: .help-option-default }
-Env var: `BLIP_STRICT`
-
-{: .help-option }
-Enable strict mode.
+Run Blip and all monitors after successful boot.
+If `--run=false` (or environment varialbe `BLIP_RUN=false`), Blip starts and loads everything, but exits before running monitors.
+See [Startup](#startup).
 
 ### `--version`
 
 {: .help-option }
 Print version and exit.
+
+## Startup
+
+Blip has a two-phase startup sequence: boot, then run.
+
+The _boot_ phase loads and validates everything: Blip config, monitors, plans, and so forth.
+Any error on boot causes Blip to exit with a non-zero exit status.
+
+The _run_ phase runs monitors and the Blip [API](../api).
+Once running, Blip does not exit until it receives a signal.
+It retires on all errors, including panic.
+
+
+{: .note }
+To boot without running (which is useful to validate everything), specify [`--run=false`](#--run) on the commnand line, or environment varialbe `BLIP_RUN=false`.
+
+## Signals
+
+Blip does a controlled shutdown on `SIGTERM`.
+Other signals are not caught.

@@ -4,8 +4,9 @@ package monitor
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
-	"sort"
+	"runtime"
 	"sync"
 	"time"
 
@@ -14,7 +15,6 @@ import (
 	"github.com/cashapp/blip"
 	"github.com/cashapp/blip/event"
 	"github.com/cashapp/blip/plan"
-	"github.com/cashapp/blip/proto"
 	"github.com/cashapp/blip/status"
 )
 
@@ -30,14 +30,11 @@ type LevelCollector interface {
 	// Run runs the collector to collect metrics; it's a blocking call.
 	Run(stopChan, doneChan chan struct{}) error
 
-	// ChangePlan changes the plan; it's called by an Adjuster.
+	// ChangePlan changes the plan; it's called by an Pl
 	ChangePlan(newState, newPlanName string) error
 
 	// Pause pauses metrics collection until ChangePlan is called.
 	Pause()
-
-	// Status returns detailed internal status.
-	Status() proto.MonitorCollectorStatus
 }
 
 var _ LevelCollector = &lpc{}
@@ -45,34 +42,30 @@ var _ LevelCollector = &lpc{}
 // lpc is the implementation of LevelCollector.
 type lpc struct {
 	cfg              blip.ConfigMonitor
-	engine           *Engine
 	planLoader       *plan.Loader
 	sinks            []blip.Sink
 	transformMetrics func(*blip.Metrics) error
 	// --
-	monitorId            string
-	state                string
-	plan                 blip.Plan
-	changing             bool
+	monitorId string
+	engine    *Engine
+
+	stateMux *sync.Mutex
+	state    string
+	plan     blip.Plan
+	levels   []plan.SortedLevel
+	paused   bool
+
+	changeMux            *sync.Mutex
 	changePlanCancelFunc context.CancelFunc
 	changePlanDoneChan   chan struct{}
-	changeMux            *sync.Mutex
-	stateMux             *sync.Mutex
-	event                event.MonitorReceiver
-	levels               []level
-	paused               bool
 	stopped              bool
-	//
-	statsMux           *sync.Mutex
-	lastCollectTs      time.Time
-	lastCollectError   error
-	lastCollectErrorTs time.Time
-	sinkErrors         map[string]error
+
+	event event.MonitorReceiver
 }
 
 type LevelCollectorArgs struct {
 	Config           blip.ConfigMonitor
-	Engine           *Engine
+	DB               *sql.DB
 	PlanLoader       *plan.Loader
 	Sinks            []blip.Sink
 	TransformMetrics func(*blip.Metrics) error
@@ -81,19 +74,16 @@ type LevelCollectorArgs struct {
 func NewLevelCollector(args LevelCollectorArgs) *lpc {
 	return &lpc{
 		cfg:              args.Config,
-		engine:           args.Engine,
 		planLoader:       args.PlanLoader,
 		sinks:            args.Sinks,
 		transformMetrics: args.TransformMetrics,
 		// --
 		monitorId: args.Config.MonitorId,
-		changeMux: &sync.Mutex{},
+		engine:    NewEngine(args.Config, args.DB),
 		stateMux:  &sync.Mutex{},
-		event:     event.MonitorReceiver{MonitorId: args.Config.MonitorId},
 		paused:    true,
-
-		statsMux:   &sync.Mutex{},
-		sinkErrors: map[string]error{},
+		changeMux: &sync.Mutex{},
+		event:     event.MonitorReceiver{MonitorId: args.Config.MonitorId},
 	}
 }
 
@@ -105,6 +95,10 @@ func TickerDuration(d time.Duration) {
 
 var tickerDuration = 1 * time.Second // used for testing
 
+// maxCollectors is the maximum number of parallel collect() goroutines.
+// Code comment block just below for variable sem.
+const maxCollectors = 2
+
 func (c *lpc) Run(stopChan, doneChan chan struct{}) error {
 	defer close(doneChan)
 
@@ -114,29 +108,22 @@ func (c *lpc) Run(stopChan, doneChan chan struct{}) error {
 	// before the next whole second tick. But in the real world, there are
 	// always blips (yes, that's partly where Blip gets its name from):
 	// MySQL takes 1 or 2 seconds--or longer--to return metrics, especially
-	// for "big" domains like size.data that might need to iterator over
+	// for "big" domains like size.table that might need to iterator over
 	// hundreds or thousands of tables. Consequently, we collect metrics
-	// asynchronously in two collector goroutines: a primary (1) that should
-	// be all that's needed, but also a secondary/backup (2) to handle
-	// real world blips. This is hard-coded because the primary should
-	// be sufficient 99% of the time, and the backup is just that: a backup
-	// to handle rare blips. If both are slow/blocked, then that's a genuine
-	// problem to report and let the user deal with--don't hide the problem
-	// with more collector goroutines.
-	//
-	// Do not buffer collectLevelChan: a collector goroutine must be ready
-	// on send, else it means both are slow/blocked and that's a problem.
-	collectLevelChan := make(chan string)         // DO NOT BUFFER
-	go c.collector(1, collectLevelChan, stopChan) // primary
-	go c.collector(2, collectLevelChan, stopChan) // secondary/backup
+	// asynchronously in multiple goroutines. By default, 2 goroutines
+	// (maxCollectors) should be more than sufficient. If not, there's probably
+	// an underlyiny problem that needs to be fixed.
+	sem := make(chan bool, maxCollectors)
+	for i := 0; i < maxCollectors; i++ {
+		sem <- true
+	}
 
 	// -----------------------------------------------------------------------
 	// LPC main loop: collect metrics on whole second ticks
 
-	s := -1 // number of whole second ticks
-	level := -1
-	levelName := ""
+	status.Monitor(c.monitorId, status.LEVEL_COLLECTOR, "started at %s (paused until plan change)", blip.FormatTime(time.Now()))
 
+	s := -1 // number of whole second ticks
 	ticker := time.NewTicker(tickerDuration)
 	defer ticker.Stop()
 	for range ticker.C {
@@ -146,19 +133,20 @@ func (c *lpc) Run(stopChan, doneChan chan struct{}) error {
 		select {
 		case <-stopChan: // yes, return immediately
 			// Stop changePlan goroutine (if any) and prevent new ones in the
-			// pathological case that the LPA calls ChangePlan while the LPC
+			// pathological case that the LCH calls ChangePlan while the LCO
 			// is terminating
 			c.changeMux.Lock()
-			c.stopped = true // prevent new changePlan goroutines
-			c.changeMux.Unlock()
-
-			c.stateMux.Lock()
-			changing := c.changing
-			c.stateMux.Unlock()
-			if changing {
-				c.changePlanCancelFunc() // stop changePlan goroutine
+			defer c.changeMux.Unlock()
+			c.stopped = true // make ChangePlan do nothing
+			select {
+			case <-c.changePlanDoneChan:
+				c.changePlanCancelFunc() // stop --> changePlan goroutine
+				<-c.changePlanDoneChan   // wait for changePlan goroutine
+			default:
 			}
 
+			// Stop the engine and clean up metrics
+			c.engine.Stop()
 			return nil
 		default: // no
 		}
@@ -171,8 +159,9 @@ func (c *lpc) Run(stopChan, doneChan chan struct{}) error {
 		}
 
 		// Determine lowest level to collect
+		level := -1
 		for i := range c.levels {
-			if s%c.levels[i].freq == 0 {
+			if s%c.levels[i].Freq == 0 {
 				level = i
 			}
 		}
@@ -181,69 +170,88 @@ func (c *lpc) Run(stopChan, doneChan chan struct{}) error {
 			continue            // no metrics to collect at this frequency
 		}
 
-		// Collect metrics at this level, unlock, and reset
-		levelName = c.levels[level].name
-		level = -1
-		c.stateMux.Unlock() // -- UNLOCK --
-
+		// Collect metrics at this level
 		select {
-		case collectLevelChan <- levelName:
+		case <-sem:
+			go func(levelName string) {
+				defer func() {
+					sem <- true
+					if err := recover(); err != nil { // catch panic in collectors, TransformMetrics, and sinks
+						b := make([]byte, 4096)
+						n := runtime.Stack(b, false)
+						c.event.Sendf(event.LPC_PANIC, "PANIC: %s: %s\n%s", c.monitorId, err, string(b[0:n]))
+					}
+				}()
+				c.collect(levelName)
+			}(c.levels[level].Name)
+			status.Monitor(c.monitorId, status.LEVEL_COLLECTOR, "idle; started collecting %s/%s at %s", c.plan.Name, c.levels[level].Name, blip.FormatTime(time.Now()))
 		default:
 			// all collectors blocked
-			blip.Debug("all mon chan blocked")
+			errMsg := fmt.Errorf("cannot callect %s/%s: %d of %d collectors still running",
+				c.plan.Name, c.levels[level].Name, maxCollectors, maxCollectors)
+			c.event.Sendf(event.LPC_BLOCKED, errMsg.Error())
+			status.Monitor(c.monitorId, status.LEVEL_COLLECTOR, "blocked: %s", errMsg)
 		}
+
+		c.stateMux.Unlock() // -- UNLOCK --
 	}
 	return nil
 }
 
-func (c *lpc) collector(n int, col chan string, stopChan chan struct{}) {
-	lpc := fmt.Sprintf("lpc-%d", n)
-	var level string
-	for {
-		// Wait until main loop in Run sends a level to collect
-		status.Monitor(c.monitorId, lpc, "idle")
-		select {
-		case level = <-col:
-		case <-stopChan:
-			return
-		}
-		status.Monitor(c.monitorId, lpc, "%s/%s: collecting", c.plan.Name, level)
+func (c *lpc) collect(levelName string) {
+	collectNo := status.MonitorMulti(c.monitorId, status.LEVEL_COLLECT, "%s/%s: collecting", c.plan.Name, levelName)
+	defer status.RemoveComponent(c.monitorId, collectNo)
 
-		// **************************************************************
-		// COLLECT METRICS
-		//
-		// Collect all metrics at this level. This is where metrics
-		// collection begins. Then Engine.Collect does the real work.
-		metrics, err := c.engine.Collect(context.Background(), level)
-		// **************************************************************
+	t0 := time.Now()
+
+	// **************************************************************
+	// COLLECT METRICS
+	//
+	// Collect all metrics at this level. This is where metrics
+	// collection begins. Then Engine.Collect does the real work.
+	metrics, err := c.engine.Collect(context.Background(), levelName)
+	// **************************************************************
+	if err != nil {
+		status.Monitor(c.monitorId, "error:"+collectNo, err.Error())
+		c.event.Errorf(event.ENGINE_COLLECT_ERROR, err.Error())
+	} else {
+		status.RemoveComponent(c.monitorId, "error:"+collectNo)
+	}
+
+	// Return early unless there are metrics
+	if metrics == nil {
+		status.Monitor(c.monitorId, status.LEVEL_COLLECT, "last collected %s/%s at %s in %s, but engine returned no metrics", c.plan.Name, levelName, blip.FormatTime(t0), time.Since(t0))
+		blip.Debug("%s: level %s: nil metrics", c.monitorId, levelName)
+		return
+	}
+
+	// Call user-defined TransformMetrics plugin, if set
+	if c.transformMetrics != nil {
+		blip.Debug("%s: level %s: transform metrics", c.monitorId, levelName)
+		status.Monitor(c.monitorId, collectNo, "%s/%s: TransformMetrics", c.plan.Name, levelName)
+		c.transformMetrics(metrics)
+	}
+
+	// Send metrics to all sinks configured for this monitor. This is done
+	// sync because sinks are supposed to be fast or async _and_ have their
+	// timeout, which is why we pass context.Background() here. Also, this
+	// func runs in parallel (up to maxCollectors), so if a sink is slow,
+	// that might be ok.
+	blip.Debug("%s: level %s: sending metrics", c.monitorId, levelName)
+	for i := range c.sinks {
+		sinkName := c.sinks[i].Name()
+		status.Monitor(c.monitorId, collectNo, "%s/%s: sending to %s", c.plan.Name, levelName, sinkName)
+		err := c.sinks[i].Send(context.Background(), metrics)
 		if err != nil {
-			c.event.Errorf(event.ENGINE_COLLECT_ERROR, "%s; see monitor status or event log for details", err)
-		}
-
-		c.statsMux.Lock()
-		c.lastCollectTs = time.Now()
-		c.lastCollectError = err
-		c.lastCollectErrorTs = time.Now()
-		c.statsMux.Unlock()
-
-		if metrics == nil {
-			continue
-		}
-
-		if c.transformMetrics != nil {
-			status.Monitor(c.monitorId, lpc, "%s/%s: TransformMetrics", c.plan.Name, level)
-			c.transformMetrics(metrics)
-		}
-
-		for i := range c.sinks {
-			sinkName := c.sinks[i].Name()
-			status.Monitor(c.monitorId, lpc, "%s/%s: sending to %s", c.plan.Name, level, sinkName)
-			err := c.sinks[i].Send(context.Background(), metrics)
-			c.statsMux.Lock()
-			c.sinkErrors[sinkName] = fmt.Errorf("[%s] %s", time.Now(), err)
-			c.statsMux.Unlock()
+			c.event.Errorf(event.SINK_SEND_ERROR, "%s :%s", sinkName, err) // log by default
+			status.Monitor(c.monitorId, "error:"+sinkName, err.Error())
+		} else {
+			status.RemoveComponent(c.monitorId, "error:"+sinkName)
 		}
 	}
+
+	status.Monitor(c.monitorId, status.LEVEL_COLLECT, "last collected and sent metrics for %s/%s at %s in %s", c.plan.Name, levelName, blip.FormatTime(t0), time.Since(t0))
+	blip.Debug("%s: level %s: done in %s", c.monitorId, levelName, time.Since(t0))
 }
 
 // ChangePlan changes the metrics collect plan based on database state.
@@ -276,38 +284,35 @@ func (c *lpc) ChangePlan(newState, newPlanName string) error {
 	// Serialize access to this func
 	c.changeMux.Lock()
 	defer c.changeMux.Unlock()
-	if c.stopped {
+
+	if c.stopped { // Run stopped?
 		return nil
 	}
 
 	// Check if changePlan goroutine from previous call is running
-	c.stateMux.Lock()
-	if c.changing {
-		c.stateMux.Unlock()      // let changePlan goroutine return
-		c.changePlanCancelFunc() // stop --> changePlan goroutine
-		<-c.changePlanDoneChan   // wait for changePlan goroutine
-		c.stateMux.Lock()
+	select {
+	case <-c.changePlanDoneChan:
+	default:
+		if c.changePlanCancelFunc != nil {
+			blip.Debug("cancel previous changePlan")
+			c.changePlanCancelFunc() // stop --> changePlan goroutine
+			<-c.changePlanDoneChan   // wait for changePlan goroutine
+		}
 	}
 
-	c.changing = true // changePlan sets c.changing=false on return, so flip it back
-
+	blip.Debug("start new changePlan: %s %s", newState, newPlanName)
 	ctx, cancel := context.WithCancel(context.Background())
 	c.changePlanCancelFunc = cancel
 	c.changePlanDoneChan = make(chan struct{})
-	c.stateMux.Unlock()
 
 	// Don't block caller. If state changes again, LPA will call this
 	// func again, in which case the code above will cancel the current
 	// changePlan goroutine (if it's still running) and re-change/re-prepare
 	// the plan for the latest state.
-	go c.changePlan(ctx, newState, newPlanName)
+	go c.changePlan(ctx, c.changePlanDoneChan, newState, newPlanName)
 
 	return nil
 }
-
-const (
-	cpName = "lpc-change-plan" // only for changePlan
-)
 
 // changePlan is a gorountine run by ChangePlan It's potentially long-running
 // because it waits for Engine.Prepare. If that function returns an error
@@ -316,18 +321,15 @@ const (
 //
 // Never all this function directly; it's only called via ChangePlan, which
 // serializes access and guarantees only one changePlan goroutine at a time.
-func (c *lpc) changePlan(ctx context.Context, newState, newPlanName string) {
-	defer func() {
-		c.stateMux.Lock()
-		c.changing = false
-		c.stateMux.Unlock()
-		close(c.changePlanDoneChan) // signal that ChangePlan can lock stateMux
-	}()
+func (c *lpc) changePlan(ctx context.Context, doneChan chan struct{}, newState, newPlanName string) {
+	defer close(doneChan)
 
+	c.stateMux.Lock()
 	oldState := c.state
 	oldPlanName := c.plan.Name
+	c.stateMux.Unlock()
 	change := fmt.Sprintf("state:%s plan:%s -> state:%s plan:%s", oldState, oldPlanName, newState, newPlanName)
-	c.event.Sendf(event.CHANGE_PLAN_BEGIN, change)
+	c.event.Sendf(event.CHANGE_PLAN, change)
 
 	// Load new plan from plan loader, which contains all plans. Try forever because
 	// that's what this func/gouroutine does: try forever (caller's expect that).
@@ -337,16 +339,19 @@ func (c *lpc) changePlan(ctx context.Context, newState, newPlanName string) {
 	var newPlan blip.Plan
 	var err error
 	for {
-		status.Monitor(c.monitorId, cpName, "loading new plan %s (state %s)", newPlanName, newState)
+		status.Monitor(c.monitorId, status.LEVEL_CHANGE_PLAN, "loading new plan %s (state %s)", newPlanName, newState)
 		newPlan, err = c.planLoader.Plan(c.engine.MonitorId(), newPlanName, c.engine.DB())
 		if err == nil {
 			break // success
 		}
 
-		status.Monitor(c.monitorId, cpName, "%s: error loading new plan: %s (retry in 2s)", change, err)
-		c.event.Sendf(event.CHANGE_PLAN_ERROR, "%s: error loading new plan: %s (retry in 2s)", change, err)
+		errMsg := fmt.Sprintf("%s: error loading new plan %s: %s (retrying)", change, newPlanName, err)
+		status.Monitor(c.monitorId, status.LEVEL_CHANGE_PLAN, errMsg)
+		c.event.Sendf(event.CHANGE_PLAN_ERROR, errMsg)
 		time.Sleep(2 * time.Second)
 	}
+
+	change = fmt.Sprintf("state:%s plan:%s -> state:%s plan:%s", oldState, oldPlanName, newState, newPlan.Name)
 
 	newPlan.MonitorId = c.monitorId
 	newPlan.InterpolateEnvVars()
@@ -354,7 +359,7 @@ func (c *lpc) changePlan(ctx context.Context, newState, newPlanName string) {
 
 	// Convert plan levels to sorted levels for efficient level calculation in Run;
 	// see code comments on sortedLevels.
-	levels := sortedLevels(newPlan)
+	levels := plan.Sort(&newPlan)
 
 	// ----------------------------------------------------------------------
 	// Prepare the (new) plan
@@ -368,7 +373,7 @@ func (c *lpc) changePlan(ctx context.Context, newState, newPlanName string) {
 	// does its work and, if successful, calls c.Pause, which is step 0;
 	// then Prepare does step 1, which won't be collected yet because it
 	// just paused LPC.Run which drives metrics collection; then Prepare calls
-	// the after func/callback defined below, which is step 2 and signals to
+	// the after func/calleck defined below, which is step 2 and signals to
 	// this func that we commit the new plan and resume Run (step 3) to begin
 	// collecting that plan.
 
@@ -381,6 +386,8 @@ func (c *lpc) changePlan(ctx context.Context, newState, newPlanName string) {
 		// Changing state/plan always resumes (if paused); in fact, it's the
 		// only way to resume after Pause is called
 		c.paused = false
+		status.Monitor(c.monitorId, status.LEVEL_STATE, newState)
+		status.Monitor(c.monitorId, status.LEVEL_PLAN, newPlan.Name)
 		blip.Debug("%s: resume", c.monitorId)
 
 		c.stateMux.Unlock() // -- X unlock --
@@ -393,7 +400,7 @@ func (c *lpc) changePlan(ctx context.Context, newState, newPlanName string) {
 	// More importantly, as documented in several place: this is _the code_ that
 	// all other code relies on to try "forever" because a plan must be prepared
 	// before anything can be collected.
-	status.Monitor(c.monitorId, cpName, "preparing new plan %s (state %s)", newPlanName, newState)
+	status.Monitor(c.monitorId, status.LEVEL_CHANGE_PLAN, "preparing new plan %s (state %s)", newPlan.Name, newState)
 	retry := backoff.NewExponentialBackOff()
 	retry.MaxElapsedTime = 0
 	for {
@@ -403,19 +410,19 @@ func (c *lpc) changePlan(ctx context.Context, newState, newPlanName string) {
 		// issue, so we need to sleep and retry.
 		ctxPrep, cancelPrep := context.WithTimeout(ctx, 10*time.Second)
 		err := c.engine.Prepare(ctxPrep, newPlan, c.Pause, after)
+		cancelPrep()
 		if err == nil {
 			break // success
 		}
 		if ctx.Err() != nil {
+			blip.Debug("changePlan canceled")
 			return // changePlan goroutine has been cancelled
 		}
-		cancelPrep()
-		status.Monitor(c.monitorId, cpName, "%s: error preparing new plan: %s", change, err)
-		c.event.Sendf(event.CHANGE_PLAN_ERROR, "%s: error preparing new plan: %s", change, err)
+		status.Monitor(c.monitorId, status.LEVEL_CHANGE_PLAN, "%s: error preparing new plan %s: %s (retrying)", change, newPlan.Name, err)
 		time.Sleep(retry.NextBackOff())
 	}
 
-	status.RemoveComponent(c.monitorId, cpName)
+	status.RemoveComponent(c.monitorId, status.LEVEL_CHANGE_PLAN)
 	c.event.Sendf(event.CHANGE_PLAN_SUCCESS, change)
 }
 
@@ -424,113 +431,8 @@ func (c *lpc) changePlan(ctx context.Context, newState, newPlanName string) {
 // to call ChangePlan again.
 func (c *lpc) Pause() {
 	c.stateMux.Lock()
-	blip.Debug("%s: pause", c.monitorId)
 	c.paused = true
+	status.Monitor(c.monitorId, status.LEVEL_COLLECTOR, "paused at %s", blip.FormatTime(time.Now()))
+	c.event.Send(event.LPC_PAUSED)
 	c.stateMux.Unlock()
-}
-
-// Status returns the current state and plan name.
-func (c *lpc) Status() proto.MonitorCollectorStatus {
-	c.stateMux.Lock()
-	defer c.stateMux.Unlock()
-	c.statsMux.Lock()
-	defer c.statsMux.Unlock()
-
-	s := proto.MonitorCollectorStatus{
-		State:         c.state,
-		Plan:          c.plan.Name,
-		Paused:        c.paused,
-		LastCollectTs: c.lastCollectTs,
-		SinkErrors:    map[string]string{},
-	}
-	if c.lastCollectError != nil {
-		s.LastCollectError = c.lastCollectError.Error()
-
-		lastCollectErrorTs := c.lastCollectErrorTs // copy because we use pointer
-		s.LastCollectErrorTs = &lastCollectErrorTs
-	}
-	sinkErrors := map[string]string{}
-	for sinkName, err := range c.sinkErrors {
-		if err == nil {
-			continue
-		}
-		sinkErrors[sinkName] = err.Error()
-	}
-	if len(sinkErrors) > 0 {
-		s.SinkErrors = sinkErrors
-	}
-	return s
-}
-
-// ---------------------------------------------------------------------------
-// Plan vs. sorted level
-// ---------------------------------------------------------------------------
-
-// level represents a sorted level created by sortedLevels below.
-type level struct {
-	freq int
-	name string
-}
-
-// Sort levels ascending by frequency.
-type byFreq []level
-
-func (a byFreq) Len() int           { return len(a) }
-func (a byFreq) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
-func (a byFreq) Less(i, j int) bool { return a[i].freq < a[j].freq }
-
-// sortedLevels returns a list of levels sorted (asc) by frequency. Sorted levels
-// are used in the main Run loop: for i := range c.levels. Sorted levels are
-// required because plan levels are unorded because the plan is a map. We could
-// check every level in the plan, but that's wasteful. With sorted levels, we
-// can precisely check which levels to collect at every 1s tick.
-//
-// Also, plan levels are abbreviated whereas sorted levels are complete.
-// For example, a plan says "collect X every 5s, and collect Y every 10s".
-// But the complete version of that is "collect X every 5s, and collect X + Y
-// every 10s." See "metric inheritance" in the docs.
-//
-// Also, we convert duration strings from the plan level to integers for sorted
-// levels in order to do modulo (%) in the main Run loop.
-func sortedLevels(plan blip.Plan) []level {
-	// Make a sorted level for each plan level
-	levels := make([]level, len(plan.Levels))
-	i := 0
-	for _, l := range plan.Levels {
-		d, _ := time.ParseDuration(l.Freq) // "5s" -> 5 (for freq below)
-		levels[i] = level{
-			name: l.Name,
-			freq: int(d.Seconds()),
-		}
-		i++
-	}
-
-	// Sort levels by ascending frequency
-	sort.Sort(byFreq(levels))
-	blip.Debug("%s levels: %v", plan.Name, levels)
-
-	// Metric inheritence: level N applies to N+(N+1)
-	for i := 0; i < len(levels); i++ {
-		// At level N
-		rootLevel := levels[i].name
-		root := plan.Levels[rootLevel]
-
-		// Add metrics from N to all N+1
-		for j := i + 1; j < len(levels); j++ {
-			leafLevel := levels[j].name
-			leaf := plan.Levels[leafLevel]
-
-			for domain := range root.Collect {
-				dom, ok := leaf.Collect[domain]
-				if !ok {
-					leaf.Collect[domain] = root.Collect[domain]
-				} else {
-					dom.Metrics = append(dom.Metrics, root.Collect[domain].Metrics...)
-					leaf.Collect[domain] = dom
-				}
-			}
-		}
-	}
-
-	return levels
 }

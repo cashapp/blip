@@ -2,81 +2,20 @@
 layout: default
 parent: Plans
 title: "File"
-nav_order: 3
 ---
 
+{: .no_toc }
 # Plan File
 
-One YAML file specifies one Blip plan.
+Plans can be written YAML files, deployed with Blip, and used by specifying [`config.plans.files`](../config/config-file#files).
+File paths are relative to the current working directory of `blip`.
 
-## Syntax
+* TOC
+{:toc}
 
-Plan files use YAML syntax.
-The high-level pseudo structure is:
+## Name
 
-```
----
-level-name:
-  <level config>
-  collect:
-    <domain name>:
-      <domain config>
-```
-
-That structure repeats for each level, which is given a unique name.
-
-Following is a small but realistic example:
-
-```yaml
----
-performance:
-  freq: 5s
-  collect:
-    status.global:
-      options:
-        all: yes
-      metrics:
-        # ALL because of option ^
-    innodb:
-      metrics:
-        - trx_rseg_history_len # HLL
-data-size:
-  freq: 60m
-  collect:
-    data.size:
-      # All defaults
-```
-
-The example above specifies two levels, "performance" and "data-size".
-
-The "performance" level is collected every 5 seconds.
-For this level, Blip collect metrics from two domains: [`status.global`](domains#statusglobal) and [`innodb`](domains#innodb).
-
-The "data-size" level is collected every 60 minutes.
-For this level, Blip collects metrics for one domain: [`data.size`](domains#datasize).
-
-When the two levels overlap (every 60 minutes), Blip collects metrics for both levels.
-
-The "data-size" level demonstrates the minimum valid level config: `freq` and at least one domain with all defaults.
-
-### Level Config
-
-|Parameter|Value|Required?|Purpose|
-|`collect`|[Domain Config](#domain-config)|YES|Configures which domains and metrics to collect|
-|`freq`|[Go duration string](https://pkg.go.dev/time#ParseDuration)|YES|Interval at which level is collected|
-
-### Domain Config
-
-|Parameter|Value|Required?|Purpose|
-|`metrics`|list of strings|no|List of metrics to collect; not required but common unless domain has option to collect all metrics, or only collects a fixed list of metrics|
-|`options`|key-value pairs (strings)|no|Sets [collector options](../metrics/collectors#options)|
-
-Values for both `metrics` and `options` are domain (and collector) specific.
-See [Domains](domains) for the latter, and [Collectors > Options](../metrics/collectors#options) for the latter.
-
-## Naming
-
-Plan names are _exactly_ as written in the [`plans` section](../config/config-file#plans) of the Blip config file.
+Plan names are _exactly_ as written in [`config.plans.files`](../config/config-file#files).
 For example:
 
 ```yaml
@@ -89,22 +28,107 @@ plans:
 
 The first plan name is `/blip/plan1.yaml` (Blip does not strip base paths).
 The second plan name is `../plan2.yaml` (Blip does not replace relative paths).
-The third plan name is `/home/user/plan3.yaml` where `HOME=/home/user` because interpolation happens first.
+The third plan name is `/home/user/plan3.yaml` where `HOME=/home/user` because [interpolation](#interpolation) happens first.
+
+## Syntax
+
+A plan file consists of one or more levels with a unique name and frequency.
+Each level has the following structure:
+
+```
+level-name:
+  freq: <duration string>
+  collect:
+    domain-name:
+      <domain config>
+```
+
+`level-name` is any name you want to call the level.
+`freq` is how often the level is collected, expressed as a [Go duration string](https://pkg.go.dev/time#ParseDuration) like "5s" for "every 5 seconds".
+Both level name and frequency must be unique within the same plan (they can be reused in different plans).
+
+Each level has a `collect` subsection under which [domains](../metrics/domains) are specified.
+And each domain has a domain-specific configuration that includes:
+* `metrics`: A list of domain-specific metrics to collect
+* `options`: A key-value map of options
+* `errors`: A key-value map of [error policies](error-policy)
+
+These values are documented for each [domain](../metrics/domains) and printed on the command line by [`--print-domains`](../config/blip#--print-domains).
+
+Since Blip automatically levels up overlapping frequencies (described in [Intro / Plans](intro/plans)), it's conventional to define levels from most to least frequent, as in this example:
+
+```yaml
+performance:
+  freq: 5s
+  collect:
+    status.global:
+      options:
+        all: yes
+      metrics:
+        # ALL because of option ^
+    innodb:
+      metrics:
+        - trx_rseg_history_len # HLL
+
+data-size:
+  freq: 60m
+  collect:
+    data.size:
+      # All defaults
+```
+
+The example above specifies two levels: `performance` and `data-size`.
+
+The performance level is collected every 5 seconds&mdash;the most frequent.
+For this level, Blip collect metrics from two domains: [`status.global`](domains#statusglobal) and [`innodb`](domains#innodb).
+
+The data-size level is collected every 60 minutes&mdash;the least frequent.
+For this level, Blip collects metrics for one domain: [`data.size`](domains#datasize).
+
+When the two levels overlap (every 60 minutes), Blip collects metrics for both levels.
+Therefore, you should never repeat metrics (in the same domain) in a plan.
+However, you can repeat domains at different levels (and frequencies) like:
+
+```yaml
+performance:
+  freq: 5s
+  collect:
+    status.global:
+      metrics:
+        - Queries
+        - Threads_running
+
+standard:
+  freq: 20s
+  collect:
+    status.global:
+      metrics:
+        - Bytes_sent
+        - Bytes_received
+```
+
+Every 5 seconds, Blip will collect [`status.global`](../metrics/domains#statusglobal) metrics `Queries` and `Threads_running`.
+And every 20 seconds it will collect those two plus [`status.global`](../metrics/domains#statusglobal) metrics `Bytes_sent` and `Bytes_received`.
+
+{: .note }
+Repeat domains; never metrics.
+
+You can repeat domains at different levels to collect more metrics, but don't repeat metrics in a plan.
+See also [Metrics / Collecting / Reusing](../metrics/collecting#reusing).
 
 ## Interpolation
 
-Blip interpolates option _values_ in the [domain config](#domain-config).
+Blip interpolates domain option _values_, like:
 
-Interpolation in plan files is identical to interpolation in the config file (see [Config File > Interpolation](../config/config-file#interpolation)).
+```yaml
+level:
+  freq: 10s
+  collect:
+    domain:
+      options:
+        foo: "${FOO}"
+```
 
-Environment variable
-: `${FOO}`
+The domain option value `${FOO}` will be replaced with the value of the `FOO` environment variable.
 
-Environment variable with default value
-: `${FOO:-default}`
-
-Monitor variable
-: `%{monitor.VAR}`
-
-{: .note }
-**NOTE**: `${}` and `%{}` are always required.
+Plan file interpolation has the same syntax and rules as [config file interpolation](../config/interpolation).

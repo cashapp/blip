@@ -10,8 +10,8 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
-	"strings"
 	"syscall"
+	"time"
 
 	"github.com/cashapp/blip"
 	"github.com/cashapp/blip/aws"
@@ -34,12 +34,9 @@ func ControlChans() (stopChan, doneChan chan struct{}) {
 // _not_ call this function and, instead, provide its own environment, plugins,
 // or factories when calling Server.Boot.
 func Defaults() (blip.Env, blip.Plugins, blip.Factories) {
-	// Plugins are optional, but factories are required
-	awsConfig := &aws.ConfigFactory{}
-	dbMaker := dbconn.NewConnFactory(awsConfig, nil) // @todo defer to pass Plugins.ModifyDB
 	factories := blip.Factories{
-		AWSConfig: awsConfig,
-		DbConn:    dbMaker,
+		AWSConfig: &aws.ConfigFactory{},
+		// DbConn made after loading config
 		// HTTPClient made after loading config
 	}
 	env := blip.Env{
@@ -87,88 +84,84 @@ type Server struct {
 //
 // Boot must be called once before Run.
 func (s *Server) Boot(env blip.Env, plugins blip.Plugins, factories blip.Factories) error {
-	event.Sendf(event.BOOT, "blip %s", blip.VERSION) // very first event
-	status.Blip("server", "booting")
-
 	// ----------------------------------------------------------------------
 	// Parse commad line options
+	// ----------------------------------------------------------------------
 
 	var err error
 	s.cmdline, err = ParseCommandLine(env.Args)
 	if err != nil {
 		return err
 	}
-	if s.cmdline.Options.Version {
-		fmt.Println("blip", blip.VERSION)
-		return nil
-	}
+
+	// Set global debug var first because all code calls blip.Debug
+	blip.Debugging = s.cmdline.Options.Debug
+	blip.Debug("blip %s %+v", blip.VERSION, s.cmdline)
+
+	// Return early (don't boot/run) --help, --verison, and --print-domains
 	if s.cmdline.Options.Help {
 		printHelp()
-		return nil
+		os.Exit(0)
 	}
-
-	// Set debug and strict from env vars. Do this very first because all code
-	// uses blip.Debug() and blip.Strict (boolean).
-	//
-	// STRICT.md documents the effects of strict mode.
-	if s.cmdline.Options.Debug {
-		blip.Debugging = true
+	if s.cmdline.Options.Version {
+		fmt.Println("blip", blip.VERSION)
+		os.Exit(0)
 	}
-	if v := os.Getenv(blip.ENV_DEBUG); v != "" {
-		switch strings.ToLower(v) {
-		case "yes", "on", "enable", "1":
-			blip.Debugging = true
-		}
-	}
-	if s.cmdline.Options.Strict {
-		blip.Strict = true
-	}
-	if v := os.Getenv(blip.ENV_STRICT); v != "" {
-		switch strings.ToLower(v) {
-		case "yes", "on", "enable", "1", "finch":
-			blip.Strict = true
-		}
-	}
-
-	// --print-domains and exit
 	if s.cmdline.Options.PrintDomains {
 		fmt.Fprintf(os.Stdout, metrics.PrintDomains())
 		os.Exit(0)
 	}
 
 	// ----------------------------------------------------------------------
+	// Boot sequence
+	// ----------------------------------------------------------------------
+
+	startTs := time.Now()
+	status.Blip("started", blip.FormatTime(startTs))
+	status.Blip("version", blip.VERSION)
+	status.Blip(status.SERVER, "booting")
+
+	event.SetReceiver(event.Log{All: s.cmdline.Options.Log})
+	event.Sendf(event.BOOT_START, "blip %s", blip.VERSION) // very first event
+
+	// ----------------------------------------------------------------------
 	// Load config
 	event.Send(event.BOOT_CONFIG_LOADING)
+	status.Blip(status.SERVER, "boot: loading config")
 
-	// Always start with a default config, else we'll lack some basic config
-	// like the API addr:port to listen on. If strict, it's a zero config except
-	// for the absolute most minimal/must-have config values. Else, the default
-	// (not strict) config is a more realistic set of defaults.
-	cfg := blip.DefaultConfig(blip.Strict)
-
-	// User-provided LoadConfig plugin takes priority if set; else, use default
-	// (built-in) LoadConfig func.
+	// LoadConfig plugins takes priority if defined. Else, load --config file,
+	// which defaults to blip.yaml.
 	if plugins.LoadConfig != nil {
 		blip.Debug("call plugins.LoadConfig")
-		cfg, err = plugins.LoadConfig(cfg)
+		s.cfg, err = plugins.LoadConfig(blip.DefaultConfig())
+		// Do not apply defaults; plugin is responsible for that in case
+		// it wants full control of the config (which isn't advised but allowed).
 	} else {
-		cfg, err = blip.LoadConfig(s.cmdline.Options.Config, cfg)
+		// If --config specified, then file is required to exist.
+		// If not specified, then use default if it exist (not required).
+		// If default file doesn't exist, then Blip will run with a
+		// full default config (i.e. the zero config).
+		required := true
+		if s.cmdline.Options.Config == "" {
+			s.cmdline.Options.Config = blip.DEFAULT_CONFIG_FILE
+			required = false
+		}
+		s.cfg, err = blip.LoadConfig(s.cmdline.Options.Config, blip.DefaultConfig(), required)
+
+		// Apply config file on top of defaults, so if a value is set in the config
+		// file, it overrides the default value (if any)
+		s.cfg.ApplyDefaults(blip.DefaultConfig())
 	}
 	if err != nil {
-		event.Sendf(event.BOOT_CONFIG_ERROR, err.Error())
+		event.Sendf(event.BOOT_ERROR, err.Error())
 		return err
 	}
-
-	// Extensively validate the config. Once done, the config is immutable,
-	// except for plans and monitors which might come from dynamic sources,
-	// like tables.
-	if err := cfg.Validate(); err != nil {
-		event.Sendf(event.BOOT_CONFIG_INVALID, err.Error())
+	s.cfg.InterpolateEnvVars()
+	blip.Debug("config: %#v", s.cfg)
+	if err := s.cfg.Validate(); err != nil {
+		event.Errorf(event.BOOT_CONFIG_INVALID, err.Error())
 		return err
 	}
-
-	cfg.InterpolateEnvVars()
-	s.cfg = cfg // final immutable config
 	event.Send(event.BOOT_CONFIG_LOADED)
 
 	if s.cmdline.Options.PrintConfig {
@@ -181,37 +174,37 @@ func (s *Server) Boot(env blip.Env, plugins blip.Plugins, factories blip.Factori
 	// If HTTP factory not provided, then use default with config.http, which
 	// is why its creation is delayed until now
 	if factories.HTTPClient == nil {
-		factories.HTTPClient = httpClientFactory{cfg: cfg.HTTP}
+		factories.HTTPClient = httpClientFactory{cfg: s.cfg.HTTP}
 	}
+
+	if factories.DbConn == nil {
+		factories.DbConn = dbconn.NewConnFactory(factories.AWSConfig, plugins.ModifyDB)
+	}
+
 	sink.InitFactory(factories)
 	metrics.InitFactory(factories)
 
 	// ----------------------------------------------------------------------
 	// Load level plans
+	status.Blip(status.SERVER, "boot: loading plans")
 
 	// Get the built-in level plan loader singleton. It's used in two places:
 	// here for initial plan loading, and level.Collector (LPC) to fetch the
 	// plan and set the Monitor to use it.
 	s.planLoader = plan.NewLoader(plugins.LoadPlans)
 
-	if s.cmdline.Options.Plans != "" {
-		plans := strings.Split(s.cmdline.Options.Plans, ",")
-		blip.Debug("--plans override config.plans: %v -> %v", s.cfg.Plans.Files, plans)
-		s.cfg.Plans.Files = plans
-	}
-
 	if err := s.planLoader.LoadShared(s.cfg.Plans, factories.DbConn); err != nil {
-		event.Sendf(event.BOOT_PLANS_ERROR, err.Error())
+		event.Sendf(event.BOOT_ERROR, err.Error())
 		return err
 	}
-	event.Send(event.BOOT_PLANS_LOADED)
 
 	if s.cmdline.Options.PrintPlans {
 		s.planLoader.Print()
 	}
 
 	// ----------------------------------------------------------------------
-	// Database monitors
+	// Load monitors
+	status.Blip(status.SERVER, "boot: load monitors")
 
 	// Create, but don't start, database monitors. They're started later in Run.
 	s.monitorLoader = monitor.NewLoader(monitor.LoaderArgs{
@@ -222,7 +215,7 @@ func (s *Server) Boot(env blip.Env, plugins blip.Plugins, factories blip.Factori
 		RDSLoader:  aws.RDSLoader{ClientFactory: aws.NewRDSClientFactory(factories.AWSConfig)},
 	})
 	if err := s.monitorLoader.Load(context.Background()); err != nil {
-		event.Sendf(event.BOOT_MONITORS_ERROR, err.Error())
+		event.Sendf(event.BOOT_ERROR, err.Error())
 		return err
 	}
 
@@ -232,9 +225,14 @@ func (s *Server) Boot(env blip.Env, plugins blip.Plugins, factories blip.Factori
 
 	// ----------------------------------------------------------------------
 	// API
-	s.api = NewAPI(cfg.API, s.monitorLoader)
+	if !s.cfg.API.Disable {
+		s.api = NewAPI(s.cfg, s.monitorLoader)
+	} else {
+		blip.Debug("API disabled")
+	}
 
-	return nil
+	event.Sendf(event.BOOT_SUCCESS, "booted in %s, loaded %d monitors", time.Now().Sub(startTs), s.monitorLoader.Count())
+	return nil // ok to call Run
 }
 
 func (s *Server) Run(stopChan, doneChan chan struct{}) error {
@@ -244,27 +242,25 @@ func (s *Server) Run(stopChan, doneChan chan struct{}) error {
 	if !s.cmdline.Options.Run {
 		return nil
 	}
-
-	status.Blip("server", "running")
 	event.Send(event.SERVER_RUN)
 
 	stopReason := "unknown"
 	defer func() {
-		event.Sendf(event.SERVER_RUN_STOP, stopReason)
+		event.Errorf(event.SERVER_STOPPED, stopReason)
 	}()
 
 	// Start all monitors. Then if config.monitor-load.freq is specified, start
 	// periodical monitor reloading.
+	status.Blip(status.SERVER, "starting monitors")
 	s.monitorLoader.StartMonitors()
-	if s.cfg.MonitorLoader.Freq != "" {
-		doneChan := make(chan struct{}) // ignored: Reload goroutine dies Server
-		go s.monitorLoader.Reload(stopChan, doneChan)
+
+	// Run API, restart on panic
+	if !s.cfg.API.Disable {
+		go s.api.Run()
 	}
 
-	go s.api.Run()
-
 	// Run until caller closes stopChan or blip process catches a signal
-	event.Sendf(event.SERVER_RUN_WAIT, s.cfg.API.Bind)
+	status.Blip(status.SERVER, "running since %s", blip.FormatTime(time.Now()))
 	signalChan := make(chan os.Signal)
 	signal.Notify(signalChan, os.Interrupt, syscall.SIGTERM)
 	select {

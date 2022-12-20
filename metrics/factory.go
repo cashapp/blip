@@ -8,15 +8,21 @@ import (
 	"sync"
 
 	"github.com/cashapp/blip"
-	"github.com/cashapp/blip/event"
 	"github.com/cashapp/blip/metrics/aws.rds"
 	"github.com/cashapp/blip/metrics/innodb"
 	"github.com/cashapp/blip/metrics/percona"
+	"github.com/cashapp/blip/metrics/query.response-time"
+	"github.com/cashapp/blip/metrics/repl"
 	"github.com/cashapp/blip/metrics/repl.lag"
 	"github.com/cashapp/blip/metrics/size.binlog"
 	"github.com/cashapp/blip/metrics/size.database"
+	"github.com/cashapp/blip/metrics/size.table"
 	"github.com/cashapp/blip/metrics/status.global"
+	"github.com/cashapp/blip/metrics/stmt.current"
+	"github.com/cashapp/blip/metrics/tls"
+	"github.com/cashapp/blip/metrics/trx"
 	"github.com/cashapp/blip/metrics/var.global"
+	"github.com/cashapp/blip/metrics/wait.io.table"
 )
 
 // Register registers a factory that makes one or more collector by domain name.
@@ -30,12 +36,22 @@ func Register(domain string, f blip.CollectorFactory) error {
 	r.Lock()
 	defer r.Unlock()
 	_, ok := r.factory[domain]
-	if ok && blip.Strict {
+	if ok {
 		return fmt.Errorf("%s already registered", domain)
 	}
 	r.factory[domain] = f
-	event.Sendf(event.REGISTER_METRICS, domain)
+	blip.Debug("register collector %s", domain)
 	return nil
+}
+
+// Remove removes the metrics collector factory for the given domain. This is
+// used for testing, but it can also be used to remove (or override) built-in
+// metric collectors.
+func Remove(domain string) {
+	r.Lock()
+	defer r.Unlock()
+	delete(r.factory, domain)
+	blip.Debug("removed collector %s", domain)
 }
 
 // List lists all registered metric collectors. It is used by the server API
@@ -66,7 +82,7 @@ func Make(domain string, args blip.CollectorFactoryArgs) (blip.Collector, error)
 	defer r.Unlock()
 	f, ok := r.factory[domain]
 	if !ok {
-		return nil, blip.ErrInvalidDomain{Domain: domain}
+		return nil, fmt.Errorf("invalid domain: %s (no factory registered)", domain)
 
 	}
 	return f.Make(domain, args)
@@ -89,11 +105,11 @@ func PrintDomains() string {
 			help.Domain, help.Description,
 		)
 
+		// Options block
 		opts := make([]string, 0, len(help.Options))
 		for o := range help.Options {
 			opts = append(opts, o)
 		}
-
 		if len(opts) > 0 {
 			out += "\tOptions:\n"
 			sort.Strings(opts)
@@ -126,6 +142,21 @@ func PrintDomains() string {
 			}
 		} else {
 			out += "\t(No options)\n\n"
+		}
+
+		// Errors block
+		errs := make([]string, 0, len(help.Errors))
+		for e := range help.Errors {
+			errs = append(errs, e)
+		}
+		if len(errs) > 0 {
+			out += "\tErrors:\n"
+			sort.Strings(errs)
+			for _, errName := range errs {
+				optHelp := help.Errors[errName]
+				out += "\t\t" + errName + ": " + optHelp.Handles + "\n"
+			}
+			out += "\n"
 		}
 
 		if len(help.Groups) > 0 {
@@ -220,7 +251,7 @@ func (f *factory) Make(domain string, args blip.CollectorFactoryArgs) (blip.Coll
 		if region == "" && !blip.True(args.Config.AWS.DisableAutoRegion) {
 			region = "auto"
 		}
-		awsConfig, err := f.AWSConfig.Make(blip.AWS{Region: region})
+		awsConfig, err := f.AWSConfig.Make(blip.AWS{Region: region}, args.Config.Hostname)
 		if err != nil {
 			return nil, err
 		}
@@ -229,18 +260,32 @@ func (f *factory) Make(domain string, args blip.CollectorFactoryArgs) (blip.Coll
 		return innodb.NewInnoDB(args.DB), nil
 	case "percona.response-time":
 		return percona.NewQRT(args.DB), nil
+	case "query.response-time":
+		return queryresponsetime.NewResponseTime(args.DB), nil
+	case "repl":
+		return repl.NewRepl(args.DB), nil
 	case "repl.lag":
 		return repllag.NewLag(args.DB), nil
 	case "size.binlog":
 		return sizebinlog.NewBinlog(args.DB), nil
 	case "size.database":
 		return sizedatabase.NewDatabase(args.DB), nil
+	case "size.table":
+		return sizetable.NewTable(args.DB), nil
 	case "status.global":
 		return statusglobal.NewGlobal(args.DB), nil
+	case "stmt.current":
+		return stmt.NewCurrent(args.DB), nil
+	case "tls":
+		return tls.NewTLS(args.DB), nil
+	case "trx":
+		return trx.NewTrx(args.DB), nil
 	case "var.global":
 		return varglobal.NewGlobal(args.DB), nil
+	case "wait.io.table":
+		return waitiotable.NewTable(args.DB), nil
 	}
-	return nil, blip.ErrInvalidDomain{Domain: domain}
+	return nil, fmt.Errorf("invalid domain: %s", domain)
 }
 
 // List of built-in collectors. To add one, add its domain name here, and add
@@ -249,9 +294,16 @@ var builtinCollectors = []string{
 	"aws.rds",
 	"innodb",
 	"percona.response-time",
+	"query.response-time",
+	"repl",
 	"repl.lag",
 	"size.binlog",
 	"size.database",
+	"size.table",
 	"status.global",
+	"stmt.current",
+	"trx",
+	"tls",
 	"var.global",
+	"wait.io.table",
 }
