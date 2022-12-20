@@ -1,5 +1,7 @@
 # Blip
 
+![Build](https://github.com/cashapp/blip/actions/workflows/ci.yml/badge.svg)
+
 Blip is a MySQL monitor: it collects and reports metrics from MySQL to monitoring platforms like Datadog.
 It works with all vendors and distributions of MySQL 5.7 and 8.0, on-premise and in the cloud.
 It has built-in support for Datadog, Splunk, and Chronosphere, and a plugin architecture to report metrics to any monitoring platform.
