@@ -3,7 +3,13 @@ package test
 import (
 	"database/sql"
 	"fmt"
+	"os"
 )
+
+// Build is true when running in GitHub Actions. When true, database tests are
+// skipped because currently we don't run MySQL in GitHub Acitons, but other tests
+// and the Go build still run.
+var Build = os.Getenv("GITHUB_ACTION") != ""
 
 var MySQLPort = map[string]string{
 	//"mysql56": "33560",

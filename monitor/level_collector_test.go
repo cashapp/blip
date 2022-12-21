@@ -42,7 +42,11 @@ func TestLevelCollector(t *testing.T) {
 	// the LPC and engine don't know or care that this collector is a mock.
 	_, db, err := test.Connection("mysql57")
 	if err != nil {
-		t.Fatal(err)
+		if test.Build {
+			t.Skip("mysql57 not running")
+		} else {
+			t.Fatal(err)
+		}
 	}
 	defer db.Close()
 
@@ -189,7 +193,11 @@ func TestLevelCollectorChangePlan(t *testing.T) {
 	// the LPC and engine don't know or care that this collector is a mock.
 	_, db, err := test.Connection("mysql57")
 	if err != nil {
-		t.Fatal(err)
+		if test.Build {
+			t.Skip("mysql57 not running")
+		} else {
+			t.Fatal(err)
+		}
 	}
 	defer db.Close()
 

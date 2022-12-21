@@ -10,10 +10,15 @@ import (
 
 	"github.com/cashapp/blip"
 	"github.com/cashapp/blip/prom"
+	"github.com/cashapp/blip/test"
 	"github.com/cashapp/blip/test/mock"
 )
 
 func TestAPI(t *testing.T) {
+	if test.Build {
+		t.Skip("doesn't work in GitHub Action")
+	}
+
 	expect := "fake output"
 	exp := mock.Exporter{
 		ScrapeFunc: func() (string, error) {

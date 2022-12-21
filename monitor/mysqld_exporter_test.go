@@ -16,7 +16,11 @@ func TestProm(t *testing.T) {
 	// Test that the Prometheus-emulating Exporter scrapes from MySQL
 	_, db, err := test.Connection("mysql57")
 	if err != nil {
-		t.Fatal(err)
+		if test.Build {
+			t.Skip("mysql57 not running")
+		} else {
+			t.Fatal(err)
+		}
 	}
 	defer db.Close()
 
