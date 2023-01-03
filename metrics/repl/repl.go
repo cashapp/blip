@@ -20,6 +20,8 @@ const (
 	NOT_A_REPLICA = -1
 
 	ERR_NO_ACCESS = "access-denied"
+
+	OPT_REPORT_NOT_A_REPLICA = "report-not-a-replica"
 )
 
 type replMetrics struct {
@@ -27,10 +29,11 @@ type replMetrics struct {
 }
 
 type Repl struct {
-	db        *sql.DB
-	atLevel   map[string]replMetrics
-	errPolicy map[string]*errors.Policy
-	stop      bool
+	db              *sql.DB
+	atLevel         map[string]replMetrics
+	errPolicy       map[string]*errors.Policy
+	stop            bool
+	dropNotAReplica map[string]bool
 }
 
 var _ blip.Collector = &Repl{}
@@ -43,6 +46,7 @@ func NewRepl(db *sql.DB) *Repl {
 		errPolicy: map[string]*errors.Policy{
 			ERR_NO_ACCESS: errors.NewPolicy(""),
 		},
+		dropNotAReplica: map[string]bool{},
 	}
 }
 
@@ -54,7 +58,17 @@ func (c *Repl) Help() blip.CollectorHelp {
 	return blip.CollectorHelp{
 		Domain:      DOMAIN,
 		Description: "Replication status",
-		Options:     map[string]blip.CollectorHelpOption{},
+		Options: map[string]blip.CollectorHelpOption{
+			OPT_REPORT_NOT_A_REPLICA: {
+				Name:    OPT_REPORT_NOT_A_REPLICA,
+				Desc:    "Report not a replica as -1",
+				Default: "yes",
+				Values: map[string]string{
+					"yes": "Enabled: report not a replica repl.running = -1",
+					"no":  "Disabled: drop repl.running if not a replica",
+				},
+			},
+		},
 		Metrics: []blip.CollectorMetric{
 			{
 				Name: "running",
@@ -98,15 +112,15 @@ LEVEL:
 				return nil, fmt.Errorf("invalid collector metric: %s (run 'blip --print-domains' to list collector metrics)", dom.Metrics[i])
 			}
 		}
-
 		c.atLevel[level.Name] = m
+		c.dropNotAReplica[level.Name] = !blip.Bool(dom.Options[OPT_REPORT_NOT_A_REPLICA])
 
 		// Apply custom error policies, if any
 		if len(dom.Errors) > 0 {
 			if s, ok := dom.Errors[ERR_NO_ACCESS]; ok {
 				c.errPolicy[ERR_NO_ACCESS] = errors.NewPolicy(s)
 			}
-			blip.Debug("error poliy: %s=%s", ERR_NO_ACCESS, c.errPolicy[ERR_NO_ACCESS])
+			blip.Debug("error policy: %s=%s", ERR_NO_ACCESS, c.errPolicy[ERR_NO_ACCESS])
 		}
 
 		// SHOW REPLICA STATUS as of 8.022
@@ -161,6 +175,12 @@ func (c *Repl) Collect(ctx context.Context, levelName string) ([]blip.MetricValu
 			(replStatus["Slave_SQL_Running"] == "Yes" || replStatus["Replica_SQL_Running"] == "Yes") && replStatus["Last_Errno"] == "0" {
 			// running if a replica and those ^ 3 conditions are true
 			running = 1
+		}
+
+		if running == NOT_A_REPLICA {
+			if c.dropNotAReplica[levelName] {
+				return nil, nil
+			}
 		}
 
 		m := blip.MetricValue{
