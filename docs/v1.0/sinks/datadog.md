@@ -32,4 +32,5 @@ sinks:
     metric-translator: ""
     metric-prefix: ""
     dogstatsd-host: ""
+    api-compress: "true"
 ```
