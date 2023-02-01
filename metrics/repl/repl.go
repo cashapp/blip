@@ -49,7 +49,7 @@ func NewRepl(db *sql.DB) *Repl {
 			ERR_NO_ACCESS: errors.NewPolicy(""),
 		},
 		dropNotAReplica: map[string]bool{},
-		statusQuery:     "SHOW SLAVE STATUS",
+		statusQuery:     "SHOW SLAVE STATUS", // SHOW REPLICA STATUS as of 8.022
 		newTerms:        false,
 	}
 }
