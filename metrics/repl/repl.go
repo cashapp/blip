@@ -34,6 +34,8 @@ type Repl struct {
 	errPolicy       map[string]*errors.Policy
 	stop            bool
 	dropNotAReplica map[string]bool
+	statusQuery     string
+	newTerms        bool
 }
 
 var _ blip.Collector = &Repl{}
@@ -47,6 +49,8 @@ func NewRepl(db *sql.DB) *Repl {
 			ERR_NO_ACCESS: errors.NewPolicy(""),
 		},
 		dropNotAReplica: map[string]bool{},
+		statusQuery:     "SHOW SLAVE STATUS", // SHOW REPLICA STATUS as of 8.022
+		newTerms:        false,
 	}
 }
 
@@ -85,9 +89,6 @@ func (c *Repl) Help() blip.CollectorHelp {
 		},
 	}
 }
-
-var statusQuery = "SHOW SLAVE STATUS" // SHOW REPLICA STATUS as of 8.022
-var newTerms = false
 
 func (c *Repl) Prepare(ctx context.Context, plan blip.Plan) (func(), error) {
 	haveVersion := false
@@ -134,10 +135,10 @@ LEVEL:
 		}
 		haveVersion = true
 		if major == 8 && patch >= 22 {
-			statusQuery = "SHOW REPLICA STATUS"
-			newTerms = true
+			c.statusQuery = "SHOW REPLICA STATUS"
+			c.newTerms = true
 		}
-		blip.Debug("mysql %d.x.%d %s", major, patch, statusQuery)
+		blip.Debug("mysql %d.x.%d %s", major, patch, c.statusQuery)
 	}
 	return nil, nil
 }
@@ -155,7 +156,7 @@ func (c *Repl) Collect(ctx context.Context, levelName string) ([]blip.MetricValu
 
 	// Return SHOW SLAVE|REPLICA STATUS as map[string]string, which can be nil
 	// if MySQL is not a replica
-	replStatus, err := sqlutil.RowToMap(ctx, c.db, statusQuery)
+	replStatus, err := sqlutil.RowToMap(ctx, c.db, c.statusQuery)
 	if err != nil {
 		return c.collectError(err)
 	}
@@ -189,10 +190,13 @@ func (c *Repl) Collect(ctx context.Context, levelName string) ([]blip.MetricValu
 			Value: running,
 			Meta:  map[string]string{"source": ""},
 		}
-		if newTerms {
-			m.Meta["source"] = replStatus["Source_Host"]
-		} else {
-			m.Meta["source"] = replStatus["Master_Host"]
+		// Make sure we have results.
+		if len(replStatus) != 0 {
+			if c.newTerms {
+				m.Meta["source"] = replStatus["Source_Host"]
+			} else {
+				m.Meta["source"] = replStatus["Master_Host"]
+			}
 		}
 		metrics = append(metrics, m)
 	}
