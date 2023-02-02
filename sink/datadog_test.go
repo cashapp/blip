@@ -1,8 +1,6 @@
 package sink
 
 import (
-	"bytes"
-	"compress/zlib"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -62,7 +60,7 @@ func getBlipMetrics(valuesCount int) *blip.Metrics {
 	}
 }
 
-func getPayloadSize(r *http.Request, compress bool) (int, error) {
+func getPayloadSize(r *http.Request) (int, error) {
 	bodyReader, err := r.GetBody()
 	if err != nil {
 		return 0, err
@@ -72,14 +70,6 @@ func getPayloadSize(r *http.Request, compress bool) (int, error) {
 	body, err := ioutil.ReadAll(bodyReader)
 	if err != nil {
 		return 0, err
-	}
-
-	if compress {
-		var b bytes.Buffer
-		w := zlib.NewWriter(&b)
-		w.Write(body)
-		w.Close()
-		return len(b.Bytes()), nil
 	}
 
 	return len(body), nil
@@ -109,7 +99,7 @@ func TestDatadogMetricsPerRequest(t *testing.T) {
 			RoundTripFunc: func(r *http.Request) (*http.Response, error) {
 				callCount++
 
-				bodySize, err := getPayloadSize(r, false)
+				bodySize, err := getPayloadSize(r)
 				if err != nil {
 					return nil, err
 				}
@@ -161,7 +151,7 @@ func TestDatadogMetricsPerRequestWithCompression(t *testing.T) {
 			RoundTripFunc: func(r *http.Request) (*http.Response, error) {
 				callCount++
 
-				bodySize, err := getPayloadSize(r, true)
+				bodySize, err := getPayloadSize(r)
 				if err != nil {
 					return nil, err
 				}
@@ -214,7 +204,7 @@ func TestDatadogMetricsPerRequestMultipleFail(t *testing.T) {
 			RoundTripFunc: func(r *http.Request) (*http.Response, error) {
 				callCount++
 
-				bodySize, err := getPayloadSize(r, false)
+				bodySize, err := getPayloadSize(r)
 				if err != nil {
 					return nil, err
 				}
