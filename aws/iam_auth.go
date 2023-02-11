@@ -33,7 +33,7 @@ func NewAuthToken(username, hostname string, cfg aws.Config) AuthToken {
 
 func (a AuthToken) Password(ctx context.Context) (string, error) {
 	return auth.BuildAuthToken(
-		context.Background(),
+		ctx,
 		a.hostname,
 		a.cfg.Region,
 		a.username,
