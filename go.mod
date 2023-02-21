@@ -21,7 +21,7 @@ require (
 	github.com/go-test/deep v1.0.8
 	github.com/golang/snappy v0.0.4
 	github.com/hashicorp/go-version v1.3.0
-	github.com/prometheus/client_golang v1.11.0
+	github.com/prometheus/client_golang v1.11.1
 	github.com/prometheus/common v0.26.0
 	github.com/signalfx/golib/v3 v3.3.36
 	github.com/stretchr/testify v1.7.0
