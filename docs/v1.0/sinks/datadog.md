@@ -17,14 +17,17 @@ Consequently, the metrics it sends are [billed as custom metrics](https://docs.d
 Metrics are reported as domain-qualified Blip metric names: `status.global.threads_running`.
 All [tags](../config/config-file#tags) are reported as Datadog tags.
 
-Metrics can be sent either to datadog API directly or via datadog agent using DogStatsD protocol. Only one of the methods can be used at a time.
-If `dogstatsd-host` option is set, DogStatsD is used for sending metrics, otherwise `api` keys have to be provided. If the `doststatsd-host` doesn't include the port, `8125` is used as the default port.
+Metrics can be sent either to Datadog API directly or through a Datadog agent using DogStatsD protocol.
+Only one of the methods can be used at a time.
+If `dogstatsd-host` option is set, DogStatsD is used for sending metrics, otherwise `api` keys must be provided.
+If the `doststatsd-host` doesn't include the port, `8125` is used as the default port.
 
 ## Quick Reference
 
 ```yaml
 sinks:
   datadog:
+    api-compress: "true"
     api-key-auth: ""
     api-key-auth-file: ""
     app-key-auth: ""
@@ -32,5 +35,4 @@ sinks:
     metric-translator: ""
     metric-prefix: ""
     dogstatsd-host: ""
-    api-compress: "true"
 ```

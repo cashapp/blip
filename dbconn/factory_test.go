@@ -29,7 +29,7 @@ func TestConnect(t *testing.T) {
 		}
 	}
 
-	// The most basic functionality: connect to the MySQL 5.6 instance in Docker
+	// The most basic functionality: connect to the MySQL 5.7 instance in Docker
 	called := false
 	modifyDB := func(*sql.DB, string) {
 		called = true
@@ -60,16 +60,16 @@ func TestConnect(t *testing.T) {
 	}
 
 	// Verify that the conn (sql.DB) truly works by querying MySQL for a simple
-	// SELECT @@version which should return some string containing "5.6" in all
-	// cases. The actual string can vary like "5.6.41-community" and such, but
-	// if we're truly connect to the MySQL 5.6 test instance, then @@version must
-	// contain at least "5.6".
+	// SELECT @@version which should return some string containing "5.7" in all
+	// cases. The actual string can vary like "5.7.41-community" and such, but
+	// if we're truly connect to the MySQL 5.7 test instance, then @@version must
+	// contain at least "5.7".
 	val, err := sysvar(db, "version")
 	if err != nil {
 		t.Error(err)
 	}
-	if !strings.Contains(val, "5.6") {
-		t.Errorf("@@version=%s: does not contain '5.6')", val)
+	if !strings.Contains(val, "5.7") {
+		t.Errorf("@@version=%s: does not contain '5.7')", val)
 	}
 
 	// Make should call the modifyDB plugin. We don't do anything here,
