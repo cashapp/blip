@@ -176,13 +176,16 @@ MySQL error 1146: Table 'performance_schema.events_statements_histogram_global' 
 _MySQL Replication_
 
 {: .var-table}
-|Blip version|v1.0.0|
+|Blip version|v1.0.1|
 |Sources|&#8805;&nbsp;MySQL 8.0.22: `SHOW REPLICA STATUS`<br>&#8804;&nbsp;MySQL 8.0.21: `SHOW SLAVE STATUS`|
 |MySQL config|no|
 |Derived metrics|&bull; `running` (gauge)|
 |Meta|&bull; `source` = `Source_Host` or `Master_Host`|
+|Options|&bull; `report-not-a-replica`<br>|
 
-The `repl` domain reports a few gauges metrics from the output of `SHOW SLAVE STATUS`, or `SHOW REPLICA STATUS` as of MySQL 8.0.22:
+The `repl` collects replication metrics.   Currently, it collects a single derived metric: `running` (described below).
+
+A future release will collect these MySQL metrics:
 
 |Replica Status Variable|Collected|
 |-----------------------|---------|
@@ -192,8 +195,6 @@ The `repl` domain reports a few gauges metrics from the output of `SHOW SLAVE ST
 |Seconds_Behind_Master  |&#10003;|
 |Auto_Position          |&#10003;|
 
-Although the output has many more fields, most fields are not metric counters or gauges, which is why Blip does not collect them.
-
 #### Derived metrics
 {: .no_toc }
 
@@ -202,11 +203,19 @@ Type: gauge<br>
 
   |Value|Meaning|
   |-----|-------|
-  |1|&nbsp;&nbsp;&#9745;	 MySQL is a replica<br>&nbsp;&nbsp;&#9745;	 `Slave_IO_Running=Yes`<br>&nbsp;&nbsp;&#9745;	 `Slave_SQL_Running=Yes`<br>&nbsp;&nbsp;&#9745;	 `Last_Errno=0`<br>|
+  |1|&nbsp;&nbsp;&#9745;MySQL is a replica<br>&nbsp;&nbsp;&#9745;`Slave_IO_Running=Yes`<br>&nbsp;&nbsp;&#9745;`Slave_SQL_Running=Yes`<br>&nbsp;&nbsp;&#9745;`Last_Errno=0`<br>|
   |0|MySQL is a replica, but IO and SQL threads are not running or a replication error occurred|
   |-1|MySQL is **not a replica**: `SHOW SLAVE|REPLICA STATUS` returns no output|
 
   Replication lag does not affect the `running` metric: replication can be running but lagging.
+
+#### Options
+{: .no_toc }
+
+* `report-not-a-replica`<br>
+Default: no<br>
+If yes, report `repl.running = -1` if not a replica.
+If no, drop the metric if not a replica.
 
 <!-------------------------------------------------------------------------->
 
@@ -220,7 +229,7 @@ _MySQL Replication Lag_
 |MySQL config|yes|
 |Derived metrics|&bull; `current` (gauge): Current replication lag (milliseconds)<br>|
 |Meta|&bull; `source` = Option `source-id`|
-|Options|&bull; `network-latency`<br>&bull; `repl-check`<br>&bull; `report-no-heartbeat`<br>&bull; `source-id`<br>&bull; `source-role`<br>&bull; `table`<br>&bull; `writer`|
+|Options|&bull; `network-latency`<br>&bull; `repl-check`<br>&bull; `report-no-heartbeat`<br>&bull; `report-not-a-replica`<br>&bull; `source-id`<br>&bull; `source-role`<br>&bull; `table`<br>&bull; `writer`|
 
 The `repl.lag` collector measures and reports MySQL replication lag from a source using the [Blip heartbeat](../heartbeat).
 By default, it reports replication lag from the latest timestamp (heartbeat), which presumes there is only one writable node in the replication topology at all times.
@@ -257,6 +266,11 @@ See [Heartbeat > Repl Check](../heartbeat#repl-check).
 Default: no<br>
 If yes, no heartbeat from the source is reported as value -1.
 If no, the metric is dropped if no heartbeat from the source.
+
+* `report-not-a-replica`<br>
+Default: no<br>
+If yes, report `repl.running = -1` if not a replica.
+If no, drop the metric if not a replica.
 
 * `source-id`<br>
 Source ID to report lag from.
