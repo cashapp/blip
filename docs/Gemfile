@@ -5,3 +5,5 @@ gem "just-the-docs"
 gem "kramdown", ">= 2.3.1"
 gem "nokogiri", ">= 1.12.5"
 gem "commonmarker", ">= 0.23.4"
+
+gem 'activesupport', '~> 6.1', '>= 6.1.7.1'
