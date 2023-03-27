@@ -1,4 +1,10 @@
 // https://ben.balter.com/2014/03/13/pages-anchor-links/
+
+body {
+	overflow: visible;
+	display: unset;
+}
+
 .header-link {
 	position: absolute;
 	left: -1.0em;
@@ -76,18 +82,19 @@ p.warn, div.warn {
 	border-left: 3px solid gray;
 }
 
-ul.floating-toc {
-	float: left;
+div.floating-toc {
+	float: right;
 	margin-top: 3em;
-	margin-right: 2em;
 	font-size: 14px;
-	//background: #f5f6fa;
-	//border-top: 3px solid #f5f6fa;
-	//border-bottom: 3px solid #f5f6fa;
-	z-index:500;
-
+	top: 0;
 	li {
 		margin-left:5px;
+	}
+}
+div#content {
+	overflow: auto;
+	h1 {
+		margin: 8px 0 8px 0;
 	}
 }
 

@@ -1,12 +1,8 @@
 ---
-layout: default
+layout: config
 title: "Config File"
 parent: Configure
 ---
-
-{: .floating-toc }
-* TOC
-{:toc}
 
 # Config File
 
