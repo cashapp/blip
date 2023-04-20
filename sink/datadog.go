@@ -265,7 +265,7 @@ func (s *Datadog) Send(ctx context.Context, m *blip.Metrics) error {
 				timestamp = m.Begin.Unix()
 			} else {
 				var err error
-				timestamp, err = strconv.ParseInt(tsStr, 10, 64) // ts in milliseconds, string -> int64
+				timestamp, err = strconv.ParseInt(tsStr, 10, 64) // ts in seconds (unix epoch), string -> int64
 				if err != nil {
 					blip.Debug("invalid timestamp for %s %s: %s: %s", domain, metrics[i].Name, tsStr, err)
 					continue METRICS
