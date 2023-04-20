@@ -377,7 +377,7 @@ func (s *Datadog) sendApi(ddCtx context.Context, dp []datadogV2.MetricSeries) er
 		_, r, err := s.metricsApi.SubmitMetrics(ddCtx, *datadogV2.NewMetricPayload(dp[rangeStart:rangeEnd]), optParams)
 		blip.Debug("[%s]: datadog api request status code: %d, response: %s", s.monitorId, r.StatusCode, r)
 		var metricNames []string
-		for i := rangeStart; rangeStart < rangeEnd; i++ {
+		for i := rangeStart; i < rangeEnd; i++ {
 			metricNames = append(metricNames, dp[i].Metric)
 		}
 		blip.Debug("[%s]: datadog api request, sending metrics: %s", strings.Join(metricNames, ","))
