@@ -177,7 +177,7 @@ func (m *RDS) Collect(ctx context.Context, levelName string) ([]blip.MetricValue
 
 			metric := *r.Label
 
-			// If AWS ts is not after lastest ts, then it's an old or duplicate value
+			// If AWS ts is not after latest ts, then it's an old or duplicate value
 			// that we've already reported; skip it
 			if !r.Timestamps[j].After(m.latestTs[levelName][*r.Label]) {
 				blip.Debug("%s: drop: %s %s = %f\n", m.monitorId, r.Timestamps[j], metric, r.Values[j])
