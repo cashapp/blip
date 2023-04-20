@@ -374,9 +374,14 @@ func (s *Datadog) sendApi(ddCtx context.Context, dp []datadogV2.MetricSeries) er
 		if s.compress {
 			optParams.ContentEncoding = datadogV2.METRICCONTENTENCODING_GZIP.Ptr()
 		}
-
-		if _, r, err := s.metricsApi.SubmitMetrics(ddCtx, *datadogV2.NewMetricPayload(dp[rangeStart:rangeEnd]), optParams); err != nil {
-			blip.Debug("[%s]: datadog api request status code: %d, response: %s", s.monitorId, r.StatusCode, r)
+		_, r, err := s.metricsApi.SubmitMetrics(ddCtx, *datadogV2.NewMetricPayload(dp[rangeStart:rangeEnd]), optParams)
+		blip.Debug("[%s]: datadog api request status code: %d, response: %s", s.monitorId, r.StatusCode, r)
+		var metricNames []string
+		for i := rangeStart; rangeStart < rangeEnd; i++ {
+			metricNames = append(metricNames, dp[i].Metric)
+		}
+		blip.Debug("[%s]: datadog api request, sending metrics: %s", strings.Join(metricNames, ","))
+		if err != nil {
 			if r != nil && r.StatusCode == http.StatusRequestEntityTooLarge {
 				// Is the number of metrics sent already the smallest possible?
 				if localMaxMetricsPerRequest == 1 {
