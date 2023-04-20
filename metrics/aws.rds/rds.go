@@ -190,7 +190,7 @@ func (m *RDS) Collect(ctx context.Context, levelName string) ([]blip.MetricValue
 				Type:  blip.GAUGE, // almost all RDS metrics are guages
 				Value: r.Values[j],
 				Meta: map[string]string{
-					"ts": fmt.Sprintf("%d", r.Timestamps[j].Unix()), // must be milliseconds
+					"ts": fmt.Sprintf("%d", r.Timestamps[j].UnixMilli()), // must be milliseconds
 				},
 			}
 			if isCounter[metric] {
