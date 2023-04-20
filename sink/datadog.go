@@ -378,7 +378,9 @@ func (s *Datadog) sendApi(ddCtx context.Context, dp []datadogV2.MetricSeries) er
 		blip.Debug("[%s]: datadog api request status code: %d, response: %s", s.monitorId, r.StatusCode, r)
 		var metricNames []string
 		for i := rangeStart; i < rangeEnd; i++ {
-			metricNames = append(metricNames, dp[i].Metric)
+			if strings.HasPrefix(dp[i].Metric, "blip.mysql.aurora") {
+				metricNames = append(metricNames, fmt.Sprintf("Metric: %s, dd ts: %s, current ts: %s", dp[i].Metric, time.Unix(*dp[i].Points[0].Timestamp, 0), time.Now()))
+			}
 		}
 		blip.Debug("[%s]: datadog api request, sending metrics: %s", strings.Join(metricNames, ","))
 		if err != nil {
