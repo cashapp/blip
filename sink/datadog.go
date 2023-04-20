@@ -270,7 +270,7 @@ func (s *Datadog) Send(ctx context.Context, m *blip.Metrics) error {
 					blip.Debug("invalid timestamp for %s %s: %s: %s", domain, metrics[i].Name, tsStr, err)
 					continue METRICS
 				}
-				timestamp = time.UnixMillis(msTs).Unix()
+				timestamp = time.UnixMilli(msTs).Unix()
 			}
 
 			// Convert Blip metric type to Datadog metric type
