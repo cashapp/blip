@@ -191,6 +191,7 @@ func (s *Datadog) Send(ctx context.Context, m *blip.Metrics) error {
 	if !s.dogstatsd {
 		dp = make([]datadogV2.MetricSeries, n)
 	}
+	blip.Debug("[%s]: datadog: preparing to send %d metrics", s.monitorId, n)
 	n = 0
 
 	// Make a copy of maxMetricsPerRequest in case it gets updated by other threads
@@ -325,6 +326,7 @@ func (s *Datadog) Send(ctx context.Context, m *blip.Metrics) error {
 			// Check if we have reached the maximum number of metrics per request
 			if !s.dogstatsd && n%localMaxMetricsPerRequest == 0 {
 				if err := s.sendApi(ddCtx, dp[rangeStart:n]); err != nil {
+					blip.Debug("[%s]: datadog: sending failed with err: %+v", s.monitorId, err)
 					apiErrors = append(apiErrors, err.Error())
 				}
 				rangeStart = n
@@ -344,6 +346,7 @@ func (s *Datadog) Send(ctx context.Context, m *blip.Metrics) error {
 
 	if n-rangeStart > 0 {
 		if err := s.sendApi(ddCtx, dp[rangeStart:n]); err != nil {
+			blip.Debug("[%s]: datadog: sending failed with err: %+v", s.monitorId, err)
 			apiErrors = append(apiErrors, err.Error())
 		}
 	}
@@ -360,7 +363,7 @@ func (s *Datadog) sendApi(ddCtx context.Context, dp []datadogV2.MetricSeries) er
 	localMaxMetricsPerRequest := s.maxMetricsPerRequest
 
 	for rangeStart := 0; rangeStart < len(dp); {
-		// Determine the subetset of metrics to send based on our
+		// Determine the subset of metrics to send based on our
 		// max per request
 		rangeEnd := rangeStart + localMaxMetricsPerRequest
 		if rangeEnd > len(dp) {
@@ -373,6 +376,7 @@ func (s *Datadog) sendApi(ddCtx context.Context, dp []datadogV2.MetricSeries) er
 		}
 
 		if _, r, err := s.metricsApi.SubmitMetrics(ddCtx, *datadogV2.NewMetricPayload(dp[rangeStart:rangeEnd]), optParams); err != nil {
+			blip.Debug("[%s]: datadog api request status code: %d, response: %s", s.monitorId, r.StatusCode, r)
 			if r != nil && r.StatusCode == http.StatusRequestEntityTooLarge {
 				// Is the number of metrics sent already the smallest possible?
 				if localMaxMetricsPerRequest == 1 {
@@ -381,7 +385,7 @@ func (s *Datadog) sendApi(ddCtx context.Context, dp []datadogV2.MetricSeries) er
 
 				// The payload was too large, so we need to recalculate it and try with a smaller size
 				if localMaxMetricsPerRequest, err = s.estimateMaxMetricsPerRequest(dp[rangeStart:rangeEnd], localMaxMetricsPerRequest); err != nil {
-					return fmt.Errorf("Unable to determine proper number of metrics per request: %v", err)
+					return fmt.Errorf("unable to determine proper number of metrics per request: %v", err)
 				}
 
 				// Retry the metrics with the new payload size
