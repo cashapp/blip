@@ -270,7 +270,8 @@ func (s *Datadog) Send(ctx context.Context, m *blip.Metrics) error {
 					blip.Debug("invalid timestamp for %s %s: %s: %s", domain, metrics[i].Name, tsStr, err)
 					continue METRICS
 				}
-				timestamp = time.UnixMilli(msTs).Unix()
+				timestamp = msTs / 1000 // convert to seconds
+
 			}
 
 			// Convert Blip metric type to Datadog metric type
@@ -383,7 +384,7 @@ func (s *Datadog) sendApi(ddCtx context.Context, dp []datadogV2.MetricSeries) er
 				metricNames = append(metricNames, fmt.Sprintf("Metric: %s, dd ts: %s, current ts: %s", dp[i].Metric, time.Unix(*dp[i].Points[0].Timestamp, 0), time.Now()))
 			}
 		}
-		blip.Debug("[%s]: datadog api request, sending metrics: %s", strings.Join(metricNames, ","))
+		blip.Debug("[%s]: datadog api request, sending metrics: %s", s.monitorId, strings.Join(metricNames, ","))
 		if err != nil {
 			if r != nil && r.StatusCode == http.StatusRequestEntityTooLarge {
 				// Is the number of metrics sent already the smallest possible?
