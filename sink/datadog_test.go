@@ -294,7 +294,7 @@ func TestDatadogMetricsErrorResponseFromAPI(t *testing.T) {
 	resp := map[string][]string{
 		"errors": errors,
 	}
-	errorsJson, err := json.Marshal(resp)
+	respJSON, err := json.Marshal(resp)
 	require.NoError(t, err)
 
 	httpClient := &http.Client{
@@ -302,7 +302,7 @@ func TestDatadogMetricsErrorResponseFromAPI(t *testing.T) {
 			RoundTripFunc: func(r *http.Request) (*http.Response, error) {
 				return &http.Response{
 					StatusCode: http.StatusAccepted,
-					Body:       ioutil.NopCloser(bytes.NewReader(errorsJson)),
+					Body:       ioutil.NopCloser(bytes.NewReader(respJSON)),
 				}, nil
 			},
 		},
