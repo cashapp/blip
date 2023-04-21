@@ -1,14 +1,18 @@
 package sink
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
 	"math"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 
 	"github.com/DataDog/datadog-api-client-go/v2/api/datadogV2"
 	"github.com/cashapp/blip"
@@ -283,4 +287,31 @@ func TestDatadogMetricsPerRequestMultipleFail(t *testing.T) {
 	if diff := deep.Equal(expectedMetrics, collectedMetrics); diff != nil {
 		t.Fatal(diff)
 	}
+}
+
+func TestDatadogMetricsErrorResponseFromAPI(t *testing.T) {
+	errors := []string{"validation error 1", "validation error 2"}
+	resp := map[string][]string{
+		"errors": errors,
+	}
+	errorsJson, err := json.Marshal(resp)
+	require.NoError(t, err)
+
+	httpClient := &http.Client{
+		Transport: &mock.Transport{
+			RoundTripFunc: func(r *http.Request) (*http.Response, error) {
+				return &http.Response{
+					StatusCode: http.StatusAccepted,
+					Body:       ioutil.NopCloser(bytes.NewReader(errorsJson)),
+				}, nil
+			},
+		},
+	}
+
+	ddSink, err := NewDatadog("testmonitor", defaultOps(), map[string]string{}, httpClient)
+	require.NoError(t, err)
+
+	err = ddSink.Send(context.Background(), getBlipMetrics(10))
+
+	require.Errorf(t, err, "error response from Datadog: %s", strings.Join(errors, ","))
 }

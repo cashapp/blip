@@ -373,16 +373,17 @@ func (s *Datadog) sendApi(ddCtx context.Context, dp []datadogV2.MetricSeries) er
 			optParams.ContentEncoding = datadogV2.METRICCONTENTENCODING_GZIP.Ptr()
 		}
 
-		if _, r, err := s.metricsApi.SubmitMetrics(ddCtx, *datadogV2.NewMetricPayload(dp[rangeStart:rangeEnd]), optParams); err != nil {
+		apiResponse, r, err := s.metricsApi.SubmitMetrics(ddCtx, *datadogV2.NewMetricPayload(dp[rangeStart:rangeEnd]), optParams)
+		if err != nil {
 			if r != nil && r.StatusCode == http.StatusRequestEntityTooLarge {
 				// Is the number of metrics sent already the smallest possible?
 				if localMaxMetricsPerRequest == 1 {
-					return fmt.Errorf("Unable to send metrics: %v", err)
+					return fmt.Errorf("unable to send metrics: %v", err)
 				}
 
 				// The payload was too large, so we need to recalculate it and try with a smaller size
 				if localMaxMetricsPerRequest, err = s.estimateMaxMetricsPerRequest(dp[rangeStart:rangeEnd], localMaxMetricsPerRequest); err != nil {
-					return fmt.Errorf("Unable to determine proper number of metrics per request: %v", err)
+					return fmt.Errorf("unable to determine proper number of metrics per request: %v", err)
 				}
 
 				// Retry the metrics with the new payload size
@@ -391,6 +392,11 @@ func (s *Datadog) sendApi(ddCtx context.Context, dp []datadogV2.MetricSeries) er
 
 			blip.Debug("error sending data points to Datadog: %s, Http Response: %s", err, r)
 			return err
+		}
+
+		if len(apiResponse.Errors) > 0 {
+			// datadog can return a 202 Accepted response code but errors in response payload
+			return fmt.Errorf("error response from Datadog: %s", strings.Join(apiResponse.Errors, ","))
 		}
 
 		rangeStart = rangeEnd
