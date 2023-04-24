@@ -8,7 +8,6 @@ import (
 	"io/ioutil"
 	"math"
 	"net/http"
-	"strings"
 	"testing"
 	"time"
 
@@ -313,5 +312,6 @@ func TestDatadogMetricsErrorResponseFromAPI(t *testing.T) {
 
 	err = ddSink.Send(context.Background(), getBlipMetrics(10))
 
-	require.Errorf(t, err, "error response from Datadog: %s", strings.Join(errors, ","))
+	// validation errors should be logged and the sink should continue
+	require.NoError(t, err)
 }

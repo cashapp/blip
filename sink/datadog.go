@@ -396,7 +396,8 @@ func (s *Datadog) sendApi(ddCtx context.Context, dp []datadogV2.MetricSeries) er
 
 		if len(apiResponse.Errors) > 0 {
 			// datadog can return a 202 Accepted response code but errors in response payload
-			return fmt.Errorf("error response from Datadog: %s", strings.Join(apiResponse.Errors, ","))
+			// this can be partial success, log it and continue
+			blip.Debug("error(s) returned from datadog: %s", strings.Join(apiResponse.Errors, ","))
 		}
 
 		rangeStart = rangeEnd
