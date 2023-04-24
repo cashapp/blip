@@ -17,6 +17,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/cashapp/blip/event"
+
 	"github.com/DataDog/datadog-go/v5/statsd"
 
 	"github.com/DataDog/datadog-api-client-go/v2/api/datadog"
@@ -396,8 +398,12 @@ func (s *Datadog) sendApi(ddCtx context.Context, dp []datadogV2.MetricSeries) er
 
 		if len(apiResponse.Errors) > 0 {
 			// datadog can return a 202 Accepted response code but errors in response payload
-			// this can be partial success, log it and continue
-			blip.Debug("error(s) returned from datadog: %s", strings.Join(apiResponse.Errors, ","))
+			// this can be partial success, log it, raise an event and continue
+			errMsg := fmt.Sprintf("%s: error(s) returned from datadog: %s", s.monitorId, strings.Join(apiResponse.Errors, ","))
+			blip.Debug(errMsg)
+
+			// Send an event as well
+			event.Errorf(event.SINK_ERROR, errMsg) // log by default
 		}
 
 		rangeStart = rangeEnd
