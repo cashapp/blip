@@ -125,8 +125,8 @@ _MySQL Query Response Time_
 |Sources|MySQL 8.0 [p_s.events_statements_histogram_global](https://dev.mysql.com/doc/refman/8.0/en/performance-schema-statement-histogram-summary-tables.html)|
 |Derived metrics|&bull; `pN` (gauge)<br>|
 |Meta|&bull; `pN=pA`: where `pN` is collected percentile and `pA` is actual percentile|
-|Options|&bull; `real-percentiles`<br>&bull; `truncate-table`|
-|Error policy|&bull; `table-not-exist`|
+|Options|&bull; `real-percentiles`<br>&bull; `truncate-table`<br>&bull; `truncate-timeout`|
+|Error policy|&bull; `table-not-exist`<br>&bull; `truncate-failed`|
 
 The `query.response-time` domain collect query response time percentiles.
 By default, it reports the P999 (99.9th percentile) response time in microseconds.
@@ -158,16 +158,23 @@ Therefore, the P99 might actually be P98.9 or P99.2.
 Meta key `pN` indicates the configured percentile, and its value `pA` indicates the actual percentile that was used.
 
 * `truncate-table`<br>
-Default: no<br>
+Default: yes<br>
 Truncate [performance_schema.events_statements_histogram_global](https://dev.mysql.com/doc/refman/8.0/en/performance-schema-statement-histogram-summary-tables.html) after each collection.
-This reset percentile values so that each collection represents the global query response time during the collection interval rather than during the entire uptime of the MySQL.
+This resets percentile values so that each collection represents the global query response time during the collection interval rather than during the entire uptime of the MySQL.
 However, truncating the table interferes with other tools reading (or truncating) the table.
+
+* `truncate-timeout`<br>
+Default: 2s<br>
+The amount of time to wait while attempting to truncate [performance_schema.events_statements_histogram_global](https://dev.mysql.com/doc/refman/8.0/en/performance-schema-statement-histogram-summary-tables.html).
 
 #### Error Policy
 {: .no_toc }
 
 * `table-not-exist`<br>
 MySQL error 1146: Table 'performance_schema.events_statements_histogram_global' doesn't exist
+
+* `truncate-failed`<br>
+Truncation failures on table 'performance_schema.events_statements_histogram_global'
 
 <!-------------------------------------------------------------------------->
 
@@ -462,7 +469,8 @@ _Table I/O Wait Metrics_
 |Blip version|v1.0.0|
 |MySQL config|yes|
 |Sources|`performance_schema.table_io_waits_summary_by_table`|
-|Options|&bull; `exclude`<br>&bull; `include`<br>&bull; `truncate`<br>&bull; `all`|
+|Options|&bull; `exclude`<br>&bull; `include`<br>&bull; `truncate`<br>&bull; `truncate-timeout`<br>&bull; `all`|
+|Error policy|&bull; `truncate-failed`|
 |Group keys|`db`, `tbl`|
 
 Summarized table I/O wait metrics from `performance_schema.table_io_waits_summary_by_table`.
@@ -482,7 +490,17 @@ A comma-separated list of database or table names to exclude (ignored if `includ
 Default: `yes`<br>
 If the source table should be truncated to reset data after each retrieval.
 
+* `truncate-timeout`<br>
+Default: 2s<br>
+The amount of time to wait while attempting to truncate [performance_schema.events_statements_histogram_global](https://dev.mysql.com/doc/refman/8.0/en/performance-schema-statement-histogram-summary-tables.html).
+
 * `all`<br>
 Default: `no`<br>
 If `yes`, all `performance_schema.table_io_waits_summary_by_table` metrics are collected&mdash;all columns.
 If `no` (the default), only the explicitly listed `performance_schema.table_io_waits_summary_by_table` metrics are collected.
+
+#### Error Policy
+{: .no_toc }
+
+* `truncate-failed`<br>
+Truncation failures on table 'performance_schema.events_statements_histogram_global'
