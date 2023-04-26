@@ -53,3 +53,9 @@ const (
 	STATE_CHANGE_END         = "state-change-end"
 	REPL_SOURCE_CHANGE       = "repl-soruce-change"
 )
+
+// Sink Events
+
+const (
+	SINK_ERROR = "sink-error"
+)
