@@ -25,7 +25,7 @@ const (
 
 	TRUNCATE_QUERY = "TRUNCATE TABLE performance_schema.table_io_waits_summary_by_table"
 
-	ERR_TRUNCATE_FAILED = "truncate-failed"
+	ERR_TRUNCATE_FAILED = "truncate-timeout"
 )
 
 var (
@@ -77,13 +77,11 @@ func init() {
 }
 
 type tableOptions struct {
-	query            string
-	truncate         bool
-	truncateTimeout  time.Duration
-	hadTruncateError bool
-	stop             bool
-
-	errPolicy map[string]*errors.Policy
+	query             string
+	truncate          bool
+	truncateTimeout   time.Duration
+	stop              bool
+	truncateErrPolicy *errors.TruncateErrorPolicy
 }
 
 // Table collects table io for domain wait.io.table.
@@ -136,7 +134,7 @@ func (t *Table) Help() blip.CollectorHelp {
 			OPT_TRUNCATE_TIMEOUT: {
 				Name:    OPT_TRUNCATE_TIMEOUT,
 				Desc:    "The amount of time to attempt to truncate the source table before timing out",
-				Default: "2s",
+				Default: "250ms",
 			},
 			OPT_ALL: {
 				Name:    OPT_ALL,
@@ -194,14 +192,12 @@ LEVEL:
 				o.truncateTimeout = duration
 			}
 		} else {
-			o.truncateTimeout = 2 * time.Second // default
+			o.truncateTimeout = 250 * time.Millisecond // default
 		}
 
-		o.errPolicy = map[string]*errors.Policy{}
-
 		if o.truncate {
-			o.errPolicy[ERR_TRUNCATE_FAILED] = errors.NewPolicy(dom.Errors[ERR_TRUNCATE_FAILED])
-			blip.Debug("error policy: %s=%s", ERR_TRUNCATE_FAILED, o.errPolicy[ERR_TRUNCATE_FAILED])
+			o.truncateErrPolicy = errors.NewTruncateErrorPolicy(dom.Errors[ERR_TRUNCATE_FAILED])
+			blip.Debug("error policy: %s=%s", ERR_TRUNCATE_FAILED, o.truncateErrPolicy.Policy)
 		}
 
 		t.options[level.Name] = &o
@@ -270,54 +266,9 @@ func (t *Table) Collect(ctx context.Context, levelName string) ([]blip.MetricVal
 		trCtx, cancelFn := context.WithTimeout(ctx, o.truncateTimeout)
 		defer cancelFn()
 		_, err := t.db.ExecContext(trCtx, TRUNCATE_QUERY)
-		if err != nil {
-			return t.collectTruncateError(err, o, metrics)
-		} else if o.hadTruncateError {
-			// Upon success we can start emitting metrics normally again but we need to
-			// wait for the next collect for the truncate to have taken effect.
-			// Emit whatever metrics would be emitted based on the error policy.
-			metrics, err = t.collectTruncateError(fmt.Errorf("Truncate successful, waiting for next metric collection."), o, metrics)
-		}
-
-		o.hadTruncateError = false
+		// Process any errors (or lack thereof) with the TruncateErrorPolicy.
+		return o.truncateErrPolicy.TruncateError(err, &o.stop, metrics)
 	}
 
 	return metrics, err
-}
-
-func (t *Table) collectTruncateError(err error, options *tableOptions, collectedMetrics []blip.MetricValue) ([]blip.MetricValue, error) {
-	var ep *errors.Policy = options.errPolicy[ERR_TRUNCATE_FAILED]
-
-	// Mark as having failed a truncate. This is used to
-	// skip sending metrics until we have a successful truncate.
-	options.hadTruncateError = true
-
-	// Stop trying to collect if error policy retry="stop". This affects
-	// future calls to Collect; don't return yet because we need to check
-	// the metric policy: drop or zero. If zero, we must report one zero val.
-	if ep.Retry == errors.POLICY_RETRY_NO {
-		options.stop = true
-	}
-
-	// Report
-	var reportedErr error
-	if ep.ReportError() {
-		reportedErr = err
-	} else {
-		blip.Debug("error policy=ignore: %v", err)
-	}
-
-	var metrics []blip.MetricValue
-	if ep.Metric == errors.POLICY_METRIC_ZERO {
-		metrics := make([]blip.MetricValue, 0, len(collectedMetrics))
-		for _, existingMetric := range collectedMetrics {
-			metrics = append(metrics, blip.MetricValue{
-				Type:  existingMetric.Type,
-				Name:  existingMetric.Name,
-				Value: 0,
-			})
-		}
-	}
-
-	return metrics, reportedErr
 }

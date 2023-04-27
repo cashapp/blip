@@ -126,7 +126,7 @@ _MySQL Query Response Time_
 |Derived metrics|&bull; `pN` (gauge)<br>|
 |Meta|&bull; `pN=pA`: where `pN` is collected percentile and `pA` is actual percentile|
 |Options|&bull; `real-percentiles`<br>&bull; `truncate-table`<br>&bull; `truncate-timeout`|
-|Error policy|&bull; `table-not-exist`<br>&bull; `truncate-failed`|
+|Error policy|&bull; `table-not-exist`<br>&bull; `truncate-timeout`|
 
 The `query.response-time` domain collect query response time percentiles.
 By default, it reports the P999 (99.9th percentile) response time in microseconds.
@@ -164,7 +164,7 @@ This resets percentile values so that each collection represents the global quer
 However, truncating the table interferes with other tools reading (or truncating) the table.
 
 * `truncate-timeout`<br>
-Default: 2s<br>
+Default: 250ms<br>
 The amount of time to wait while attempting to truncate [performance_schema.events_statements_histogram_global](https://dev.mysql.com/doc/refman/8.0/en/performance-schema-statement-histogram-summary-tables.html).
 
 #### Error Policy
@@ -173,7 +173,7 @@ The amount of time to wait while attempting to truncate [performance_schema.even
 * `table-not-exist`<br>
 MySQL error 1146: Table 'performance_schema.events_statements_histogram_global' doesn't exist
 
-* `truncate-failed`<br>
+* `truncate-timeout`<br>
 Truncation failures on table 'performance_schema.events_statements_histogram_global'
 
 <!-------------------------------------------------------------------------->
@@ -470,7 +470,7 @@ _Table I/O Wait Metrics_
 |MySQL config|yes|
 |Sources|`performance_schema.table_io_waits_summary_by_table`|
 |Options|&bull; `exclude`<br>&bull; `include`<br>&bull; `truncate`<br>&bull; `truncate-timeout`<br>&bull; `all`|
-|Error policy|&bull; `truncate-failed`|
+|Error policy|&bull; `truncate-timeout`|
 |Group keys|`db`, `tbl`|
 
 Summarized table I/O wait metrics from `performance_schema.table_io_waits_summary_by_table`.
@@ -491,7 +491,7 @@ Default: `yes`<br>
 If the source table should be truncated to reset data after each retrieval.
 
 * `truncate-timeout`<br>
-Default: 2s<br>
+Default: 250ms<br>
 The amount of time to wait while attempting to truncate [performance_schema.events_statements_histogram_global](https://dev.mysql.com/doc/refman/8.0/en/performance-schema-statement-histogram-summary-tables.html).
 
 * `all`<br>
@@ -502,5 +502,5 @@ If `no` (the default), only the explicitly listed `performance_schema.table_io_w
 #### Error Policy
 {: .no_toc }
 
-* `truncate-failed`<br>
+* `truncate-timeout`<br>
 Truncation failures on table 'performance_schema.events_statements_histogram_global'

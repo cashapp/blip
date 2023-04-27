@@ -23,7 +23,7 @@ const (
 	OPT_TRUNCATE_TIMEOUT = "truncate-timeout"
 
 	ERR_NO_TABLE        = "table-not-exist"
-	ERR_TRUNCATE_FAILED = "truncate-failed"
+	ERR_TRUNCATE_FAILED = "truncate-timeout"
 
 	BASE_QUERY     = "SELECT ROUND(bucket_quantile * 100, 1) AS p, ROUND(bucket_timer_high / 1000000, 3) AS us FROM performance_schema.events_statements_histogram_global"
 	TRUNCATE_QUERY = "TRUNCATE TABLE performance_schema.events_statements_histogram_global"
@@ -35,13 +35,13 @@ type percentile struct {
 }
 
 type qrtConfig struct {
-	percentiles      []percentile
-	setMeta          bool
-	truncate         bool
-	truncateTimeout  time.Duration
-	hadTruncateError bool
-	stop             bool
-	errPolicy        map[string]*errors.Policy
+	percentiles       []percentile
+	setMeta           bool
+	truncate          bool
+	truncateTimeout   time.Duration
+	stop              bool
+	errPolicy         map[string]*errors.Policy
+	truncateErrPolicy *errors.TruncateErrorPolicy
 }
 
 type ResponseTime struct {
@@ -91,7 +91,7 @@ func (c *ResponseTime) Help() blip.CollectorHelp {
 			OPT_TRUNCATE_TIMEOUT: {
 				Name:    OPT_TRUNCATE_TIMEOUT,
 				Desc:    "The amount of time to attempt to truncate the source table before timing out",
-				Default: "2s",
+				Default: "250ms",
 			},
 		},
 		Metrics: []blip.CollectorMetric{
@@ -145,7 +145,7 @@ LEVEL:
 				config.truncateTimeout = duration
 			}
 		} else {
-			config.truncateTimeout = 2 * time.Second // default
+			config.truncateTimeout = 250 * time.Millisecond // default
 		}
 
 		// Process list of percentiles metrics into a list of names and values
@@ -169,8 +169,8 @@ LEVEL:
 		blip.Debug("error policy: %s=%s", ERR_NO_TABLE, config.errPolicy[ERR_NO_TABLE])
 
 		if config.truncate {
-			config.errPolicy[ERR_TRUNCATE_FAILED] = errors.NewPolicy(dom.Errors[ERR_TRUNCATE_FAILED])
-			blip.Debug("error policy: %s=%s", ERR_TRUNCATE_FAILED, config.errPolicy[ERR_TRUNCATE_FAILED])
+			config.truncateErrPolicy = errors.NewTruncateErrorPolicy(dom.Errors[ERR_TRUNCATE_FAILED])
+			blip.Debug("error policy: %s=%s", ERR_TRUNCATE_FAILED, config.truncateErrPolicy.Policy)
 		}
 
 		c.atLevel[level.Name] = config
@@ -212,55 +212,11 @@ func (c *ResponseTime) Collect(ctx context.Context, levelName string) ([]blip.Me
 		trCtx, cancelFn := context.WithTimeout(ctx, c.atLevel[levelName].truncateTimeout)
 		defer cancelFn()
 		_, err := c.db.ExecContext(trCtx, TRUNCATE_QUERY)
-		if err != nil {
-			return c.collectTruncateError(err, levelName, metrics)
-		} else if c.atLevel[levelName].hadTruncateError {
-			// Upon success we can start emitting metrics normally again but we need to
-			// wait for the next collect for the truncate to have taken effect.
-			// Emit whatever metrics would be emitted based on the error policy.
-			metrics, err = c.collectTruncateError(fmt.Errorf("Truncate successful, waiting for next metric collection."), levelName, metrics)
-		}
-		c.atLevel[levelName].hadTruncateError = false
+		// Process any errors (or lack thereof) with the TruncateErrorPolicy.
+		return c.atLevel[levelName].truncateErrPolicy.TruncateError(err, &c.atLevel[levelName].stop, metrics)
 	}
 
 	return metrics, nil
-}
-
-func (c *ResponseTime) collectTruncateError(err error, levelName string, collectedMetrics []blip.MetricValue) ([]blip.MetricValue, error) {
-	var ep *errors.Policy = c.atLevel[levelName].errPolicy[ERR_TRUNCATE_FAILED]
-
-	// Mark as having failed a truncate. This is used to
-	// skip sending metrics until we have a successful truncate.
-	c.atLevel[levelName].hadTruncateError = true
-
-	// Stop trying to collect if error policy retry="stop". This affects
-	// future calls to Collect; don't return yet because we need to check
-	// the metric policy: drop or zero. If zero, we must report one zero val.
-	if ep.Retry == errors.POLICY_RETRY_NO {
-		c.atLevel[levelName].stop = true
-	}
-
-	// Report
-	var reportedErr error
-	if ep.ReportError() {
-		reportedErr = err
-	} else {
-		blip.Debug("error policy=ignore: %v", err)
-	}
-
-	var metrics []blip.MetricValue
-	if ep.Metric == errors.POLICY_METRIC_ZERO {
-		metrics := make([]blip.MetricValue, 0, len(collectedMetrics))
-		for _, existingMetric := range collectedMetrics {
-			metrics = append(metrics, blip.MetricValue{
-				Type:  existingMetric.Type,
-				Name:  existingMetric.Name,
-				Value: 0,
-			})
-		}
-	}
-
-	return metrics, reportedErr
 }
 
 func (c *ResponseTime) collectError(err error, levelName string, metricName string) ([]blip.MetricValue, error) {
