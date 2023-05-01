@@ -6,6 +6,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"math"
 	"time"
 
 	"github.com/cashapp/blip"
@@ -26,6 +27,7 @@ const (
 	TRUNCATE_QUERY = "TRUNCATE TABLE performance_schema.table_io_waits_summary_by_table"
 
 	ERR_TRUNCATE_FAILED = "truncate-timeout"
+	LOCKWAIT_QUERY      = "SET @@session.lock_wait_timeout=%d"
 )
 
 var (
@@ -82,6 +84,7 @@ type tableOptions struct {
 	truncateTimeout   time.Duration
 	stop              bool
 	truncateErrPolicy *errors.TruncateErrorPolicy
+	lockWaitQuery     string
 }
 
 // Table collects table io for domain wait.io.table.
@@ -196,6 +199,19 @@ LEVEL:
 		}
 
 		if o.truncate {
+			// Setup our lock wait timeout. It needs to be at least as long
+			// as our truncate timeout, but the granularity of the lock wait
+			// timeout is seconds, so we round up to the nearest second that is
+			// greater than our truncate timeout.
+			lockWaitTimeout := math.Ceil(o.truncateTimeout.Seconds())
+			if lockWaitTimeout < 1.0 {
+				lockWaitTimeout = 1
+			}
+
+			o.lockWaitQuery = fmt.Sprintf(LOCKWAIT_QUERY, int64(lockWaitTimeout))
+		}
+
+		if o.truncate {
 			o.truncateErrPolicy = errors.NewTruncateErrorPolicy(dom.Errors[ERR_TRUNCATE_FAILED])
 			blip.Debug("error policy: %s=%s", ERR_TRUNCATE_FAILED, o.truncateErrPolicy.Policy)
 		}
@@ -263,9 +279,21 @@ func (t *Table) Collect(ctx context.Context, levelName string) ([]blip.MetricVal
 	}
 
 	if o.truncate {
-		trCtx, cancelFn := context.WithTimeout(ctx, o.truncateTimeout)
-		defer cancelFn()
-		_, err := t.db.ExecContext(trCtx, TRUNCATE_QUERY)
+		conn, err := t.db.Conn(ctx)
+		if err == nil {
+			defer conn.Close()
+
+			// Set `lock_wait_timeout` to prevent our query from begin blocked for too long
+			// due to metadata locking. We treat a failure to set the lock wait timeout
+			// the same as a truncate timeout, as not setting creates a risk of having a thread
+			// hang for an extended period of time.
+			_, err = conn.ExecContext(ctx, o.lockWaitQuery)
+			if err == nil {
+				trCtx, cancelFn := context.WithTimeout(ctx, o.truncateTimeout)
+				defer cancelFn()
+				_, err = conn.ExecContext(trCtx, TRUNCATE_QUERY)
+			}
+		}
 		// Process any errors (or lack thereof) with the TruncateErrorPolicy as there is special handling
 		// for the metric values that need to be applied, even if there is not an error. See comments
 		// in `TruncateErrorPolicy` for more details.
