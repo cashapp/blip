@@ -266,7 +266,9 @@ func (t *Table) Collect(ctx context.Context, levelName string) ([]blip.MetricVal
 		trCtx, cancelFn := context.WithTimeout(ctx, o.truncateTimeout)
 		defer cancelFn()
 		_, err := t.db.ExecContext(trCtx, TRUNCATE_QUERY)
-		// Process any errors (or lack thereof) with the TruncateErrorPolicy.
+		// Process any errors (or lack thereof) with the TruncateErrorPolicy as there is special handling
+		// for the metric values that need to be applied, even if there is not an error. See comments
+		// in `TruncateErrorPolicy` for more details.
 		return o.truncateErrPolicy.TruncateError(err, &o.stop, metrics)
 	}
 
