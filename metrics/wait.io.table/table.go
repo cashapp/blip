@@ -209,9 +209,6 @@ LEVEL:
 			}
 
 			o.lockWaitQuery = fmt.Sprintf(LOCKWAIT_QUERY, int64(lockWaitTimeout))
-		}
-
-		if o.truncate {
 			o.truncateErrPolicy = errors.NewTruncateErrorPolicy(dom.Errors[ERR_TRUNCATE_FAILED])
 			blip.Debug("error policy: %s=%s", ERR_TRUNCATE_FAILED, o.truncateErrPolicy.Policy)
 		}
