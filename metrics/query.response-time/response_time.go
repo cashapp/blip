@@ -6,6 +6,8 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"math"
+	"time"
 
 	myerr "github.com/go-mysql/errors"
 
@@ -19,11 +21,14 @@ const (
 
 	OPT_REAL_PERCENTILES = "real-percentiles"
 	OPT_TRUNCATE_TABLE   = "truncate-table"
+	OPT_TRUNCATE_TIMEOUT = "truncate-timeout"
 
-	ERR_NO_TABLE = "table-not-exist"
+	ERR_NO_TABLE        = "table-not-exist"
+	ERR_TRUNCATE_FAILED = "truncate-timeout"
 
 	BASE_QUERY     = "SELECT ROUND(bucket_quantile * 100, 1) AS p, ROUND(bucket_timer_high / 1000000, 3) AS us FROM performance_schema.events_statements_histogram_global"
 	TRUNCATE_QUERY = "TRUNCATE TABLE performance_schema.events_statements_histogram_global"
+	LOCKWAIT_QUERY = "SET @@session.lock_wait_timeout=%d"
 )
 
 type percentile struct {
@@ -32,11 +37,14 @@ type percentile struct {
 }
 
 type qrtConfig struct {
-	percentiles []percentile
-	setMeta     bool
-	truncate    bool
-	stop        bool
-	errPolicy   map[string]*errors.Policy
+	percentiles       []percentile
+	setMeta           bool
+	truncate          bool
+	truncateTimeout   time.Duration
+	stop              bool
+	errPolicy         map[string]*errors.Policy
+	truncateErrPolicy *errors.TruncateErrorPolicy
+	lockWaitQuery     string
 }
 
 type ResponseTime struct {
@@ -83,6 +91,11 @@ func (c *ResponseTime) Help() blip.CollectorHelp {
 					"no":  "Do not truncate source table after each retrieval",
 				},
 			},
+			OPT_TRUNCATE_TIMEOUT: {
+				Name:    OPT_TRUNCATE_TIMEOUT,
+				Desc:    "The amount of time to attempt to truncate the source table before timing out",
+				Default: "250ms",
+			},
 		},
 		Metrics: []blip.CollectorMetric{
 			{
@@ -95,6 +108,11 @@ func (c *ResponseTime) Help() blip.CollectorHelp {
 			ERR_NO_TABLE: {
 				Name:    ERR_NO_TABLE,
 				Handles: "MySQL error 1146: Table 'performance_schema.events_statements_histogram_global' doesn't exist",
+				Default: errors.NewPolicy("").String(),
+			},
+			ERR_TRUNCATE_FAILED: {
+				Name:    ERR_TRUNCATE_FAILED,
+				Handles: "Truncation failures on table 'performance_schema.events_statements_histogram_global'",
 				Default: errors.NewPolicy("").String(),
 			},
 		},
@@ -123,6 +141,29 @@ LEVEL:
 			config.truncate = true // default
 		}
 
+		if truncateTimeout, ok := dom.Options[OPT_TRUNCATE_TIMEOUT]; ok && config.truncate {
+			if duration, err := time.ParseDuration(truncateTimeout); err != nil {
+				return nil, fmt.Errorf("Invalid truncate duration: %v", err)
+			} else {
+				config.truncateTimeout = duration
+			}
+		} else {
+			config.truncateTimeout = 250 * time.Millisecond // default
+		}
+
+		if config.truncate {
+			// Setup our lock wait timeout. It needs to be at least as long
+			// as our truncate timeout, but the granularity of the lock wait
+			// timeout is seconds, so we round up to the nearest second that is
+			// greater than our truncate timeout.
+			lockWaitTimeout := math.Ceil(config.truncateTimeout.Seconds())
+			if lockWaitTimeout < 1.0 {
+				lockWaitTimeout = 1
+			}
+
+			config.lockWaitQuery = fmt.Sprintf(LOCKWAIT_QUERY, int64(lockWaitTimeout))
+		}
+
 		// Process list of percentiles metrics into a list of names and values
 		p, err := sqlutil.PercentileMetrics(dom.Metrics)
 		if err != nil {
@@ -142,6 +183,11 @@ LEVEL:
 		config.errPolicy = map[string]*errors.Policy{}
 		config.errPolicy[ERR_NO_TABLE] = errors.NewPolicy(dom.Errors[ERR_NO_TABLE])
 		blip.Debug("error policy: %s=%s", ERR_NO_TABLE, config.errPolicy[ERR_NO_TABLE])
+
+		if config.truncate {
+			config.truncateErrPolicy = errors.NewTruncateErrorPolicy(dom.Errors[ERR_TRUNCATE_FAILED])
+			blip.Debug("error policy: %s=%s", ERR_TRUNCATE_FAILED, config.truncateErrPolicy.Policy)
+		}
 
 		c.atLevel[level.Name] = config
 	}
@@ -179,10 +225,26 @@ func (c *ResponseTime) Collect(ctx context.Context, levelName string) ([]blip.Me
 	}
 
 	if c.atLevel[levelName].truncate {
-		_, err := c.db.Exec(TRUNCATE_QUERY)
-		if err != nil {
-			return nil, err
+		conn, err := c.db.Conn(ctx)
+		if err == nil {
+			defer conn.Close()
+
+			// Set `lock_wait_timeout` to prevent our query from begin blocked for too long
+			// due to metadata locking. We treat a failure to set the lock wait timeout
+			// the same as a truncate timeout, as not setting creates a risk of having a thread
+			// hang for an extended period of time.
+			_, err = conn.ExecContext(ctx, c.atLevel[levelName].lockWaitQuery)
+			if err == nil {
+				trCtx, cancelFn := context.WithTimeout(ctx, c.atLevel[levelName].truncateTimeout)
+				defer cancelFn()
+				_, err = conn.ExecContext(trCtx, TRUNCATE_QUERY)
+			}
 		}
+
+		// Process any errors (or lack thereof) with the TruncateErrorPolicy as there is special handling
+		// for the metric values that need to be applied, even if there is not an error. See comments
+		// in `TruncateErrorPolicy` for more details.
+		return c.atLevel[levelName].truncateErrPolicy.TruncateError(err, &c.atLevel[levelName].stop, metrics)
 	}
 
 	return metrics, nil

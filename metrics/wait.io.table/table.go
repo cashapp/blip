@@ -6,21 +6,28 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"math"
+	"time"
 
 	"github.com/cashapp/blip"
+	"github.com/cashapp/blip/errors"
 )
 
 const (
 	DOMAIN = "wait.io.table"
 
-	OPT_EXCLUDE        = "exclude"
-	OPT_INCLUDE        = "include"
-	OPT_TRUNCATE_TABLE = "truncate-table"
-	OPT_ALL            = "all"
+	OPT_EXCLUDE          = "exclude"
+	OPT_INCLUDE          = "include"
+	OPT_TRUNCATE_TABLE   = "truncate-table"
+	OPT_TRUNCATE_TIMEOUT = "truncate-timeout"
+	OPT_ALL              = "all"
 
 	OPT_EXCLUDE_DEFAULT = "mysql.*,information_schema.*,performance_schema.*,sys.*"
 
 	TRUNCATE_QUERY = "TRUNCATE TABLE performance_schema.table_io_waits_summary_by_table"
+
+	ERR_TRUNCATE_FAILED = "truncate-timeout"
+	LOCKWAIT_QUERY      = "SET @@session.lock_wait_timeout=%d"
 )
 
 var (
@@ -72,8 +79,12 @@ func init() {
 }
 
 type tableOptions struct {
-	query    string
-	truncate bool
+	query             string
+	truncate          bool
+	truncateTimeout   time.Duration
+	stop              bool
+	truncateErrPolicy *errors.TruncateErrorPolicy
+	lockWaitQuery     string
 }
 
 // Table collects table io for domain wait.io.table.
@@ -123,6 +134,11 @@ func (t *Table) Help() blip.CollectorHelp {
 					"no":  "Do not truncate source table after each retrieval",
 				},
 			},
+			OPT_TRUNCATE_TIMEOUT: {
+				Name:    OPT_TRUNCATE_TIMEOUT,
+				Desc:    "The amount of time to attempt to truncate the source table before timing out",
+				Default: "250ms",
+			},
 			OPT_ALL: {
 				Name:    OPT_ALL,
 				Desc:    "Collect all metrics",
@@ -136,6 +152,13 @@ func (t *Table) Help() blip.CollectorHelp {
 		Groups: []blip.CollectorKeyValue{
 			{Key: "db", Value: "the database name for the corresponding table io, or empty string for all dbs"},
 			{Key: "tbl", Value: "the table name for the corresponding table io, or empty string for all tables"},
+		},
+		Errors: map[string]blip.CollectorHelpError{
+			ERR_TRUNCATE_FAILED: {
+				Name:    ERR_TRUNCATE_FAILED,
+				Handles: "Truncation failures on 'performance_schema.table_io_waits_summary_by_table'",
+				Default: errors.NewPolicy("").String(),
+			},
 		},
 	}
 }
@@ -165,6 +188,31 @@ LEVEL:
 			o.truncate = true // default
 		}
 
+		if truncateTimeout, ok := dom.Options[OPT_TRUNCATE_TIMEOUT]; ok && o.truncate {
+			if duration, err := time.ParseDuration(truncateTimeout); err != nil {
+				return nil, fmt.Errorf("Invalid truncate duration: %v", err)
+			} else {
+				o.truncateTimeout = duration
+			}
+		} else {
+			o.truncateTimeout = 250 * time.Millisecond // default
+		}
+
+		if o.truncate {
+			// Setup our lock wait timeout. It needs to be at least as long
+			// as our truncate timeout, but the granularity of the lock wait
+			// timeout is seconds, so we round up to the nearest second that is
+			// greater than our truncate timeout.
+			lockWaitTimeout := math.Ceil(o.truncateTimeout.Seconds())
+			if lockWaitTimeout < 1.0 {
+				lockWaitTimeout = 1
+			}
+
+			o.lockWaitQuery = fmt.Sprintf(LOCKWAIT_QUERY, int64(lockWaitTimeout))
+			o.truncateErrPolicy = errors.NewTruncateErrorPolicy(dom.Errors[ERR_TRUNCATE_FAILED])
+			blip.Debug("error policy: %s=%s", ERR_TRUNCATE_FAILED, o.truncateErrPolicy.Policy)
+		}
+
 		t.options[level.Name] = &o
 	}
 	return nil, nil
@@ -173,6 +221,11 @@ LEVEL:
 func (t *Table) Collect(ctx context.Context, levelName string) ([]blip.MetricValue, error) {
 	o, ok := t.options[levelName]
 	if !ok {
+		return nil, nil
+	}
+
+	if o.stop {
+		blip.Debug("stopped by previous error")
 		return nil, nil
 	}
 
@@ -223,10 +276,25 @@ func (t *Table) Collect(ctx context.Context, levelName string) ([]blip.MetricVal
 	}
 
 	if o.truncate {
-		_, err := t.db.Exec(TRUNCATE_QUERY)
-		if err != nil {
-			return nil, err
+		conn, err := t.db.Conn(ctx)
+		if err == nil {
+			defer conn.Close()
+
+			// Set `lock_wait_timeout` to prevent our query from begin blocked for too long
+			// due to metadata locking. We treat a failure to set the lock wait timeout
+			// the same as a truncate timeout, as not setting creates a risk of having a thread
+			// hang for an extended period of time.
+			_, err = conn.ExecContext(ctx, o.lockWaitQuery)
+			if err == nil {
+				trCtx, cancelFn := context.WithTimeout(ctx, o.truncateTimeout)
+				defer cancelFn()
+				_, err = conn.ExecContext(trCtx, TRUNCATE_QUERY)
+			}
 		}
+		// Process any errors (or lack thereof) with the TruncateErrorPolicy as there is special handling
+		// for the metric values that need to be applied, even if there is not an error. See comments
+		// in `TruncateErrorPolicy` for more details.
+		return o.truncateErrPolicy.TruncateError(err, &o.stop, metrics)
 	}
 
 	return metrics, err
