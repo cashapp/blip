@@ -16,8 +16,8 @@ require (
 	github.com/cenkalti/backoff/v4 v4.1.2
 	github.com/go-ini/ini v1.64.0
 	github.com/go-mysql/errors v0.0.0-20180603193453-03314bea68e0
-	github.com/go-mysql/hotswap-dsn-driver v1.0.0
-	github.com/go-sql-driver/mysql v1.6.0
+	github.com/go-mysql/hotswap-dsn-driver v1.0.1
+	github.com/go-sql-driver/mysql v1.7.1
 	github.com/go-test/deep v1.0.8
 	github.com/golang/snappy v0.0.4
 	github.com/hashicorp/go-version v1.3.0
