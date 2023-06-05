@@ -39,14 +39,14 @@ func okHttpClient() *http.Client {
 	}
 }
 
-func getBlipMetrics(valuesCount int) *blip.Metrics {
+func getBlipMetrics(valuesCount int, metricType byte, metricValue float64) *blip.Metrics {
 	values := make([]blip.MetricValue, 0, valuesCount)
 
 	for i := 0; i < valuesCount; i++ {
 		values = append(values, blip.MetricValue{
 			Name:  fmt.Sprintf("testmetric%d", i+1),
-			Value: 1.0,
-			Type:  blip.GAUGE,
+			Value: metricValue,
+			Type:  metricType,
 		})
 	}
 
@@ -85,7 +85,7 @@ func TestDatadogSink(t *testing.T) {
 		t.Fatalf("Expected no error but got %v", err)
 	}
 
-	err = ddSink.Send(context.Background(), getBlipMetrics(10))
+	err = ddSink.Send(context.Background(), getBlipMetrics(10, blip.GAUGE, 1.0))
 
 	if err != nil {
 		t.Fatalf("Expected no error but got %v", err)
@@ -129,7 +129,7 @@ func TestDatadogMetricsPerRequest(t *testing.T) {
 		t.Fatalf("Expected no error but got %v", err)
 	}
 
-	err = ddSink.Send(context.Background(), getBlipMetrics(metricCount))
+	err = ddSink.Send(context.Background(), getBlipMetrics(metricCount, blip.GAUGE, 1.0))
 
 	if err != nil {
 		t.Fatalf("Expected no error but got %v", err)
@@ -180,7 +180,7 @@ func TestDatadogMetricsPerRequestWithCompression(t *testing.T) {
 		t.Fatalf("Expected no error but got %v", err)
 	}
 
-	err = ddSink.Send(context.Background(), getBlipMetrics(metricCount))
+	err = ddSink.Send(context.Background(), getBlipMetrics(metricCount, blip.GAUGE, 1.0))
 
 	if err != nil {
 		t.Fatalf("Expected no error but got %v", err)
@@ -256,7 +256,7 @@ func TestDatadogMetricsPerRequestMultipleFail(t *testing.T) {
 		t.Fatalf("Expected no error but got %v", err)
 	}
 
-	blipMetrics := getBlipMetrics(metricCount)
+	blipMetrics := getBlipMetrics(metricCount, blip.GAUGE, 1.0)
 	err = ddSink.Send(context.Background(), blipMetrics)
 
 	if err != nil {
@@ -310,8 +310,90 @@ func TestDatadogMetricsErrorResponseFromAPI(t *testing.T) {
 	ddSink, err := NewDatadog("testmonitor", defaultOps(), map[string]string{}, httpClient)
 	require.NoError(t, err)
 
-	err = ddSink.Send(context.Background(), getBlipMetrics(10))
+	err = ddSink.Send(context.Background(), getBlipMetrics(10, blip.GAUGE, 1.0))
 
 	// validation errors should be logged and the sink should continue
 	require.NoError(t, err)
+}
+
+func TestDatadogCounterMetricsDeltaCalculation(t *testing.T) {
+	callCount := 0
+	metricCount := 50
+	trCount := 0
+	collectedMetrics := map[string]float64{}
+
+	httpClient := &http.Client{
+		Transport: &mock.Transport{
+			RoundTripFunc: func(r *http.Request) (*http.Response, error) {
+				callCount++
+
+				var payload datadogV2.MetricPayload
+				body, _ := r.GetBody()
+				defer body.Close()
+				data, _ := ioutil.ReadAll(body)
+				json.Unmarshal(data, &payload)
+
+				for _, metric := range payload.Series {
+					require.Equal(t, 1, len(metric.Points), "metric series should have only 1 metric")
+					collectedMetrics[metric.Metric] = *metric.Points[0].Value
+				}
+
+				return &http.Response{
+					StatusCode: http.StatusOK,
+				}, nil
+			},
+		},
+	}
+
+	ops := defaultOps()
+	ops["api-compress"] = "false" // Turn off compression so that we get easier calculations for sizing
+	ddSink, err := NewDatadog("testmonitor", ops, map[string]string{}, httpClient)
+	ddSink.tr = &mock.Tr{
+		TranslateFunc: func(domain, metric string) string {
+			trCount++
+			return fmt.Sprintf("%s.%s", domain, metric)
+		},
+	}
+
+	require.NoError(t, err)
+
+	blipMetricsFirstBatch := getBlipMetrics(metricCount, blip.COUNTER, 10.0)
+	err = ddSink.Send(context.Background(), blipMetricsFirstBatch)
+	require.ErrorContains(t, err, "no Datadog data points after processing")
+	require.Equal(t, 0, len(collectedMetrics))
+
+	blipMetricsSecondBatch := getBlipMetrics(metricCount, blip.COUNTER, 20.0)
+	err = ddSink.Send(context.Background(), blipMetricsSecondBatch)
+	require.NoError(t, err)
+
+	expectedMetrics := map[string]float64{}
+	for i, metric := range blipMetricsFirstBatch.Values["testdomain"] {
+		name := fmt.Sprintf("testdomain.%s", metric.Name)
+		expectedMetrics[name] = blipMetricsSecondBatch.Values["testdomain"][i].Value - blipMetricsFirstBatch.Values["testdomain"][i].Value
+	}
+	if diff := deep.Equal(expectedMetrics, collectedMetrics); diff != nil {
+		t.Fatal(diff)
+	}
+
+	// simulate a restart
+	blipMetricsThirdBatch := getBlipMetrics(metricCount, blip.COUNTER, 1.0)
+	err = ddSink.Send(context.Background(), blipMetricsThirdBatch)
+	require.ErrorContains(t, err, "no Datadog data points after processing")
+
+	// reset collected and expected metrics
+	collectedMetrics = map[string]float64{}
+	expectedMetrics = map[string]float64{}
+
+	// send final batch
+	blipMetricsFourthBatch := getBlipMetrics(metricCount, blip.COUNTER, 5.0)
+	err = ddSink.Send(context.Background(), blipMetricsFourthBatch)
+	require.NoError(t, err)
+
+	for i, metric := range blipMetricsThirdBatch.Values["testdomain"] {
+		name := fmt.Sprintf("testdomain.%s", metric.Name)
+		expectedMetrics[name] = blipMetricsFourthBatch.Values["testdomain"][i].Value - blipMetricsThirdBatch.Values["testdomain"][i].Value
+	}
+	if diff := deep.Equal(expectedMetrics, collectedMetrics); diff != nil {
+		t.Fatal(diff)
+	}
 }

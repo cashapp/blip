@@ -41,6 +41,7 @@ type Datadog struct {
 	tags      []string            // monitor.tags (dimensions)
 	tr        tr.DomainTranslator // datadog.metric-translator
 	prefix    string              // datadog.metric-prefix
+	counters  map[string]float64  // holds last value of the counter so deltas can be calculated
 
 	// -- Api
 	metricsApi *datadogV2.MetricsApi
@@ -81,6 +82,7 @@ func NewDatadog(monitorId string, opts, tags map[string]string, httpClient *http
 	d := &Datadog{
 		monitorId:            monitorId,
 		tags:                 tagList,
+		counters:             map[string]float64{},
 		resources:            resources,
 		maxMetricsPerRequest: math.MaxInt32, // By default don't limit the number of metrics per request.
 		compress:             true,
@@ -277,8 +279,23 @@ func (s *Datadog) Send(ctx context.Context, m *blip.Metrics) error {
 			// Convert Blip metric type to Datadog metric type
 			switch metrics[i].Type {
 			case blip.COUNTER:
+				// calculate delta
+				val, ok := s.counters[name]
+				if !ok {
+					blip.Debug("error calculating delta for the counter: %s, no previous value found, skipping this run (next run will work)", name)
+					s.counters[name] = metrics[i].Value
+					continue METRICS
+				}
+				// previous value present, calculate delta
+				delta := metrics[i].Value - val
+				s.counters[name] = metrics[i].Value
+				if delta < 0 {
+					blip.Debug("error calculating delta for the counter: %s, got negative delta (can happen due to restart), skipping this run (next run will work).", name)
+					continue METRICS
+				}
+
 				if s.dogstatsd {
-					err := s.dogstatsdClient.Count(name, int64(metrics[i].Value), tags, 1)
+					err := s.dogstatsdClient.Count(name, int64(delta), tags, 1)
 					if err != nil {
 						blip.Debug("error sending data points to Datadog: %s", err)
 					}
@@ -288,7 +305,7 @@ func (s *Datadog) Send(ctx context.Context, m *blip.Metrics) error {
 						Type:   datadogV2.METRICINTAKETYPE_COUNT.Ptr(),
 						Points: []datadogV2.MetricPoint{
 							{
-								Value:     datadog.PtrFloat64(metrics[i].Value),
+								Value:     datadog.PtrFloat64(delta),
 								Timestamp: datadog.PtrInt64(timestamp),
 							},
 						},
