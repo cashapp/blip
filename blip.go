@@ -31,6 +31,13 @@ const (
 	EVENT
 )
 
+// Metric Value Type
+const (
+	UNKNOWN_VALUE_TYPE byte = iota
+	DELTA
+	CUMULATIVE
+)
+
 // Metrics are metrics collected for one plan level, from one MySQL instance.
 type Metrics struct {
 	Begin     time.Time                // when collection started
@@ -55,6 +62,9 @@ type MetricValue struct {
 	// Value is the value of the metric. String values are not supported.
 	// Boolean values are reported as 0 and 1.
 	Value float64
+
+	// ValueType is the type of the value: DELTA, CUMULATIVE etc
+	ValueType byte
 
 	// Type is the metric type: GAUGE, COUNTER, and other const.
 	Type byte

@@ -42,6 +42,10 @@ type Datadog struct {
 	tr        tr.DomainTranslator // datadog.metric-translator
 	prefix    string              // datadog.metric-prefix
 	counters  map[string]float64  // holds last value of the counter so deltas can be calculated
+	// assign a number to every tag value, so we can create an uniq key for each metric (+ all it's tags)
+	// without it being a long string
+	tagToInt         map[string]uint16
+	sendCounterDelta bool // whether to calculate delta for counters
 
 	// -- Api
 	metricsApi *datadogV2.MetricsApi
@@ -83,8 +87,9 @@ func NewDatadog(monitorId string, opts, tags map[string]string, httpClient *http
 		monitorId:            monitorId,
 		tags:                 tagList,
 		counters:             map[string]float64{},
+		sendCounterDelta:     true, // calculate delta for counters by default
 		resources:            resources,
-		maxMetricsPerRequest: math.MaxInt32, // By default don't limit the number of metrics per request.
+		maxMetricsPerRequest: math.MaxInt32, // By default, don't limit the number of metrics per request.
 		compress:             true,
 		maxPayloadSize:       MAX_PAYLOAD_SIZE,
 	}
@@ -128,7 +133,8 @@ func NewDatadog(monitorId string, opts, tags map[string]string, httpClient *http
 
 		case "api-compress":
 			d.compress = blip.Bool(v)
-
+		case "send-counter-delta":
+			d.sendCounterDelta = blip.Bool(v)
 		case "dogstatsd-host":
 			d.dogstatsdHost = v
 
@@ -279,23 +285,29 @@ func (s *Datadog) Send(ctx context.Context, m *blip.Metrics) error {
 			// Convert Blip metric type to Datadog metric type
 			switch metrics[i].Type {
 			case blip.COUNTER:
-				// calculate delta
-				val, ok := s.counters[name]
-				if !ok {
-					blip.Debug("error calculating delta for the counter: %s, no previous value found, skipping this run (next run will work)", name)
-					s.counters[name] = metrics[i].Value
-					continue METRICS
-				}
-				// previous value present, calculate delta
-				delta := metrics[i].Value - val
-				s.counters[name] = metrics[i].Value
-				if delta < 0 {
-					blip.Debug("error calculating delta for the counter: %s, got negative delta (can happen due to restart), skipping this run (next run will work).", name)
-					continue METRICS
+				metricVal := metrics[i].Value
+
+				if s.sendCounterDelta && metrics[i].ValueType != blip.DELTA {
+					// if the value is not specifically marked as DELTA, calculate delta
+					metricID := s.uniqIdentifierForMetric(name, tags)
+					val, ok := s.counters[metricID]
+					if !ok {
+						blip.Debug("error calculating delta for the counter: %s, no previous value found, skipping this run (next run will work)", name)
+						s.counters[metricID] = metrics[i].Value
+						continue METRICS
+					}
+					// previous value present, calculate delta
+					delta := metrics[i].Value - val
+					s.counters[metricID] = metrics[i].Value
+					if delta < 0 {
+						blip.Debug("error calculating delta for the counter: %s, got negative delta (can happen due to restart), skipping this run (next run will work).", name)
+						continue METRICS
+					}
+					metricVal = delta
 				}
 
 				if s.dogstatsd {
-					err := s.dogstatsdClient.Count(name, int64(delta), tags, 1)
+					err := s.dogstatsdClient.Count(name, int64(metricVal), tags, 1)
 					if err != nil {
 						blip.Debug("error sending data points to Datadog: %s", err)
 					}
@@ -305,7 +317,7 @@ func (s *Datadog) Send(ctx context.Context, m *blip.Metrics) error {
 						Type:   datadogV2.METRICINTAKETYPE_COUNT.Ptr(),
 						Points: []datadogV2.MetricPoint{
 							{
-								Value:     datadog.PtrFloat64(delta),
+								Value:     datadog.PtrFloat64(metricVal),
 								Timestamp: datadog.PtrInt64(timestamp),
 							},
 						},
@@ -485,6 +497,25 @@ func (s *Datadog) estimateSize(metrics []datadogV2.MetricSeries) (int, error) {
 	}
 
 	return size / len(metrics), nil
+}
+
+func (s *Datadog) uniqIdentifierForMetric(name string, tags []string) string {
+	var key string
+	key += name
+	for _, t := range tags {
+		v := s.intForTag(t)
+		key += strconv.Itoa(int(v))
+	}
+	return key
+}
+
+func (s *Datadog) intForTag(tag string) uint16 {
+	v, ok := s.tagToInt[tag]
+
+	if !ok {
+		s.tagToInt[tag] = uint16(len(s.tagToInt))
+	}
+	return v
 }
 
 func (s *Datadog) Name() string {

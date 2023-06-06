@@ -264,10 +264,15 @@ func (t *Table) Collect(ctx context.Context, levelName string) ([]blip.MetricVal
 		tblName = *values[1].(*string)
 
 		for i := 2; i < len(cols); i++ {
+			var valueType byte // will default to blip.UNKNOWN_VALUE_TYPE
+			if o.truncate {
+				valueType = blip.DELTA
+			}
 			m := blip.MetricValue{
-				Name:  cols[i],
-				Type:  blip.COUNTER,
-				Group: map[string]string{"db": dbName, "tbl": tblName},
+				Name:      cols[i],
+				Type:      blip.COUNTER,
+				ValueType: valueType,
+				Group:     map[string]string{"db": dbName, "tbl": tblName},
 			}
 			m.Value = float64(*values[i].(*int64))
 			metrics = append(metrics, m)
@@ -280,7 +285,7 @@ func (t *Table) Collect(ctx context.Context, levelName string) ([]blip.MetricVal
 		if err == nil {
 			defer conn.Close()
 
-			// Set `lock_wait_timeout` to prevent our query from begin blocked for too long
+			// Set `lock_wait_timeout` to prevent our query from being blocked for too long
 			// due to metadata locking. We treat a failure to set the lock wait timeout
 			// the same as a truncate timeout, as not setting creates a risk of having a thread
 			// hang for an extended period of time.
