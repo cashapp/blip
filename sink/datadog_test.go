@@ -46,6 +46,8 @@ func getBlipMetrics(valuesCount int, metricType byte, metricValue float64, gener
 		valueType := blip.UNKNOWN_VALUE_TYPE
 		if generateDelta && i%2 == 0 {
 			valueType = blip.DELTA
+		} else {
+			valueType = blip.CUMULATIVE
 		}
 		values = append(values, blip.MetricValue{
 			Name:      fmt.Sprintf("testmetric%d", i+1),

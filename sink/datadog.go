@@ -12,6 +12,7 @@ import (
 	"math"
 	"net/http"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -44,7 +45,9 @@ type Datadog struct {
 	counters  map[string]float64  // holds last value of the counter so deltas can be calculated
 	// assign a number to every tag value, so we can create an uniq key for each metric (+ all it's tags)
 	// without it being a long string
-	tagToInt         map[string]uint16
+	tagToInt map[string]uint16
+	// assign a number of each distinct tag values, helps with keeping the mapping of `tag:value` to low numbers
+	tagValues        map[string]uint16
 	sendCounterDelta bool // whether to calculate delta for counters
 
 	// -- Api
@@ -87,6 +90,8 @@ func NewDatadog(monitorId string, opts, tags map[string]string, httpClient *http
 		monitorId:            monitorId,
 		tags:                 tagList,
 		counters:             map[string]float64{},
+		tagToInt:             map[string]uint16{},
+		tagValues:            map[string]uint16{},
 		sendCounterDelta:     true, // calculate delta for counters by default
 		resources:            resources,
 		maxMetricsPerRequest: math.MaxInt32, // By default, don't limit the number of metrics per request.
@@ -287,7 +292,7 @@ func (s *Datadog) Send(ctx context.Context, m *blip.Metrics) error {
 			case blip.COUNTER:
 				metricVal := metrics[i].Value
 
-				if s.sendCounterDelta && metrics[i].ValueType != blip.DELTA {
+				if s.sendCounterDelta && metrics[i].ValueType == blip.CUMULATIVE {
 					// if the value is not specifically marked as DELTA, calculate delta
 					metricID := s.uniqIdentifierForMetric(name, tags)
 					val, ok := s.counters[metricID]
@@ -500,21 +505,37 @@ func (s *Datadog) estimateSize(metrics []datadogV2.MetricSeries) (int, error) {
 }
 
 func (s *Datadog) uniqIdentifierForMetric(name string, tags []string) string {
+	// sort the list of tags to guarantee consistent ordering
+	sort.Strings(tags)
+
 	var key string
 	key += name
 	for _, t := range tags {
 		v := s.intForTag(t)
-		key += strconv.Itoa(int(v))
+		key += "_" + strconv.Itoa(int(v))
 	}
 	return key
 }
 
+// intForTag returns an uint16 for each tag so the uniq identifier for each metric and tags
+// combination we need to keep track of previous counter values are short.
+// it also maintains a separate counter for each tag key so the numbers don't get large
 func (s *Datadog) intForTag(tag string) uint16 {
 	v, ok := s.tagToInt[tag]
-
 	if !ok {
-		s.tagToInt[tag] = uint16(len(s.tagToInt))
+		tokens := strings.Split(tag, ":")
+		next, ok := s.tagValues[tokens[0]]
+		if ok {
+			s.tagValues[tokens[0]] = next + 1
+		} else {
+			s.tagValues[tokens[0]] = 1
+			next = 0
+		}
+
+		s.tagToInt[tag] = next
+		v = next
 	}
+
 	return v
 }
 

@@ -264,7 +264,7 @@ func (t *Table) Collect(ctx context.Context, levelName string) ([]blip.MetricVal
 		tblName = *values[1].(*string)
 
 		for i := 2; i < len(cols); i++ {
-			var valueType byte // will default to blip.UNKNOWN_VALUE_TYPE
+			valueType := blip.CUMULATIVE
 			if o.truncate {
 				valueType = blip.DELTA
 			}

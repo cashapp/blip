@@ -195,6 +195,7 @@ func (m *RDS) Collect(ctx context.Context, levelName string) ([]blip.MetricValue
 			}
 			if isCounter[metric] {
 				m.Type = blip.COUNTER
+				m.ValueType = blip.DELTA
 			}
 			metrics = append(metrics, m)
 		}
