@@ -1,4 +1,4 @@
-// Copyright 2022 Block, Inc.
+// Copyright 2023 Block, Inc.
 
 // Package blip provides high-level data structs and const for integrating with Blip.
 package blip
@@ -18,7 +18,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 )
 
-const VERSION = "1.0.1"
+const VERSION = "1.0.2"
 
 var SHA = ""
 

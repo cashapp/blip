@@ -9,6 +9,16 @@ permalink: /release-notes
 
 ## v1.0
 
+### v1.0.2 (03 Jul 2023)
+
+* `datadog` sink:
+  * Fixed timestamps: DD expects timestamp as seconds, not milliseconds
+  * Send new `event.SINK_ERROR` and debug DD API errors on successful request
+* `query.response-time` and `wait.io.table` collectors:
+  * Added `truncate-timeout` option and error policy
+  * Fixed docs: option `truncate-table` defaults to "yes"
+* Fixed GitHub Dependabot alerts
+
 ### v1.0.1 (02 Mar 2023)
 
 * `datadog` sink:
