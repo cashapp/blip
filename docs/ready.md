@@ -43,7 +43,7 @@ Blip v1.0 is <span class="ga">production</span> ready.
 |[stmt.current](v1.0/metrics/domains#stmtcurrent)|<span class="ga">Production</span>|
 |[tls](v1.0/metrics/domains#tls)|New|
 |[var.global](v1.0/metrics/domains#varglobal)|<span class="ga">Production</span>|
-|[wait.io.table](v1.0/metrics/domains#waitiotable)|New|
+|[wait.io.table](v1.0/metrics/domains#waitiotable)|Stable|
 
 ### Sinks
 

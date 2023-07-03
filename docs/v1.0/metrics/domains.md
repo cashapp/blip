@@ -166,6 +166,7 @@ However, truncating the table interferes with other tools reading (or truncating
 * `truncate-timeout`<br>
 Default: 250ms<br>
 The amount of time to wait while attempting to truncate [performance_schema.events_statements_histogram_global](https://dev.mysql.com/doc/refman/8.0/en/performance-schema-statement-histogram-summary-tables.html).
+Normally, truncating a table is nearly instantaneous, but metadata locks can block the operation.
 
 #### Error Policy
 {: .no_toc }
@@ -174,7 +175,7 @@ The amount of time to wait while attempting to truncate [performance_schema.even
 MySQL error 1146: Table 'performance_schema.events_statements_histogram_global' doesn't exist
 
 * `truncate-timeout`<br>
-Truncation failures on table 'performance_schema.events_statements_histogram_global'
+Truncation failures on table `performance_schema.events_statements_histogram_global`
 
 <!-------------------------------------------------------------------------->
 
@@ -493,6 +494,7 @@ If the source table should be truncated to reset data after each retrieval.
 * `truncate-timeout`<br>
 Default: 250ms<br>
 The amount of time to wait while attempting to truncate [performance_schema.events_statements_histogram_global](https://dev.mysql.com/doc/refman/8.0/en/performance-schema-statement-histogram-summary-tables.html).
+Normally, truncating a table is nearly instantaneous, but metadata locks can block the operation.
 
 * `all`<br>
 Default: `no`<br>
@@ -503,4 +505,4 @@ If `no` (the default), only the explicitly listed `performance_schema.table_io_w
 {: .no_toc }
 
 * `truncate-timeout`<br>
-Truncation failures on table 'performance_schema.events_statements_histogram_global'
+Truncation failures on table `performance_schema.events_statements_histogram_global`
