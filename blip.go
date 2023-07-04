@@ -25,17 +25,11 @@ var SHA = ""
 // Metric types.
 const (
 	UNKNOWN byte = iota
-	COUNTER
+	CUMULATIVE_COUNTER
+	DELTA_COUNTER
 	GAUGE
 	BOOL
 	EVENT
-)
-
-// Metric Value Type
-const (
-	UNKNOWN_VALUE_TYPE byte = iota
-	DELTA
-	CUMULATIVE
 )
 
 // Metrics are metrics collected for one plan level, from one MySQL instance.
@@ -63,10 +57,7 @@ type MetricValue struct {
 	// Boolean values are reported as 0 and 1.
 	Value float64
 
-	// ValueType is the type of the value: DELTA, CUMULATIVE etc
-	ValueType byte
-
-	// Type is the metric type: GAUGE, COUNTER, and other const.
+	// Type is the metric type: GAUGE, CUMULATIVE_COUNTER, and other const.
 	Type byte
 
 	// Group is the set of name-value pairs that determine the group to which

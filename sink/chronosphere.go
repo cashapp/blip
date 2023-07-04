@@ -142,6 +142,7 @@ func (s *Chronosphere) Send(ctx context.Context, m *blip.Metrics) (lerr error) {
 
 		// For each Blip metric (in this domain), make an OpenMetric MetricFamily
 		// struct, which really is as deeply nested as this:
+	METRICS:
 		for _, m := range metricValues {
 
 			// One metric with one value:
@@ -170,7 +171,7 @@ func (s *Chronosphere) Send(ctx context.Context, m *blip.Metrics) (lerr error) {
 						},
 					},
 				}
-			default: // COUNTER
+			case blip.CUMULATIVE_COUNTER:
 				fam[n].Metrics[0].MetricPoints[0].Value = &om.MetricPoint_CounterValue{
 					CounterValue: &om.CounterValue{
 						Total: &om.CounterValue_DoubleValue{
@@ -178,6 +179,10 @@ func (s *Chronosphere) Send(ctx context.Context, m *blip.Metrics) (lerr error) {
 						},
 					},
 				}
+			default:
+				// Chronosphere (or OpenMetrics) doesn't support this (includes DELTA_COUNTER) Blip metric type, so skip it
+				// TODO: Either error out or maintain cumulative value from delta
+				continue METRICS
 			}
 
 			n++ // next metric: fam[n]

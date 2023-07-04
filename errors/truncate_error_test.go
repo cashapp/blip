@@ -18,24 +18,24 @@ func TestTruncateErrorZero(t *testing.T) {
 	collectedMetrics := []blip.MetricValue{
 		{
 			Name:  "Metric1",
-			Type:  blip.COUNTER,
+			Type:  blip.CUMULATIVE_COUNTER,
 			Value: 2.0,
 		},
 		{
 			Name:  "Metric2",
-			Type:  blip.COUNTER,
+			Type:  blip.CUMULATIVE_COUNTER,
 			Value: 2.0,
 		},
 	}
 	zeroMetrics := []blip.MetricValue{
 		{
 			Name:  "Metric1",
-			Type:  blip.COUNTER,
+			Type:  blip.CUMULATIVE_COUNTER,
 			Value: 0.0,
 		},
 		{
 			Name:  "Metric2",
-			Type:  blip.COUNTER,
+			Type:  blip.CUMULATIVE_COUNTER,
 			Value: 0.0,
 		},
 	}
@@ -103,12 +103,12 @@ func TestTruncateErrorZeroDrop(t *testing.T) {
 	collectedMetrics := []blip.MetricValue{
 		{
 			Name:  "Metric1",
-			Type:  blip.COUNTER,
+			Type:  blip.CUMULATIVE_COUNTER,
 			Value: 2.0,
 		},
 		{
 			Name:  "Metric2",
-			Type:  blip.COUNTER,
+			Type:  blip.CUMULATIVE_COUNTER,
 			Value: 2.0,
 		},
 	}
@@ -176,12 +176,12 @@ func TestTruncateErrorZeroStopIgnore(t *testing.T) {
 	collectedMetrics := []blip.MetricValue{
 		{
 			Name:  "Metric1",
-			Type:  blip.COUNTER,
+			Type:  blip.CUMULATIVE_COUNTER,
 			Value: 2.0,
 		},
 		{
 			Name:  "Metric2",
-			Type:  blip.COUNTER,
+			Type:  blip.CUMULATIVE_COUNTER,
 			Value: 2.0,
 		},
 	}

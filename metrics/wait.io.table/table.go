@@ -264,15 +264,14 @@ func (t *Table) Collect(ctx context.Context, levelName string) ([]blip.MetricVal
 		tblName = *values[1].(*string)
 
 		for i := 2; i < len(cols); i++ {
-			valueType := blip.CUMULATIVE
+			counterType := blip.CUMULATIVE_COUNTER
 			if o.truncate {
-				valueType = blip.DELTA
+				counterType = blip.DELTA_COUNTER
 			}
 			m := blip.MetricValue{
-				Name:      cols[i],
-				Type:      blip.COUNTER,
-				ValueType: valueType,
-				Group:     map[string]string{"db": dbName, "tbl": tblName},
+				Name:  cols[i],
+				Type:  counterType,
+				Group: map[string]string{"db": dbName, "tbl": tblName},
 			}
 			m.Value = float64(*values[i].(*int64))
 			metrics = append(metrics, m)

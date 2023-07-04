@@ -136,8 +136,10 @@ func (s *SignalFx) Send(ctx context.Context, m *blip.Metrics) error {
 
 			// Convert Blip metric type to SFX metric type
 			switch metrics[i].Type {
-			case blip.COUNTER:
+			case blip.CUMULATIVE_COUNTER:
 				dp[n] = sfxclient.CumulativeF(name, dim, metrics[i].Value)
+			case blip.DELTA_COUNTER:
+				dp[n] = sfxclient.Counter(name, dim, int64(metrics[i].Value))
 			case blip.GAUGE, blip.BOOL:
 				dp[n] = sfxclient.GaugeF(name, dim, metrics[i].Value)
 			default:

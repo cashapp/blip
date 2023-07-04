@@ -129,14 +129,12 @@ func (c *InnoDB) Collect(ctx context.Context, levelName string) ([]blip.MetricVa
 		// some acronyms but not all: buffer_LRU_batch_scanned vs. log_lsn_current
 		// (LSN = log sequence number). Must strings.ToLower.
 		m := blip.MetricValue{
-			Name:      strings.ToLower(name),
-			Type:      blip.COUNTER,
-			ValueType: blip.CUMULATIVE,
-			Meta:      map[string]string{"subsystem": subsystem},
+			Name: strings.ToLower(name),
+			Type: blip.CUMULATIVE_COUNTER,
+			Meta: map[string]string{"subsystem": subsystem},
 		}
 		if gauge[m.Name] {
 			m.Type = blip.GAUGE
-			m.ValueType = blip.UNKNOWN_VALUE_TYPE
 		}
 
 		m.Value, ok = sqlutil.Float64(val)

@@ -36,9 +36,13 @@ func (tr Generic) Translate(values []blip.MetricValue, ch chan<- prometheus.Metr
 		var promType prometheus.ValueType
 		var help string
 		switch values[i].Type {
-		case blip.COUNTER:
+		case blip.CUMULATIVE_COUNTER:
 			promType = prometheus.CounterValue
 			help = "Generic counter metric."
+		case blip.DELTA_COUNTER:
+			// Prometheus doesn't have a Delta counter type, skipping
+			// TODO: maybe maintain cumulative counter values from deltas
+			continue
 		case blip.GAUGE:
 			promType = prometheus.GaugeValue
 			help = "Generic gauge metric."

@@ -191,13 +191,11 @@ func (c *Global) Collect(ctx context.Context, levelName string) ([]blip.MetricVa
 
 		// New Blip metric, presume counter (most are) but then check
 		m := blip.MetricValue{
-			Name:      name,
-			Type:      blip.COUNTER,
-			ValueType: blip.CUMULATIVE,
+			Name: name,
+			Type: blip.CUMULATIVE_COUNTER,
 		}
 		if gauge[m.Name] {
 			m.Type = blip.GAUGE
-			m.ValueType = blip.UNKNOWN_VALUE_TYPE
 		}
 
 		// Convert value to float64, which handles several special cases.

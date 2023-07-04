@@ -180,8 +180,10 @@ func PrintDomains() string {
 			for _, m := range help.Metrics {
 				out += "\t\t" + m.Name
 				switch m.Type {
-				case blip.COUNTER:
-					out += " (counter)"
+				case blip.CUMULATIVE_COUNTER:
+					out += " (cumulative counter)"
+				case blip.DELTA_COUNTER:
+					out += " (delta counter)"
 				case blip.GAUGE:
 					out += " (gauge)"
 				default:

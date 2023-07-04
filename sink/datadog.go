@@ -289,10 +289,10 @@ func (s *Datadog) Send(ctx context.Context, m *blip.Metrics) error {
 
 			// Convert Blip metric type to Datadog metric type
 			switch metrics[i].Type {
-			case blip.COUNTER:
+			case blip.CUMULATIVE_COUNTER, blip.DELTA_COUNTER:
 				metricVal := metrics[i].Value
 
-				if s.sendCounterDelta && metrics[i].ValueType == blip.CUMULATIVE {
+				if s.sendCounterDelta && metrics[i].Type == blip.CUMULATIVE_COUNTER {
 					// if the value is not specifically marked as DELTA, calculate delta
 					metricID := s.uniqIdentifierForMetric(name, tags)
 					val, ok := s.counters[metricID]
