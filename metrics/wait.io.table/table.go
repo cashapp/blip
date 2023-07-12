@@ -85,6 +85,7 @@ type tableOptions struct {
 	stop              bool
 	truncateErrPolicy *errors.TruncateErrorPolicy
 	lockWaitQuery     string
+	metricType        byte
 }
 
 // Table collects table io for domain wait.io.table.
@@ -197,6 +198,7 @@ LEVEL:
 		} else {
 			o.truncateTimeout = 250 * time.Millisecond // default
 		}
+		o.metricType = blip.CUMULATIVE_COUNTER
 
 		if o.truncate {
 			// Setup our lock wait timeout. It needs to be at least as long
@@ -208,6 +210,7 @@ LEVEL:
 				lockWaitTimeout = 1
 			}
 
+			o.metricType = blip.DELTA_COUNTER
 			o.lockWaitQuery = fmt.Sprintf(LOCKWAIT_QUERY, int64(lockWaitTimeout))
 			o.truncateErrPolicy = errors.NewTruncateErrorPolicy(dom.Errors[ERR_TRUNCATE_FAILED])
 			blip.Debug("error policy: %s=%s", ERR_TRUNCATE_FAILED, o.truncateErrPolicy.Policy)
@@ -264,13 +267,9 @@ func (t *Table) Collect(ctx context.Context, levelName string) ([]blip.MetricVal
 		tblName = *values[1].(*string)
 
 		for i := 2; i < len(cols); i++ {
-			counterType := blip.CUMULATIVE_COUNTER
-			if o.truncate {
-				counterType = blip.DELTA_COUNTER
-			}
 			m := blip.MetricValue{
 				Name:  cols[i],
-				Type:  counterType,
+				Type:  o.metricType,
 				Group: map[string]string{"db": dbName, "tbl": tblName},
 			}
 			m.Value = float64(*values[i].(*int64))

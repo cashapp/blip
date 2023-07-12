@@ -377,16 +377,14 @@ func TestDatadogCounterMetricsDeltaCalculation(t *testing.T) {
 
 	ops := defaultOps()
 	ops["api-compress"] = "false" // Turn off compression so that we get easier calculations for sizing
-	ops["send-counter-delta"] = "true"
 	ddSink, err := NewDatadog("testmonitor", ops, map[string]string{}, httpClient)
+	require.NoError(t, err)
 	ddSink.tr = &mock.Tr{
 		TranslateFunc: func(domain, metric string) string {
 			trCount++
 			return fmt.Sprintf("%s.%s", domain, metric)
 		},
 	}
-
-	require.NoError(t, err)
 
 	blipMetricsFirstBatch := getBlipCounterMetrics(metricCount, 10.0, true)
 	err = ddSink.Send(context.Background(), blipMetricsFirstBatch)

@@ -43,12 +43,6 @@ type Datadog struct {
 	tr        tr.DomainTranslator // datadog.metric-translator
 	prefix    string              // datadog.metric-prefix
 	counters  map[string]float64  // holds last value of the counter so deltas can be calculated
-	// assign a number to every tag value, so we can create an uniq key for each metric (+ all it's tags)
-	// without it being a long string
-	tagToInt map[string]uint16
-	// assign a number of each distinct tag values, helps with keeping the mapping of `tag:value` to low numbers
-	tagValues        map[string]uint16
-	sendCounterDelta bool // whether to calculate delta for counters
 
 	// -- Api
 	metricsApi *datadogV2.MetricsApi
@@ -90,9 +84,6 @@ func NewDatadog(monitorId string, opts, tags map[string]string, httpClient *http
 		monitorId:            monitorId,
 		tags:                 tagList,
 		counters:             map[string]float64{},
-		tagToInt:             map[string]uint16{},
-		tagValues:            map[string]uint16{},
-		sendCounterDelta:     true, // calculate delta for counters by default
 		resources:            resources,
 		maxMetricsPerRequest: math.MaxInt32, // By default, don't limit the number of metrics per request.
 		compress:             true,
@@ -138,8 +129,6 @@ func NewDatadog(monitorId string, opts, tags map[string]string, httpClient *http
 
 		case "api-compress":
 			d.compress = blip.Bool(v)
-		case "send-counter-delta":
-			d.sendCounterDelta = blip.Bool(v)
 		case "dogstatsd-host":
 			d.dogstatsdHost = v
 
@@ -292,9 +281,10 @@ func (s *Datadog) Send(ctx context.Context, m *blip.Metrics) error {
 			case blip.CUMULATIVE_COUNTER, blip.DELTA_COUNTER:
 				metricVal := metrics[i].Value
 
-				if s.sendCounterDelta && metrics[i].Type == blip.CUMULATIVE_COUNTER {
+				if metrics[i].Type == blip.CUMULATIVE_COUNTER {
 					// if the value is not specifically marked as DELTA, calculate delta
-					metricID := s.uniqIdentifierForMetric(name, tags)
+
+					metricID := s.uniqIdentifierForMetric(name, metrics[i].Group)
 					val, ok := s.counters[metricID]
 					if !ok {
 						blip.Debug("error calculating delta for the counter: %s, no previous value found, skipping this run (next run will work)", name)
@@ -304,11 +294,11 @@ func (s *Datadog) Send(ctx context.Context, m *blip.Metrics) error {
 					// previous value present, calculate delta
 					delta := metrics[i].Value - val
 					s.counters[metricID] = metrics[i].Value
-					if delta < 0 {
-						blip.Debug("error calculating delta for the counter: %s, got negative delta (can happen due to restart), skipping this run (next run will work).", name)
-						continue METRICS
+					if delta >= 0 {
+						metricVal = delta
+					} else {
+						blip.Debug("found negative delta for: %s (can happen due to restart), sending the potentially partial metric value", name)
 					}
-					metricVal = delta
 				}
 
 				if s.dogstatsd {
@@ -504,39 +494,33 @@ func (s *Datadog) estimateSize(metrics []datadogV2.MetricSeries) (int, error) {
 	return size / len(metrics), nil
 }
 
-func (s *Datadog) uniqIdentifierForMetric(name string, tags []string) string {
-	// sort the list of tags to guarantee consistent ordering
-	sort.Strings(tags)
+func (s *Datadog) uniqIdentifierForMetric(name string, groups map[string]string) string {
+	sortedGroupValues := s.valuesInSortedKeyOrder(groups)
 
 	var key string
 	key += name
-	for _, t := range tags {
-		v := s.intForTag(t)
-		key += "_" + strconv.Itoa(int(v))
-	}
+	key += sortedGroupValues
+
 	return key
 }
 
-// intForTag returns an uint16 for each tag so the uniq identifier for each metric and tags
-// combination we need to keep track of previous counter values are short.
-// it also maintains a separate counter for each tag key so the numbers don't get large
-func (s *Datadog) intForTag(tag string) uint16 {
-	v, ok := s.tagToInt[tag]
-	if !ok {
-		tokens := strings.Split(tag, ":")
-		next, ok := s.tagValues[tokens[0]]
-		if ok {
-			s.tagValues[tokens[0]] = next + 1
-		} else {
-			s.tagValues[tokens[0]] = 1
-			next = 0
-		}
-
-		s.tagToInt[tag] = next
-		v = next
+func (s *Datadog) valuesInSortedKeyOrder(tags map[string]string) string {
+	keys := make([]string, 0, len(tags))
+	for k := range tags {
+		keys = append(keys, k)
 	}
 
-	return v
+	// sort by keys
+	sort.Strings(keys)
+
+	var values []string
+
+	// collect values by sorted keys
+	for _, key := range keys {
+		values = append(values, tags[key])
+	}
+
+	return strings.Join(values, "")
 }
 
 func (s *Datadog) Name() string {
