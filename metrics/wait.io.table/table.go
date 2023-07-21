@@ -185,8 +185,10 @@ LEVEL:
 
 		if truncate, ok := dom.Options[OPT_TRUNCATE_TABLE]; ok && truncate == "no" {
 			o.truncate = false
+			o.metricType = blip.CUMULATIVE_COUNTER
 		} else {
 			o.truncate = true // default
+			o.metricType = blip.DELTA_COUNTER
 		}
 
 		if truncateTimeout, ok := dom.Options[OPT_TRUNCATE_TIMEOUT]; ok && o.truncate {
@@ -198,7 +200,6 @@ LEVEL:
 		} else {
 			o.truncateTimeout = 250 * time.Millisecond // default
 		}
-		o.metricType = blip.CUMULATIVE_COUNTER
 
 		if o.truncate {
 			// Setup our lock wait timeout. It needs to be at least as long
@@ -210,7 +211,6 @@ LEVEL:
 				lockWaitTimeout = 1
 			}
 
-			o.metricType = blip.DELTA_COUNTER
 			o.lockWaitQuery = fmt.Sprintf(LOCKWAIT_QUERY, int64(lockWaitTimeout))
 			o.truncateErrPolicy = errors.NewTruncateErrorPolicy(dom.Errors[ERR_TRUNCATE_FAILED])
 			blip.Debug("error policy: %s=%s", ERR_TRUNCATE_FAILED, o.truncateErrPolicy.Policy)

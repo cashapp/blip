@@ -193,6 +193,8 @@ func (m *RDS) Collect(ctx context.Context, levelName string) ([]blip.MetricValue
 					"ts": fmt.Sprintf("%d", r.Timestamps[j].UnixMilli()), // must be milliseconds
 				},
 			}
+			// we currently only collect delta counters, if we add any cumulative counters
+			// in future we should refactor the following to cater for both
 			if isDeltaCounter[metric] {
 				m.Type = blip.DELTA_COUNTER
 			}

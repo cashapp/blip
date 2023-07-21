@@ -283,8 +283,7 @@ func (s *Datadog) Send(ctx context.Context, m *blip.Metrics) error {
 
 				if metrics[i].Type == blip.CUMULATIVE_COUNTER {
 					// if the value is not specifically marked as DELTA, calculate delta
-
-					metricID := s.uniqIdentifierForMetric(name, metrics[i].Group)
+					metricID := s.metricID(name, metrics[i].Group)
 					val, ok := s.counters[metricID]
 					if !ok {
 						blip.Debug("error calculating delta for the counter: %s, no previous value found, skipping this run (next run will work)", name)
@@ -494,19 +493,12 @@ func (s *Datadog) estimateSize(metrics []datadogV2.MetricSeries) (int, error) {
 	return size / len(metrics), nil
 }
 
-func (s *Datadog) uniqIdentifierForMetric(name string, groups map[string]string) string {
-	sortedGroupValues := s.valuesInSortedKeyOrder(groups)
-
-	var key string
-	key += name
-	key += sortedGroupValues
-
-	return key
-}
-
-func (s *Datadog) valuesInSortedKeyOrder(tags map[string]string) string {
-	keys := make([]string, 0, len(tags))
-	for k := range tags {
+// metricID returns the metric name concatenated with sorted group keys.
+// For example, if the metric name is "foo" and the group keys are "a" and "b",
+// it returns "fooab". This is used to calculate delta counter values in Send.
+func (s *Datadog) metricID(name string, groups map[string]string) string {
+	keys := make([]string, 0, len(groups))
+	for k := range groups {
 		keys = append(keys, k)
 	}
 
@@ -514,13 +506,16 @@ func (s *Datadog) valuesInSortedKeyOrder(tags map[string]string) string {
 	sort.Strings(keys)
 
 	var values []string
-
 	// collect values by sorted keys
-	for _, key := range keys {
-		values = append(values, tags[key])
+	for _, k := range keys {
+		values = append(values, groups[k])
 	}
 
-	return strings.Join(values, "")
+	var key string
+	key += name
+	key += strings.Join(values, "")
+
+	return key
 }
 
 func (s *Datadog) Name() string {
