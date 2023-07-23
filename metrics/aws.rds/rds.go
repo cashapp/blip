@@ -187,14 +187,16 @@ func (m *RDS) Collect(ctx context.Context, levelName string) ([]blip.MetricValue
 			m.latestTs[levelName][*r.Label] = r.Timestamps[j]
 			m := blip.MetricValue{
 				Name:  metric,
-				Type:  blip.GAUGE, // almost all RDS metrics are guages
+				Type:  blip.GAUGE, // almost all RDS metrics are gauges
 				Value: r.Values[j],
 				Meta: map[string]string{
 					"ts": fmt.Sprintf("%d", r.Timestamps[j].UnixMilli()), // must be milliseconds
 				},
 			}
-			if isCounter[metric] {
-				m.Type = blip.COUNTER
+			// we currently only collect delta counters, if we add any cumulative counters
+			// in future we should refactor the following to cater for both
+			if isDeltaCounter[metric] {
+				m.Type = blip.DELTA_COUNTER
 			}
 			metrics = append(metrics, m)
 		}
@@ -203,14 +205,9 @@ func (m *RDS) Collect(ctx context.Context, levelName string) ([]blip.MetricValue
 	return metrics, nil
 }
 
-var isCounter = map[string]bool{
+var isDeltaCounter = map[string]bool{
 	"AbortedClients":       true,
 	"BacktrackWindowAlert": true,
-	"CPUCreditBalance":     true,
-	"CPUCreditUsage":       true,
-	"EngineUptime":         true,
-	"NumBinaryLogFiles":    true,
-	"RowLockTime":          true,
 }
 
 /*

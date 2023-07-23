@@ -20,10 +20,10 @@ import (
 )
 
 /*
-	Begin the collector with a const block.
-	First define DOMAIN.
-	Then define any OPT_* const.
-	Then define other const as needed.
+Begin the collector with a const block.
+First define DOMAIN.
+Then define any OPT_* const.
+Then define other const as needed.
 */
 const (
 	DOMAIN = "status.global"
@@ -192,7 +192,7 @@ func (c *Global) Collect(ctx context.Context, levelName string) ([]blip.MetricVa
 		// New Blip metric, presume counter (most are) but then check
 		m := blip.MetricValue{
 			Name: name,
-			Type: blip.COUNTER,
+			Type: blip.CUMULATIVE_COUNTER,
 		}
 		if gauge[m.Name] {
 			m.Type = blip.GAUGE

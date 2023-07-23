@@ -39,14 +39,44 @@ func okHttpClient() *http.Client {
 	}
 }
 
-func getBlipMetrics(valuesCount int) *blip.Metrics {
+func getBlipCounterMetrics(valuesCount int, metricValue float64, generateDelta bool) *blip.Metrics {
+	values := make([]blip.MetricValue, 0, valuesCount)
+
+	for i := 0; i < valuesCount; i++ {
+		metricType := blip.UNKNOWN
+		if generateDelta && i%2 == 0 {
+			metricType = blip.DELTA_COUNTER
+		} else {
+			metricType = blip.CUMULATIVE_COUNTER
+		}
+		values = append(values, blip.MetricValue{
+			Name:  fmt.Sprintf("testmetric%d", i+1),
+			Value: metricValue,
+			Type:  metricType,
+		})
+	}
+
+	return &blip.Metrics{
+		Begin:     time.Now().Add(-1 * time.Hour),
+		End:       time.Now(),
+		MonitorId: "testmonitor",
+		Plan:      "testplan",
+		Level:     "testlevel",
+		State:     "teststate",
+		Values: map[string][]blip.MetricValue{
+			"testdomain": values,
+		},
+	}
+}
+
+func getBlipMetrics(valuesCount int, metricType byte, metricValue float64, generateDelta bool) *blip.Metrics {
 	values := make([]blip.MetricValue, 0, valuesCount)
 
 	for i := 0; i < valuesCount; i++ {
 		values = append(values, blip.MetricValue{
 			Name:  fmt.Sprintf("testmetric%d", i+1),
-			Value: 1.0,
-			Type:  blip.GAUGE,
+			Value: metricValue,
+			Type:  metricType,
 		})
 	}
 
@@ -85,7 +115,7 @@ func TestDatadogSink(t *testing.T) {
 		t.Fatalf("Expected no error but got %v", err)
 	}
 
-	err = ddSink.Send(context.Background(), getBlipMetrics(10))
+	err = ddSink.Send(context.Background(), getBlipMetrics(10, blip.GAUGE, 1.0, false))
 
 	if err != nil {
 		t.Fatalf("Expected no error but got %v", err)
@@ -129,7 +159,7 @@ func TestDatadogMetricsPerRequest(t *testing.T) {
 		t.Fatalf("Expected no error but got %v", err)
 	}
 
-	err = ddSink.Send(context.Background(), getBlipMetrics(metricCount))
+	err = ddSink.Send(context.Background(), getBlipMetrics(metricCount, blip.GAUGE, 1.0, false))
 
 	if err != nil {
 		t.Fatalf("Expected no error but got %v", err)
@@ -180,7 +210,7 @@ func TestDatadogMetricsPerRequestWithCompression(t *testing.T) {
 		t.Fatalf("Expected no error but got %v", err)
 	}
 
-	err = ddSink.Send(context.Background(), getBlipMetrics(metricCount))
+	err = ddSink.Send(context.Background(), getBlipMetrics(metricCount, blip.GAUGE, 1.0, false))
 
 	if err != nil {
 		t.Fatalf("Expected no error but got %v", err)
@@ -256,7 +286,7 @@ func TestDatadogMetricsPerRequestMultipleFail(t *testing.T) {
 		t.Fatalf("Expected no error but got %v", err)
 	}
 
-	blipMetrics := getBlipMetrics(metricCount)
+	blipMetrics := getBlipMetrics(metricCount, blip.GAUGE, 1.0, false)
 	err = ddSink.Send(context.Background(), blipMetrics)
 
 	if err != nil {
@@ -310,8 +340,105 @@ func TestDatadogMetricsErrorResponseFromAPI(t *testing.T) {
 	ddSink, err := NewDatadog("testmonitor", defaultOps(), map[string]string{}, httpClient)
 	require.NoError(t, err)
 
-	err = ddSink.Send(context.Background(), getBlipMetrics(10))
+	err = ddSink.Send(context.Background(), getBlipMetrics(10, blip.GAUGE, 1.0, false))
 
 	// validation errors should be logged and the sink should continue
 	require.NoError(t, err)
+}
+
+func TestDatadogCounterMetricsDeltaCalculation(t *testing.T) {
+	callCount := 0
+	metricCount := 50
+	trCount := 0
+	collectedMetrics := map[string]float64{}
+
+	httpClient := &http.Client{
+		Transport: &mock.Transport{
+			RoundTripFunc: func(r *http.Request) (*http.Response, error) {
+				callCount++
+
+				var payload datadogV2.MetricPayload
+				body, _ := r.GetBody()
+				defer body.Close()
+				data, _ := ioutil.ReadAll(body)
+				json.Unmarshal(data, &payload)
+
+				for _, metric := range payload.Series {
+					require.Equal(t, 1, len(metric.Points), "metric series should have only 1 metric")
+					collectedMetrics[metric.Metric] = *metric.Points[0].Value
+				}
+
+				return &http.Response{
+					StatusCode: http.StatusOK,
+				}, nil
+			},
+		},
+	}
+
+	ops := defaultOps()
+	ops["api-compress"] = "false" // Turn off compression so that we get easier calculations for sizing
+	ddSink, err := NewDatadog("testmonitor", ops, map[string]string{}, httpClient)
+	require.NoError(t, err)
+	ddSink.tr = &mock.Tr{
+		TranslateFunc: func(domain, metric string) string {
+			trCount++
+			return fmt.Sprintf("%s.%s", domain, metric)
+		},
+	}
+
+	blipMetricsFirstBatch := getBlipCounterMetrics(metricCount, 10.0, true)
+	err = ddSink.Send(context.Background(), blipMetricsFirstBatch)
+	require.NoError(t, err)
+	// only half the metrics with Delta counter values should be sent
+	require.Equal(t, metricCount/2, len(collectedMetrics))
+	expectedMetrics := map[string]float64{}
+	for _, metric := range blipMetricsFirstBatch.Values["testdomain"] {
+		if metric.Type == blip.DELTA_COUNTER {
+			name := fmt.Sprintf("testdomain.%s", metric.Name)
+			expectedMetrics[name] = metric.Value
+		}
+	}
+	// reset collected
+	collectedMetrics = map[string]float64{}
+	blipMetricsSecondBatch := getBlipCounterMetrics(metricCount, 20.0, true)
+	err = ddSink.Send(context.Background(), blipMetricsSecondBatch)
+	require.NoError(t, err)
+
+	expectedMetrics = getExpectedMetrics(blipMetricsSecondBatch, blipMetricsFirstBatch)
+	if diff := deep.Equal(expectedMetrics, collectedMetrics); diff != nil {
+		t.Fatal(diff)
+	}
+
+	// simulate a restart
+	blipMetricsThirdBatch := getBlipCounterMetrics(metricCount, 1.0, true)
+	err = ddSink.Send(context.Background(), blipMetricsThirdBatch)
+	require.Equal(t, metricCount, len(collectedMetrics))
+
+	// reset collected
+	collectedMetrics = map[string]float64{}
+
+	// send final batch
+	blipMetricsFourthBatch := getBlipCounterMetrics(metricCount, 5.0, true)
+	err = ddSink.Send(context.Background(), blipMetricsFourthBatch)
+	require.NoError(t, err)
+
+	expectedMetrics = getExpectedMetrics(blipMetricsFourthBatch, blipMetricsThirdBatch)
+	if diff := deep.Equal(expectedMetrics, collectedMetrics); diff != nil {
+		t.Fatal(diff)
+	}
+}
+
+func getExpectedMetrics(currentBatch, previousBatch *blip.Metrics) map[string]float64 {
+	expectedMetrics := map[string]float64{}
+	for i, currentMetric := range currentBatch.Values["testdomain"] {
+		var metricVal float64
+		if currentMetric.Type == blip.DELTA_COUNTER {
+			metricVal = currentMetric.Value
+		} else {
+			metricVal = currentMetric.Value - previousBatch.Values["testdomain"][i].Value
+		}
+		name := fmt.Sprintf("testdomain.%s", currentMetric.Name)
+		expectedMetrics[name] = metricVal
+	}
+	return expectedMetrics
 }

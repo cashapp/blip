@@ -130,7 +130,7 @@ func (c *InnoDB) Collect(ctx context.Context, levelName string) ([]blip.MetricVa
 		// (LSN = log sequence number). Must strings.ToLower.
 		m := blip.MetricValue{
 			Name: strings.ToLower(name),
-			Type: blip.COUNTER,
+			Type: blip.CUMULATIVE_COUNTER,
 			Meta: map[string]string{"subsystem": subsystem},
 		}
 		if gauge[m.Name] {

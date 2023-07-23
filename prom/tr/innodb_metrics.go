@@ -61,9 +61,13 @@ func (tr InnoDBMetrics) Translate(values []blip.MetricValue, ch chan<- prom.Metr
 		var promType prom.ValueType
 		var help string
 		switch values[i].Type {
-		case blip.COUNTER:
+		case blip.CUMULATIVE_COUNTER:
 			promType = prom.CounterValue
 			help = "Generic counter metric from SHOW GLOBAL STATUS."
+		case blip.DELTA_COUNTER:
+			// Prometheus doesn't have a Delta counter type, skipping
+			// TODO: maybe maintain cumulative counter values from deltas
+			continue
 		case blip.GAUGE:
 			promType = prom.GaugeValue
 			help = "Generic gauge metric from SHOW GLOBAL STATUS."

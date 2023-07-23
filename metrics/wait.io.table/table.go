@@ -85,6 +85,7 @@ type tableOptions struct {
 	stop              bool
 	truncateErrPolicy *errors.TruncateErrorPolicy
 	lockWaitQuery     string
+	metricType        byte
 }
 
 // Table collects table io for domain wait.io.table.
@@ -184,8 +185,10 @@ LEVEL:
 
 		if truncate, ok := dom.Options[OPT_TRUNCATE_TABLE]; ok && truncate == "no" {
 			o.truncate = false
+			o.metricType = blip.CUMULATIVE_COUNTER
 		} else {
 			o.truncate = true // default
+			o.metricType = blip.DELTA_COUNTER
 		}
 
 		if truncateTimeout, ok := dom.Options[OPT_TRUNCATE_TIMEOUT]; ok && o.truncate {
@@ -266,7 +269,7 @@ func (t *Table) Collect(ctx context.Context, levelName string) ([]blip.MetricVal
 		for i := 2; i < len(cols); i++ {
 			m := blip.MetricValue{
 				Name:  cols[i],
-				Type:  blip.COUNTER,
+				Type:  o.metricType,
 				Group: map[string]string{"db": dbName, "tbl": tblName},
 			}
 			m.Value = float64(*values[i].(*int64))
@@ -280,7 +283,7 @@ func (t *Table) Collect(ctx context.Context, levelName string) ([]blip.MetricVal
 		if err == nil {
 			defer conn.Close()
 
-			// Set `lock_wait_timeout` to prevent our query from begin blocked for too long
+			// Set `lock_wait_timeout` to prevent our query from being blocked for too long
 			// due to metadata locking. We treat a failure to set the lock wait timeout
 			// the same as a truncate timeout, as not setting creates a risk of having a thread
 			// hang for an extended period of time.
