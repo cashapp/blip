@@ -222,4 +222,5 @@ var gauge = map[string]bool{
 	"innodb_buffer_pool_pages_total": true,
 	"innodb_row_lock_current_waits":  true,
 	"innodb_os_log_pending_writes":   true,
+	"max_used_connections":           true,
 }
