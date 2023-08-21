@@ -1,4 +1,4 @@
-// Copyright 2022 Block, Inc.
+// Copyright 2023 Block, Inc.
 
 package monitor
 
@@ -78,7 +78,7 @@ func (e *Engine) DB() *sql.DB {
 // the new state plan.
 //
 // Do not call this func concurrently! It does not guard against concurrent
-// calls. Sserialization is handled by the only caller: LevelCollector.ChangePlan().
+// calls. Serialization is handled by the only caller: LevelCollector.ChangePlan().
 func (e *Engine) Prepare(ctx context.Context, plan blip.Plan, before, after func()) error {
 	blip.Debug("%s: prepare %s (%s)", e.monitorId, plan.Name, plan.Source)
 	e.event.Sendf(event.ENGINE_PREPARE, plan.Name)
@@ -114,7 +114,7 @@ func (e *Engine) Prepare(ctx context.Context, plan blip.Plan, before, after func
 	mcNew := map[string]*amc{} // keyed on domain
 	atLevel := map[string][]blip.Collector{}
 	for levelName, level := range plan.Levels {
-		for domain, _ := range level.Collect {
+		for domain := range level.Collect {
 
 			// Make collector if needed
 			mc, ok := mcNew[domain]
@@ -155,7 +155,7 @@ func (e *Engine) Prepare(ctx context.Context, plan blip.Plan, before, after func
 
 	// Successfully prepared the plan
 	status.Monitor(e.monitorId, status.ENGINE_PREPARE, "%s: level-collector before callback", plan.Name)
-	before() // notify caller (LPC.changePlan) that we're about to swap the plan
+	before() // notify caller (lco.changePlan) that we're about to swap the plan
 
 	status.Monitor(e.monitorId, status.ENGINE_PREPARE, "%s: finalize", plan.Name)
 	e.planMux.Lock() // LOCK plan -------------------------------------------
@@ -181,7 +181,7 @@ func (e *Engine) Prepare(ctx context.Context, plan blip.Plan, before, after func
 	e.event.Sendf(event.ENGINE_PREPARE_SUCCESS, plan.Name)
 
 	status.Monitor(e.monitorId, status.ENGINE_PREPARE, "%s: level-collector after callback", plan.Name)
-	after() // notify caller (LPC.changePlan) that we have swapped the plan
+	after() // notify caller (lco.changePlan) that we have swapped the plan
 
 	return nil
 }
@@ -306,7 +306,7 @@ func (e *Engine) Collect(ctx context.Context, levelName string) (*blip.Metrics, 
 // Stop the engine and cleanup any metrics associated with it.
 // TODO: There is a possible race condition when this is called. Since
 // Engine.Collect is called as a go-routine, we could have an invocation
-// of the function block waiting for Engine.Stop to runlock planMux,
+// of the function block waiting for Engine.Stop to unlock planMux,
 // after which Collect would run after cleanup has been called.
 // This could result in a panic, though that should be caught and logged.
 // Since the monitor is stopping anyway this isn't a huge issue.

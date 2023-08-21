@@ -1,4 +1,4 @@
-// Copyright 2022 Block, Inc.
+// Copyright 2023 Block, Inc.
 
 package heartbeat
 
@@ -21,7 +21,7 @@ const BLIP_TABLE_DDL = `CREATE TABLE IF NOT EXISTS heartbeat (
 ) ENGINE=InnoDB`
 
 // WriteTimeout is how long to wait for MySQL to execute any heartbeat write.
-// This should be much greater than the write frequency (config.hearbeat.freq)
+// This should be much greater than the write frequency (config.heartbeat.freq)
 // because it allows for slow network, MySQL, and so on.
 var WriteTimeout = 5 * time.Second
 

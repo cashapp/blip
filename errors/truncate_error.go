@@ -1,3 +1,5 @@
+// Copyright 2023 Block, Inc.
+
 package errors
 
 import (

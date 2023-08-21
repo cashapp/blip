@@ -182,7 +182,7 @@ func Debug(msg string, v ...interface{}) {
 
 // True returns true if b is non-nil and true.
 // This is convenience function related to *bool files in config structs,
-// which is required for knowing when a bool config is explicitily set
+// which is required for knowing when a bool config is explicitly set
 // or not. If set, it's not changed; if not, it's set to the default value.
 // That makes a good config experience but a less than ideal code experience
 // because !*b will panic if b is nil, hence the need for this func.

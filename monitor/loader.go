@@ -1,4 +1,4 @@
-// Copyright 2022 Block, Inc.
+// Copyright 2023 Block, Inc.
 
 package monitor
 
@@ -7,7 +7,7 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
-	"io/ioutil"
+	"os"
 	"sync"
 	"time"
 
@@ -438,7 +438,7 @@ func (ml *Loader) save(newConfigs []blip.ConfigMonitor, validConfigs map[string]
 
 // makeMonitor makes a new Monitor. Normally, there'd be a factory for this,
 // but Monitor are concrete, not abstract, so there's only one way to make them.
-// Testing mocks the abstract parts of a Monitor, like the LPC and LPA.
+// Testing mocks the abstract parts of a Monitor, like LevelCollector and PlanChanger.
 func (ml *Loader) makeMonitor(cfg blip.ConfigMonitor) (*Monitor, error) {
 	// Make sinks for this monitor. Each monitor has its own sinks.
 	sinks := []blip.Sink{}
@@ -483,7 +483,7 @@ func (ml *Loader) loadFiles(ctx context.Context) ([]blip.ConfigMonitor, error) {
 
 	mons := []blip.ConfigMonitor{}
 	for _, file := range ml.cfg.MonitorLoader.Files {
-		bytes, err := ioutil.ReadFile(file)
+		bytes, err := os.ReadFile(file)
 		if err != nil {
 			return nil, err
 		}

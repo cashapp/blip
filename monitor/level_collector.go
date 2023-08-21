@@ -1,4 +1,4 @@
-// Copyright 2022 Block, Inc.
+// Copyright 2023 Block, Inc.
 
 package monitor
 
@@ -18,29 +18,34 @@ import (
 	"github.com/cashapp/blip/status"
 )
 
-// LevelCollector collect metrics according to a plan. It doesn't collect metrics
-// directly, as part of a Monitor, it calls the Engine when it's time to collect
-// metrics for a certain level--based on the frequency the users specifies for
-// each level. After the Engine returns metrics, the collector (or "LPC" for short)
-// calls the blip.Plugin.TransformMetrics (if specified), then sends metrics to
-// all sinks specififed for the monitor. Then it waits until it's time to collect
-// metrics for the next level. Consequently, the LPC drives metrics collection,
-// but the Engine does the actual work of collecting metrics.
+// LevelCollector (LCO) executes the current plan to collect metrics.
+// It's also responsible for changing the plan when called by the PlanChanger.
+//
+// The term "collector" is a little misleading because the LCO doesn't collect
+// metrics, but it is the first step in the metrics collection process, which
+// looks roughly like: LCO -> Engine -> metric collectors -> MySQL.
+// In Run, the LCO checks every 1s for the highest level in the plan to collect.
+// For example, after 5s it'll collect levels with a frequency divisible by 5s.
+// See https://cashapp.github.io/blip/v1.0/intro/plans.
+//
+// Metrics from MySQL flow back to the LCO as blip.Metrics, which the LCO
+// passes to blip.Plugin.TransformMetrics if specified, then to all sinks
+// specified for the monitor.
 type LevelCollector interface {
 	// Run runs the collector to collect metrics; it's a blocking call.
 	Run(stopChan, doneChan chan struct{}) error
 
-	// ChangePlan changes the plan; it's called by an Pl
+	// ChangePlan changes the plan; it's called by the PlanChanger.
 	ChangePlan(newState, newPlanName string) error
 
 	// Pause pauses metrics collection until ChangePlan is called.
 	Pause()
 }
 
-var _ LevelCollector = &lpc{}
+var _ LevelCollector = &lco{}
 
-// lpc is the implementation of LevelCollector.
-type lpc struct {
+// lco is the implementation of LevelCollector.
+type lco struct {
 	cfg              blip.ConfigMonitor
 	planLoader       *plan.Loader
 	sinks            []blip.Sink
@@ -71,8 +76,8 @@ type LevelCollectorArgs struct {
 	TransformMetrics func(*blip.Metrics) error
 }
 
-func NewLevelCollector(args LevelCollectorArgs) *lpc {
-	return &lpc{
+func NewLevelCollector(args LevelCollectorArgs) *lco {
+	return &lco{
 		cfg:              args.Config,
 		planLoader:       args.PlanLoader,
 		sinks:            args.Sinks,
@@ -99,7 +104,7 @@ var tickerDuration = 1 * time.Second // used for testing
 // Code comment block just below for variable sem.
 const maxCollectors = 2
 
-func (c *lpc) Run(stopChan, doneChan chan struct{}) error {
+func (c *lco) Run(stopChan, doneChan chan struct{}) error {
 	defer close(doneChan)
 
 	// Metrics are collected async so that this main loop does not block.
@@ -119,7 +124,7 @@ func (c *lpc) Run(stopChan, doneChan chan struct{}) error {
 	}
 
 	// -----------------------------------------------------------------------
-	// LPC main loop: collect metrics on whole second ticks
+	// LCO main loop: collect metrics on whole second ticks
 
 	status.Monitor(c.monitorId, status.LEVEL_COLLECTOR, "started at %s (paused until plan change)", blip.FormatTime(time.Now()))
 
@@ -198,7 +203,7 @@ func (c *lpc) Run(stopChan, doneChan chan struct{}) error {
 	return nil
 }
 
-func (c *lpc) collect(levelName string) {
+func (c *lco) collect(levelName string) {
 	collectNo := status.MonitorMulti(c.monitorId, status.LEVEL_COLLECT, "%s/%s: collecting", c.plan.Name, levelName)
 	defer status.RemoveComponent(c.monitorId, collectNo)
 
@@ -280,7 +285,7 @@ func (c *lpc) collect(levelName string) {
 // Then, plans and config.monitors.*.plans.adjust might become out of sync.
 // In this hypothetical error case, the plan change fails but the current plan
 // continues to work.
-func (c *lpc) ChangePlan(newState, newPlanName string) error {
+func (c *lco) ChangePlan(newState, newPlanName string) error {
 	// Serialize access to this func
 	c.changeMux.Lock()
 	defer c.changeMux.Unlock()
@@ -317,11 +322,11 @@ func (c *lpc) ChangePlan(newState, newPlanName string) error {
 // changePlan is a gorountine run by ChangePlan It's potentially long-running
 // because it waits for Engine.Prepare. If that function returns an error
 // (e.g. MySQL is offline), then this function retires forever, or until canceled
-// by either another call to ChangePlan or Run is stopped (LPC is terminated).
+// by either another call to ChangePlan or Run is stopped (LCO is terminated).
 //
 // Never all this function directly; it's only called via ChangePlan, which
 // serializes access and guarantees only one changePlan goroutine at a time.
-func (c *lpc) changePlan(ctx context.Context, doneChan chan struct{}, newState, newPlanName string) {
+func (c *lco) changePlan(ctx context.Context, doneChan chan struct{}, newState, newPlanName string) {
 	defer close(doneChan)
 
 	c.stateMux.Lock()
@@ -365,14 +370,14 @@ func (c *lpc) changePlan(ctx context.Context, doneChan chan struct{}, newState, 
 	// Prepare the (new) plan
 	//
 	// This is two-phase commit:
-	//   0. LPC: pause Run loop
+	//   0. LCO: pause Run loop
 	//   1. Engine: commit new plan
-	//   2. LPC: commit new plan
-	//   3. LPC: resume Run loop
+	//   2. LCO: commit new plan
+	//   3. LCO: resume Run loop
 	// Below in call c.engine.Prepare(ctx, newPlan, c.Pause, after), Prepare
 	// does its work and, if successful, calls c.Pause, which is step 0;
 	// then Prepare does step 1, which won't be collected yet because it
-	// just paused LPC.Run which drives metrics collection; then Prepare calls
+	// just paused LCO.Run which drives metrics collection; then Prepare calls
 	// the after func/calleck defined below, which is step 2 and signals to
 	// this func that we commit the new plan and resume Run (step 3) to begin
 	// collecting that plan.
@@ -429,7 +434,7 @@ func (c *lpc) changePlan(ctx context.Context, doneChan chan struct{}, newState, 
 // Pause pauses metrics collection until ChangePlan is called. Run still runs,
 // but it doesn't collect when paused. The only way to resume after pausing is
 // to call ChangePlan again.
-func (c *lpc) Pause() {
+func (c *lco) Pause() {
 	c.stateMux.Lock()
 	c.paused = true
 	status.Monitor(c.monitorId, status.LEVEL_COLLECTOR, "paused at %s", blip.FormatTime(time.Now()))

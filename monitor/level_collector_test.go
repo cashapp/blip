@@ -1,4 +1,4 @@
-// Copyright 2022 Block, Inc.
+// Copyright 2023 Block, Inc.
 
 package monitor_test
 
@@ -26,7 +26,7 @@ import (
 // --------------------------------------------------------------------------
 
 func TestLevelCollector(t *testing.T) {
-	// Verify the most basic functionality of the LPC: that it collects each
+	// Verify the most basic functionality of the LCO: that it collects each
 	// level at the correct frequency. The test plan,
 	//   planName := "../test/plans/lpc_1_5_10.yaml"
 	// (below) has 3 levels at 1s, 5s, and 10s. But we're not going to wait
@@ -37,9 +37,9 @@ func TestLevelCollector(t *testing.T) {
 
 	// Create and register a mock blip.Collector that saves the level name
 	// every time it's called. This is quite deep within the call stack,
-	// which is what we want: LPC->engine->collector. By using a fake collector
-	// but real LPC and enginer, we testing the real, unmodified logic--
-	// the LPC and engine don't know or care that this collector is a mock.
+	// which is what we want: LCO->engine->collector. By using a fake collector
+	// but real LCO and enginer, we testing the real, unmodified logic--
+	// the LCO and engine don't know or care that this collector is a mock.
 	_, db, err := test.Connection("mysql57")
 	if err != nil {
 		if test.Build {
@@ -73,7 +73,7 @@ func TestLevelCollector(t *testing.T) {
 
 	// Make a mini, fake config that uses the test plan and load it realistically
 	// because the plan loader combines and sorts levels, etc. This is a lot of
-	// boilerplate, but it ensure we test a realistic LPC and monitor--only the
+	// boilerplate, but it ensure we test a realistic LCO and monitor--only the
 	// collector is fake.
 	planName := "../test/plans/lpc_1_5_10.yaml"
 	moncfg := blip.ConfigMonitor{
@@ -98,12 +98,12 @@ func TestLevelCollector(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Before running the LPC, change its internal ticker interval so we can test
+	// Before running the LCO, change its internal ticker interval so we can test
 	// this quickly rather than waiting a real 10s
 	monitor.TickerDuration(10 * time.Millisecond)
 	defer monitor.TickerDuration(1 * time.Second)
 
-	// Create LPC and and run it, but it starts paused until ChangePlan is called
+	// Create LCO and and run it, but it starts paused until ChangePlan is called
 	// starts working once a plan is set.
 	lpc := monitor.NewLevelCollector(monitor.LevelCollectorArgs{
 		Config:     moncfg,
@@ -115,26 +115,26 @@ func TestLevelCollector(t *testing.T) {
 	doneChan := make(chan struct{})
 	go lpc.Run(stopChan, doneChan)
 
-	// Wait a few ticks and check LPC status to verify that is, in fact, paused
+	// Wait a few ticks and check LCO status to verify that is, in fact, paused
 	time.Sleep(100 * time.Millisecond)
 	s := status.ReportMonitors(monitorId)
 	if !strings.Contains(s[monitorId][status.LEVEL_COLLECTOR], "paused") {
-		t.Errorf("LPC not paused, expected it to be paused until ChangePlan is called (status=%+v)", s)
+		t.Errorf("LCO not paused, expected it to be paused until ChangePlan is called (status=%+v)", s)
 	}
 
 	// ChangePlan sets the plan and un-pauses (starts collecting the new plan).
 	// So call that and wait 15 ticks (150ms / 10s), then close the stopChan
-	// to stop the LPC (don't leak goroutines)
+	// to stop the LCO (don't leak goroutines)
 	lpc.ChangePlan(blip.STATE_ACTIVE, planName) // set plan, start collecting metrics
 	time.Sleep(150 * time.Millisecond)
 	close(stopChan)
 	select {
 	case <-doneChan:
 	case <-time.After(2 * time.Second):
-		t.Fatal("timeout waiting for LPC to stop")
+		t.Fatal("timeout waiting for LCO to stop")
 	}
 
-	// LPC should have experienced 15s of running in 150ms because we set the
+	// LCO should have experienced 15s of running in 150ms because we set the
 	// TickerDuration to 10ms (instead of its default 1s). That means the mock
 	// collector should have been called 15 times, but CI systems can be really
 	// slow, so we'll allow 15 or 16 calls.
@@ -144,7 +144,7 @@ func TestLevelCollector(t *testing.T) {
 	}
 
 	// If leveled collection is working properly, the first 12 levels collected--
-	// as called by the LPC to engine.Collect--should be this sequence:
+	// as called by the LCO to engine.Collect--should be this sequence:
 	if len(gotLevels) < 12 {
 		t.Fatalf("got %d levels, expected at least 12", len(gotLevels))
 	}
@@ -182,15 +182,15 @@ func TestLevelCollectorChangePlan(t *testing.T) {
 	//
 	//   4.   Collector.Prepare
 	//   3.   Engine.Prepare
-	//   2.   LPC.changePlan (goroutine)
-	//   1. LPC.ChangePlan
+	//   2.   LCO.changePlan (goroutine)
+	//   1. LCO.ChangePlan
 	//   0. test
 
 	// Create and register a mock blip.Collector that saves the level name
 	// every time it's called. This is quite deep within the call stack,
-	// which is what we want: LPC->engine->collector. By using a fake collector
-	// but real LPC and engine, we testing the real, unmodified logic--
-	// the LPC and engine don't know or care that this collector is a mock.
+	// which is what we want: LCO->engine->collector. By using a fake collector
+	// but real LCO and engine, we testing the real, unmodified logic--
+	// the LCO and engine don't know or care that this collector is a mock.
 	_, db, err := test.Connection("mysql57")
 	if err != nil {
 		if test.Build {
@@ -243,8 +243,8 @@ func TestLevelCollectorChangePlan(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Create LPC and run it, but it starts paused until ChangePlan is called
-	lpc := monitor.NewLevelCollector(monitor.LevelCollectorArgs{
+	// Create LCO and run it, but it starts paused until ChangePlan is called
+	lco := monitor.NewLevelCollector(monitor.LevelCollectorArgs{
 		Config:     moncfg,
 		DB:         db,
 		PlanLoader: pl,
@@ -252,18 +252,18 @@ func TestLevelCollectorChangePlan(t *testing.T) {
 	})
 	stopChan := make(chan struct{})
 	doneChan := make(chan struct{})
-	go lpc.Run(stopChan, doneChan)
+	go lco.Run(stopChan, doneChan)
 	defer close(stopChan)
 
 	// Call stack:
 	//   4.   Collector.Prepare
 	//   3.   Engine.Prepare
-	//   2.   LPC.changePlan (goroutine)
-	//   1. LPC.ChangePlan
+	//   2.   LCO.changePlan (goroutine)
+	//   1. LCO.ChangePlan
 	//   0. test
 
 	// CP1: first change plan: returns immediately but the mock collector (mc) blocks on callChan
-	lpc.ChangePlan(blip.STATE_ACTIVE, planName)
+	lco.ChangePlan(blip.STATE_ACTIVE, planName)
 	select {
 	case <-callChan:
 	case <-time.After(1 * time.Second):
@@ -272,7 +272,7 @@ func TestLevelCollectorChangePlan(t *testing.T) {
 	// CP1 is blocked in call stack 4
 
 	// CP2: second change plan: cancels CP1, waits for CP1 to close its doneChan, then proceeds
-	go lpc.ChangePlan(blip.STATE_READ_ONLY, planName)
+	go lco.ChangePlan(blip.STATE_READ_ONLY, planName)
 
 	// CP2 is blocked in call stack 2
 

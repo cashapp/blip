@@ -7,7 +7,6 @@ import (
 	"database/sql"
 	"encoding/gob"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"strings"
@@ -19,7 +18,7 @@ import (
 	"github.com/cashapp/blip"
 	"github.com/cashapp/blip/event"
 	"github.com/cashapp/blip/metrics"
-	"github.com/cashapp/blip/plan/default"
+	default_plan "github.com/cashapp/blip/plan/default"
 	"github.com/cashapp/blip/sqlutil"
 )
 
@@ -32,7 +31,7 @@ type Meta struct {
 	plan   blip.Plan
 }
 
-// PlanLooader is a singleton service and repo for level plans.
+// Loader is a singleton service and repo for loading plans.
 type Loader struct {
 	plugin       func(blip.ConfigPlans) ([]blip.Plan, error)
 	sharedPlans  []Meta            // keyed on Plan.Name
@@ -51,11 +50,11 @@ func NewLoader(plugin func(blip.ConfigPlans) ([]blip.Plan, error)) *Loader {
 
 // LoadShared loads all top-level (shared) plans: config.Plans. These plans are
 // called "shared" because more than one monitor can use them, which is the normal
-// case. For example, the simplest configurate is specifying a single shared plan
-// that almost monitors use implicitly (by not specifcying config.monitors.*.Plans).
+// case. For example, the simplest configuration is specifying a single shared plan
+// that almost monitors use implicitly (by not specifying config.monitors.*.Plans).
 //
 // This method is called by Server.Boot(). Plans from a table are deferred until
-// the monitor's LPC calls Plan() because the monitor might not be online when Blip
+// the monitor's LCO calls Plan() because the monitor might not be online when Blip
 // starts.
 func (pl *Loader) LoadShared(cfg blip.ConfigPlans, dbMaker blip.DbFactory) error {
 	event.Send(event.PLANS_LOAD_SHARED)
@@ -170,7 +169,7 @@ func (pl *Loader) LoadShared(cfg blip.ConfigPlans, dbMaker blip.DbFactory) error
 	return nil
 }
 
-// Monitor plans: config.monitors.*.Plans
+// LoadMonitor loads monitor plans: config.monitors.*.Plans.
 func (pl *Loader) LoadMonitor(mon blip.ConfigMonitor, dbMaker blip.DbFactory) error {
 	event.Sendf(event.PLANS_LOAD_MONITOR, mon.MonitorId)
 
@@ -181,7 +180,7 @@ func (pl *Loader) LoadMonitor(mon blip.ConfigMonitor, dbMaker blip.DbFactory) er
 
 	monitorPlans := []Meta{}
 
-	// Monitor plans from table, but defer until monitor's LPC calls Plan()
+	// Monitor plans from table, but defer until monitor's LevelCollector calls Plan()
 	if mon.Plans.Table != "" {
 		table := mon.Plans.Table
 		blip.Debug("%s: loading plans from table %s", mon.MonitorId, table)
@@ -418,7 +417,7 @@ func (pl *Loader) fileLoaded(file string) bool {
 type planFile map[string]*blip.Level
 
 func ReadFile(file string) (blip.Plan, error) {
-	bytes, err := ioutil.ReadFile(file)
+	bytes, err := os.ReadFile(file)
 	if err != nil {
 		return blip.Plan{}, err
 	}
