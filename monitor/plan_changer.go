@@ -1,4 +1,4 @@
-// Copyright 2022 Block, Inc.
+// Copyright 2023 Block, Inc.
 
 package monitor
 
@@ -18,7 +18,12 @@ import (
 
 var Now func() time.Time = time.Now
 
-// PlanChanger changes the plan based on database instance state.
+// PlanChanger (PCH) changes the plan based on database instance state.
+// If the plan changes, the PCH calls the LevelCollector (LCO) to do the
+// real low-level work of swapping plans, because the LCO executes plans.
+// In this sense, "Changer" is a bit misleading because it doesn't change
+// the plan, it just determines if/when the plan should change, and then
+// tells the LCO to actually change the plan.
 type PlanChanger interface {
 	Run(stopChan, doneChan chan struct{}) error
 }
@@ -163,8 +168,9 @@ func (pch *planChanger) CheckState() {
 	}()
 
 	if obsv == pch.curr.state {
+		// Our state == MySQL state, which is the normal good case.
+		// But if we were waiting to change state, then reset.
 		if !pch.pending.ts.IsZero() {
-			// changed back to current state
 			pch.pending.ts = time.Time{}
 			pch.pending.state = blip.STATE_NONE
 			pch.event.Sendf(event.STATE_CHANGE_ABORT, "%s", obsv)
@@ -172,49 +178,46 @@ func (pch *planChanger) CheckState() {
 	} else if obsv == pch.pending.state {
 		// Still in the pending state; is it time to change?
 		if now.Sub(pch.pending.ts) < pch.states[pch.pending.state].after {
-			return
+			return // no, keep waiting
 		}
 
-		// Change state via LPC: current -> pending
+		// Change state: current -> pending
 		if err := pch.lcoChangePlan(pch.pending.state, pch.pending.plan); err != nil {
 			pch.setErr(err)
 			blip.Debug(err.Error())
 			return // ok to ignore error; see comments on lcoChangePlan
 		}
-
 		pch.prev = pch.curr
-
 		pch.curr = pch.pending
-
 		pch.pending.ts = time.Time{}
 		pch.pending.state = blip.STATE_NONE
-		blip.Debug("%s: LPA state changed to %s", pch.monitorId, obsv)
+		blip.Debug("%s: PCH state changed to %s", pch.monitorId, obsv)
 		pch.event.Sendf(event.STATE_CHANGE_END, "%s", obsv)
 	} else if pch.first && pch.curr.state == blip.STATE_OFFLINE {
+		// On boot, we usually go from no state to online immediately, which is normal.
+		// So set the plan for whatever state we've booted into.
 		pch.first = false
-
-		// Change state via LPC
 		if err := pch.lcoChangePlan(obsv, pch.states[obsv].plan); err != nil {
 			pch.setErr(err)
 			blip.Debug(err.Error())
 			return // ok to ignore error; see comments on lcoChangePlan
 		}
-
 		pch.prev = pch.curr
 		pch.curr = state{
 			state: obsv,
 			ts:    now,
 		}
-		blip.Debug("%s: LPA start in state %s", pch.monitorId, obsv)
+		blip.Debug("%s: PCH start in state %s", pch.monitorId, obsv)
 		pch.event.Sendf(event.STATE_CHANGE_END, "%s", obsv)
 	} else {
-		// State change
+		// State has changed, so start the timer: if this new state remains
+		// for long enough, we'll change the plan to match (in the first else-if
+		// block above).
 		pch.pending.state = obsv
 		pch.pending.ts = now
 		pch.pending.plan = pch.states[obsv].plan
-		blip.Debug("%s: LPA state changed to %s, waiting %s", pch.monitorId, obsv, pch.states[obsv].after)
+		blip.Debug("%s: PCH state changed to %s, waiting %s", pch.monitorId, obsv, pch.states[obsv].after)
 		pch.event.Sendf(event.STATE_CHANGE_BEGIN, "%s", obsv)
-
 		pch.retry.Reset()
 	}
 }
@@ -224,7 +227,7 @@ func (pch *planChanger) CheckState() {
 // offline (can't connect to MySQL. We presume that these calls do not fail; see
 // LevelCollector.ChangePlan for details.
 func (pch *planChanger) lcoChangePlan(state, planName string) error {
-	status.Monitor(pch.monitorId, status.PLAN_CHANGER, "calling LPC.ChangePlan: %s %s", state, planName)
+	status.Monitor(pch.monitorId, status.PLAN_CHANGER, "calling LevelCollector.ChangePlan: %s %s", state, planName)
 	if planName == "" {
 		pch.lco.Pause()
 		return nil

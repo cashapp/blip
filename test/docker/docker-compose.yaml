@@ -1,13 +1,6 @@
 version: '3.1'
+name: blip
 services:
-#   mysql56:
-#       image: mysql:5.6.51
-#       command: --default-authentication-plugin=mysql_native_password
-#       restart: always
-#       environment:
-#           - "MYSQL_ROOT_PASSWORD=test"
-#       ports:
-#           - "33560:3306"
     mysql57:
         image: mysql:5.7.34
         command: --default-authentication-plugin=mysql_native_password
@@ -17,7 +10,7 @@ services:
         ports:
             - "33570:3306"
     mysql80:
-        image: mysql:8.0.25
+        image: mysql:8.0.34
         command: --default-authentication-plugin=mysql_native_password
         restart: always
         environment:

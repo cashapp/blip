@@ -1,12 +1,12 @@
 module github.com/cashapp/blip
 
-go 1.18
+go 1.19
 
 require (
 	github.com/DataDog/datadog-api-client-go/v2 v2.2.0
 	github.com/DataDog/datadog-go/v5 v5.1.1
 	github.com/alexflint/go-arg v1.4.2
-	github.com/aws/aws-sdk-go-v2 v1.12.0
+	github.com/aws/aws-sdk-go-v2 v1.20.3
 	github.com/aws/aws-sdk-go-v2/config v1.6.0
 	github.com/aws/aws-sdk-go-v2/feature/ec2/imds v1.4.0
 	github.com/aws/aws-sdk-go-v2/feature/rds/auth v1.1.4
@@ -16,8 +16,8 @@ require (
 	github.com/cenkalti/backoff/v4 v4.1.2
 	github.com/go-ini/ini v1.64.0
 	github.com/go-mysql/errors v0.0.0-20180603193453-03314bea68e0
-	github.com/go-mysql/hotswap-dsn-driver v1.0.0
-	github.com/go-sql-driver/mysql v1.6.0
+	github.com/go-mysql/hotswap-dsn-driver v1.0.1
+	github.com/go-sql-driver/mysql v1.7.1
 	github.com/go-test/deep v1.0.8
 	github.com/golang/snappy v0.0.4
 	github.com/hashicorp/go-version v1.3.0
@@ -40,7 +40,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/internal/presigned-url v1.5.0 // indirect
 	github.com/aws/aws-sdk-go-v2/service/sso v1.3.2 // indirect
 	github.com/aws/aws-sdk-go-v2/service/sts v1.6.1 // indirect
-	github.com/aws/smithy-go v1.9.1 // indirect
+	github.com/aws/smithy-go v1.14.2 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/cespare/xxhash/v2 v2.1.1 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect

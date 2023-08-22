@@ -1,4 +1,4 @@
-// Copyright 2022 Block, Inc.
+// Copyright 2023 Block, Inc.
 
 // Package server provides the core runtime for Blip.
 package server
@@ -189,8 +189,8 @@ func (s *Server) Boot(env blip.Env, plugins blip.Plugins, factories blip.Factori
 	status.Blip(status.SERVER, "boot: loading plans")
 
 	// Get the built-in level plan loader singleton. It's used in two places:
-	// here for initial plan loading, and level.Collector (LPC) to fetch the
-	// plan and set the Monitor to use it.
+	// here for initial plan loading, and by the monitor.LevelCollector to fetch
+	// whatever plan it's told to collect.
 	s.planLoader = plan.NewLoader(plugins.LoadPlans)
 
 	if err := s.planLoader.LoadShared(s.cfg.Plans, factories.DbConn); err != nil {
