@@ -44,7 +44,7 @@ func (d *Delta) Name() string {
 	return "delta"
 }
 
-// Caculates DELTA_COUNTER values from any CUMULATIVE_COUNTER values in
+// Calculates DELTA_COUNTER values from any CUMULATIVE_COUNTER values in
 // the passed metircs, and then replacees the CUMULATIVE_COUNTER values
 // with the new DELTA_COUNTER values. The updated metrics are forwarded
 // to the next sink.
