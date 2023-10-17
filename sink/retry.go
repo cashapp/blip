@@ -59,6 +59,10 @@ func NewRetry(args RetryArgs) *Retry {
 		panic("RetryArgs.Sink is nil; value required")
 	}
 
+	if _, ok := args.Sink.(*Delta); ok {
+		panic("RetryArgs.Sink cannot be a Delta sink.")
+	}
+
 	// Set defaults
 	if args.BufferSize == 0 {
 		args.BufferSize = DEFAULT_RETRY_BUFFER_SIZE
