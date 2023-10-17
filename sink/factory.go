@@ -167,6 +167,13 @@ func (f *factory) Make(args blip.SinkFactoryArgs) (blip.Sink, error) {
 		return nil, err
 	}
 
-	// Return built-in sink as Retry, which implements blip.Sink
-	return NewRetry(retryArgs), nil
+	// Wrap the sink as needed. All sinks should be wrapped with the
+	// built-in Retry sink, but some need to calculate delta
+	// versions for counters, which should wrap the Retry sink
+	switch args.SinkName {
+	case "datadog":
+		return NewDelta(NewRetry(retryArgs)), nil
+	default:
+		return NewRetry(retryArgs), nil
+	}
 }

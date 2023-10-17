@@ -44,6 +44,13 @@ type LevelCollector interface {
 
 var _ LevelCollector = &lco{}
 
+const maxSinkPayloads = 5
+
+type sinkPayload struct {
+	metrics   *blip.Metrics
+	collectNo string
+}
+
 // lco is the implementation of LevelCollector.
 type lco struct {
 	cfg              blip.ConfigMonitor
@@ -66,6 +73,9 @@ type lco struct {
 	stopped              bool
 
 	event event.MonitorReceiver
+
+	sinkChan     chan sinkPayload
+	stopSinkChan chan struct{}
 }
 
 type LevelCollectorArgs struct {
@@ -83,12 +93,14 @@ func NewLevelCollector(args LevelCollectorArgs) *lco {
 		sinks:            args.Sinks,
 		transformMetrics: args.TransformMetrics,
 		// --
-		monitorId: args.Config.MonitorId,
-		engine:    NewEngine(args.Config, args.DB),
-		stateMux:  &sync.Mutex{},
-		paused:    true,
-		changeMux: &sync.Mutex{},
-		event:     event.MonitorReceiver{MonitorId: args.Config.MonitorId},
+		monitorId:    args.Config.MonitorId,
+		engine:       NewEngine(args.Config, args.DB),
+		stateMux:     &sync.Mutex{},
+		paused:       true,
+		changeMux:    &sync.Mutex{},
+		event:        event.MonitorReceiver{MonitorId: args.Config.MonitorId},
+		sinkChan:     make(chan sinkPayload, maxSinkPayloads),
+		stopSinkChan: make(chan struct{}),
 	}
 }
 
@@ -104,24 +116,45 @@ var tickerDuration = 1 * time.Second // used for testing
 // Code comment block just below for variable sem.
 const maxCollectors = 2
 
+// Processes metrics that are pending being submitted to sinks.
+// As some sinks may process the metrics prior to sending them
+// we need to ensure that metrics are sent in-order to sinks
+// to prevent issues from arising from out-of-order processing.
+func (c *lco) processSinkBuffer() {
+	for {
+		select {
+		case <-c.stopSinkChan:
+			return
+		case bundle := <-c.sinkChan:
+			blip.Debug("%s: level %s: sink thread got metrics", c.monitorId, bundle.metrics.Level)
+			if c.transformMetrics != nil {
+				blip.Debug("%s: level %s: transform metrics", c.monitorId, bundle.metrics.Level)
+				// TODO: This may not work as the monitor could have been removed under the old logic?
+				status.Monitor(c.monitorId, bundle.collectNo, "%s/%s: TransformMetrics", bundle.metrics.Plan, bundle.metrics.Level)
+				// Transform metrics before sending
+				c.transformMetrics(bundle.metrics)
+			}
+
+			for i := range c.sinks {
+				sinkName := c.sinks[i].Name()
+				status.Monitor(c.monitorId, bundle.collectNo, "%s/%s: sending to %s", bundle.metrics.Plan, bundle.metrics.Level, sinkName)
+				err := c.sinks[i].Send(context.Background(), bundle.metrics)
+				if err != nil {
+					c.event.Errorf(event.SINK_SEND_ERROR, "%s :%s", sinkName, err) // log by default
+					status.Monitor(c.monitorId, "error:"+sinkName, err.Error())
+				} else {
+					status.RemoveComponent(c.monitorId, "error:"+sinkName)
+				}
+			}
+			status.Monitor(c.monitorId, status.LEVEL_COLLECT, "last collected and sent metrics for %s/%s at %s in %s", bundle.metrics.Plan, bundle.metrics.Level, blip.FormatTime(bundle.metrics.Begin), time.Since(bundle.metrics.Begin))
+		}
+	}
+}
+
 func (c *lco) Run(stopChan, doneChan chan struct{}) error {
 	defer close(doneChan)
 
-	// Metrics are collected async so that this main loop does not block.
-	// Normally, collecting metrics should be synchronous: every 1s, take
-	// about 100-300 milliseconds get metrics and done--plenty of time
-	// before the next whole second tick. But in the real world, there are
-	// always blips (yes, that's partly where Blip gets its name from):
-	// MySQL takes 1 or 2 seconds--or longer--to return metrics, especially
-	// for "big" domains like size.table that might need to iterator over
-	// hundreds or thousands of tables. Consequently, we collect metrics
-	// asynchronously in multiple goroutines. By default, 2 goroutines
-	// (maxCollectors) should be more than sufficient. If not, there's probably
-	// an underlyiny problem that needs to be fixed.
-	sem := make(chan bool, maxCollectors)
-	for i := 0; i < maxCollectors; i++ {
-		sem <- true
-	}
+	go c.processSinkBuffer()
 
 	// -----------------------------------------------------------------------
 	// LCO main loop: collect metrics on whole second ticks
@@ -151,7 +184,18 @@ func (c *lco) Run(stopChan, doneChan chan struct{}) error {
 			}
 
 			// Stop the engine and clean up metrics
-			c.engine.Stop()
+			// TODO: Need configuration on this?
+			timer := time.NewTimer(10 * time.Second)
+			defer timer.Stop()
+
+			select {
+			case <-c.engine.Stop():
+			case <-timer.C:
+			}
+
+			// Close the metric sink after waiting for the
+			// engine and collectors to stop
+			close(c.stopSinkChan)
 			return nil
 		default: // no
 		}
@@ -176,27 +220,7 @@ func (c *lco) Run(stopChan, doneChan chan struct{}) error {
 		}
 
 		// Collect metrics at this level
-		select {
-		case <-sem:
-			go func(levelName string) {
-				defer func() {
-					sem <- true
-					if err := recover(); err != nil { // catch panic in collectors, TransformMetrics, and sinks
-						b := make([]byte, 4096)
-						n := runtime.Stack(b, false)
-						c.event.Sendf(event.LPC_PANIC, "PANIC: %s: %s\n%s", c.monitorId, err, string(b[0:n]))
-					}
-				}()
-				c.collect(levelName)
-			}(c.levels[level].Name)
-			status.Monitor(c.monitorId, status.LEVEL_COLLECTOR, "idle; started collecting %s/%s at %s", c.plan.Name, c.levels[level].Name, blip.FormatTime(time.Now()))
-		default:
-			// all collectors blocked
-			errMsg := fmt.Errorf("cannot callect %s/%s: %d of %d collectors still running",
-				c.plan.Name, c.levels[level].Name, maxCollectors, maxCollectors)
-			c.event.Sendf(event.LPC_BLOCKED, errMsg.Error())
-			status.Monitor(c.monitorId, status.LEVEL_COLLECTOR, "blocked: %s", errMsg)
-		}
+		c.collect(c.levels[level].Name)
 
 		c.stateMux.Unlock() // -- UNLOCK --
 	}
@@ -204,6 +228,16 @@ func (c *lco) Run(stopChan, doneChan chan struct{}) error {
 }
 
 func (c *lco) collect(levelName string) {
+	defer func() {
+		if err := recover(); err != nil { // catch panic in collectors, TransformMetrics, and sinks
+			b := make([]byte, 4096)
+			n := runtime.Stack(b, false)
+			c.event.Sendf(event.LPC_PANIC, "PANIC: %s: %s\n%s", c.monitorId, err, string(b[0:n]))
+		}
+	}()
+	// TODO: This monitoring won't work as-is as we
+	// need to only destroy it once _all_ metrics for the current pass have been
+	// collected and submitted
 	collectNo := status.MonitorMulti(c.monitorId, status.LEVEL_COLLECT, "%s/%s: collecting", c.plan.Name, levelName)
 	defer status.RemoveComponent(c.monitorId, collectNo)
 
@@ -214,48 +248,8 @@ func (c *lco) collect(levelName string) {
 	//
 	// Collect all metrics at this level. This is where metrics
 	// collection begins. Then Engine.Collect does the real work.
-	metrics, err := c.engine.Collect(context.Background(), levelName)
-	// **************************************************************
-	if err != nil {
-		status.Monitor(c.monitorId, "error:"+collectNo, err.Error())
-		c.event.Errorf(event.ENGINE_COLLECT_ERROR, err.Error())
-	} else {
-		status.RemoveComponent(c.monitorId, "error:"+collectNo)
-	}
+	c.engine.Collect(levelName, c.sinkChan)
 
-	// Return early unless there are metrics
-	if metrics == nil {
-		status.Monitor(c.monitorId, status.LEVEL_COLLECT, "last collected %s/%s at %s in %s, but engine returned no metrics", c.plan.Name, levelName, blip.FormatTime(t0), time.Since(t0))
-		blip.Debug("%s: level %s: nil metrics", c.monitorId, levelName)
-		return
-	}
-
-	// Call user-defined TransformMetrics plugin, if set
-	if c.transformMetrics != nil {
-		blip.Debug("%s: level %s: transform metrics", c.monitorId, levelName)
-		status.Monitor(c.monitorId, collectNo, "%s/%s: TransformMetrics", c.plan.Name, levelName)
-		c.transformMetrics(metrics)
-	}
-
-	// Send metrics to all sinks configured for this monitor. This is done
-	// sync because sinks are supposed to be fast or async _and_ have their
-	// timeout, which is why we pass context.Background() here. Also, this
-	// func runs in parallel (up to maxCollectors), so if a sink is slow,
-	// that might be ok.
-	blip.Debug("%s: level %s: sending metrics", c.monitorId, levelName)
-	for i := range c.sinks {
-		sinkName := c.sinks[i].Name()
-		status.Monitor(c.monitorId, collectNo, "%s/%s: sending to %s", c.plan.Name, levelName, sinkName)
-		err := c.sinks[i].Send(context.Background(), metrics)
-		if err != nil {
-			c.event.Errorf(event.SINK_SEND_ERROR, "%s :%s", sinkName, err) // log by default
-			status.Monitor(c.monitorId, "error:"+sinkName, err.Error())
-		} else {
-			status.RemoveComponent(c.monitorId, "error:"+sinkName)
-		}
-	}
-
-	status.Monitor(c.monitorId, status.LEVEL_COLLECT, "last collected and sent metrics for %s/%s at %s in %s", c.plan.Name, levelName, blip.FormatTime(t0), time.Since(t0))
 	blip.Debug("%s: level %s: done in %s", c.monitorId, levelName, time.Since(t0))
 }
 

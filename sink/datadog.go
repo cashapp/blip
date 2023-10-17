@@ -8,11 +8,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"math"
 	"net/http"
+	"os"
 	"regexp"
-	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -42,7 +41,6 @@ type Datadog struct {
 	tags      []string            // monitor.tags (dimensions)
 	tr        tr.DomainTranslator // datadog.metric-translator
 	prefix    string              // datadog.metric-prefix
-	counters  map[string]float64  // holds last value of the counter so deltas can be calculated
 
 	// -- Api
 	metricsApi *datadogV2.MetricsApi
@@ -83,7 +81,6 @@ func NewDatadog(monitorId string, opts, tags map[string]string, httpClient *http
 	d := &Datadog{
 		monitorId:            monitorId,
 		tags:                 tagList,
-		counters:             map[string]float64{},
 		resources:            resources,
 		maxMetricsPerRequest: math.MaxInt32, // By default, don't limit the number of metrics per request.
 		compress:             true,
@@ -96,7 +93,7 @@ func NewDatadog(monitorId string, opts, tags map[string]string, httpClient *http
 			d.apiKeyAuth = v
 
 		case "api-key-auth-file":
-			bytes, err := ioutil.ReadFile(v)
+			bytes, err := os.ReadFile(v)
 			if err != nil {
 				return nil, err
 			} else {
@@ -107,7 +104,7 @@ func NewDatadog(monitorId string, opts, tags map[string]string, httpClient *http
 			d.appKeyAuth = v
 
 		case "app-key-auth-file":
-			bytes, err := ioutil.ReadFile(v)
+			bytes, err := os.ReadFile(v)
 			if err != nil {
 				return nil, err
 			} else {
@@ -280,25 +277,6 @@ func (s *Datadog) Send(ctx context.Context, m *blip.Metrics) error {
 			switch metrics[i].Type {
 			case blip.CUMULATIVE_COUNTER, blip.DELTA_COUNTER:
 				metricVal := metrics[i].Value
-
-				if metrics[i].Type == blip.CUMULATIVE_COUNTER {
-					// if the value is not specifically marked as DELTA, calculate delta
-					metricID := s.metricID(name, metrics[i].Group)
-					val, ok := s.counters[metricID]
-					if !ok {
-						blip.Debug("error calculating delta for the counter: %s, no previous value found, skipping this run (next run will work)", name)
-						s.counters[metricID] = metrics[i].Value
-						continue METRICS
-					}
-					// previous value present, calculate delta
-					delta := metrics[i].Value - val
-					s.counters[metricID] = metrics[i].Value
-					if delta >= 0 {
-						metricVal = delta
-					} else {
-						blip.Debug("found negative delta for: %s (can happen due to restart), sending the potentially partial metric value", name)
-					}
-				}
 
 				if s.dogstatsd {
 					err := s.dogstatsdClient.Count(name, int64(metricVal), tags, 1)
@@ -491,31 +469,6 @@ func (s *Datadog) estimateSize(metrics []datadogV2.MetricSeries) (int, error) {
 	}
 
 	return size / len(metrics), nil
-}
-
-// metricID returns the metric name concatenated with sorted group keys.
-// For example, if the metric name is "foo" and the group keys are "a" and "b",
-// it returns "fooab". This is used to calculate delta counter values in Send.
-func (s *Datadog) metricID(name string, groups map[string]string) string {
-	keys := make([]string, 0, len(groups))
-	for k := range groups {
-		keys = append(keys, k)
-	}
-
-	// sort by keys
-	sort.Strings(keys)
-
-	var values []string
-	// collect values by sorted keys
-	for _, k := range keys {
-		values = append(values, groups[k])
-	}
-
-	var key string
-	key += name
-	key += strings.Join(values, "")
-
-	return key
 }
 
 func (s *Datadog) Name() string {

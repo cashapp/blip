@@ -6,7 +6,6 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
-	"io/ioutil"
 	"net"
 	"os"
 	"path/filepath"
@@ -110,7 +109,7 @@ func LoadConfig(filePath string, cfg Config, required bool) (Config, error) {
 		return cfg, nil
 	}
 
-	bytes, err := ioutil.ReadFile(file)
+	bytes, err := os.ReadFile(file)
 	if err != nil {
 		// err includes file name, e.g. "read config file: open <file>: no such file or directory"
 		return Config{}, fmt.Errorf("cannot read config file: %s", err)
@@ -1082,7 +1081,7 @@ func (c ConfigTLS) LoadTLS(server string) (*tls.Config, error) {
 
 	// Root CA (optional)
 	if c.CA != "" {
-		caCert, err := ioutil.ReadFile(c.CA)
+		caCert, err := os.ReadFile(c.CA)
 		if err != nil {
 			return nil, err
 		}
@@ -1100,7 +1099,7 @@ func (c ConfigTLS) LoadTLS(server string) (*tls.Config, error) {
 		}
 
 		tlsConfig.Certificates = []tls.Certificate{cert}
-		tlsConfig.BuildNameToCertificate()
+		//tlsConfig.BuildNameToCertificate()
 	}
 
 	return tlsConfig, nil
