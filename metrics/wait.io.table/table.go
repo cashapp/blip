@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"fmt"
 	"math"
+	"sync"
 	"time"
 
 	"github.com/cashapp/blip"
@@ -93,6 +94,7 @@ type Table struct {
 	db *sql.DB
 	// --
 	options map[string]*tableOptions
+	mx      sync.Mutex
 }
 
 // Verify collector implements blip.Collector interface.
@@ -230,6 +232,14 @@ func (t *Table) Collect(ctx context.Context, levelName string) ([]blip.MetricVal
 	if o.stop {
 		blip.Debug("stopped by previous error")
 		return nil, nil
+	}
+
+	if o.truncate {
+		// Since collections can run in parallel we need to ensure
+		// that quering and truncating the table occur together
+		// and are not interrupted.
+		t.mx.Lock()
+		defer t.mx.Unlock()
 	}
 
 	rows, err := t.db.QueryContext(ctx, o.query)

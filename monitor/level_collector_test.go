@@ -140,7 +140,7 @@ func TestLevelCollector(t *testing.T) {
 	// slow, so we'll allow 15 or 16 calls.
 	mux.Lock()
 	if len(gotLevels) > 16 {
-		t.Errorf("got %d levels, expected 15 (exactxly) or 16 (at most)", len(gotLevels))
+		t.Errorf("got %d levels, expected 15 (exactly) or 16 (at most)", len(gotLevels))
 	}
 
 	// If leveled collection is working properly, the first 12 levels collected--

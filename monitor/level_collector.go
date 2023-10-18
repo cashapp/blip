@@ -44,6 +44,13 @@ type LevelCollector interface {
 
 var _ LevelCollector = &lco{}
 
+type sinkPayload struct {
+	metrics   *blip.Metrics
+	collectNo string
+	levelName string
+	t0        time.Time
+}
+
 // lco is the implementation of LevelCollector.
 type lco struct {
 	cfg              blip.ConfigMonitor
@@ -66,6 +73,10 @@ type lco struct {
 	stopped              bool
 
 	event event.MonitorReceiver
+
+	ticketFactory *EntranceTicketFactory
+	sinkChan      chan sinkPayload
+	stopSinkChan  chan struct{}
 }
 
 type LevelCollectorArgs struct {
@@ -83,12 +94,15 @@ func NewLevelCollector(args LevelCollectorArgs) *lco {
 		sinks:            args.Sinks,
 		transformMetrics: args.TransformMetrics,
 		// --
-		monitorId: args.Config.MonitorId,
-		engine:    NewEngine(args.Config, args.DB),
-		stateMux:  &sync.Mutex{},
-		paused:    true,
-		changeMux: &sync.Mutex{},
-		event:     event.MonitorReceiver{MonitorId: args.Config.MonitorId},
+		monitorId:     args.Config.MonitorId,
+		engine:        NewEngine(args.Config, args.DB),
+		stateMux:      &sync.Mutex{},
+		paused:        true,
+		changeMux:     &sync.Mutex{},
+		event:         event.MonitorReceiver{MonitorId: args.Config.MonitorId},
+		ticketFactory: NewEntranceTicketFactory(),
+		sinkChan:      make(chan sinkPayload, maxSinkPayloads),
+		stopSinkChan:  make(chan struct{}),
 	}
 }
 
@@ -104,8 +118,16 @@ var tickerDuration = 1 * time.Second // used for testing
 // Code comment block just below for variable sem.
 const maxCollectors = 2
 
+// maxSinkPayloads is the maximum number of payloads that can be queued
+// for sinks to submit before we start to block.
+const maxSinkPayloads = 5
+
 func (c *lco) Run(stopChan, doneChan chan struct{}) error {
+	c.ticketFactory.Start()
+	go c.processSinkBuffer()
+
 	defer close(doneChan)
+	defer c.ticketFactory.Stop()
 
 	// Metrics are collected async so that this main loop does not block.
 	// Normally, collecting metrics should be synchronous: every 1s, take
@@ -150,6 +172,9 @@ func (c *lco) Run(stopChan, doneChan chan struct{}) error {
 			default:
 			}
 
+			// Stop processing data to the sinks
+			close(c.stopSinkChan)
+
 			// Stop the engine and clean up metrics
 			c.engine.Stop()
 			return nil
@@ -178,17 +203,25 @@ func (c *lco) Run(stopChan, doneChan chan struct{}) error {
 		// Collect metrics at this level
 		select {
 		case <-sem:
-			go func(levelName string) {
+			ticket, err := c.ticketFactory.NewTicket()
+			if err != nil {
+				c.event.Sendf(event.LPC_BLOCKED, fmt.Sprintf("Failed to get an entrance ticket: %v", err))
+				sem <- true
+				c.stateMux.Unlock() // -- Unlock
+				continue
+			}
+			go func(levelName string, t *EntranceTicket) {
 				defer func() {
 					sem <- true
+					t.Exit()
 					if err := recover(); err != nil { // catch panic in collectors, TransformMetrics, and sinks
 						b := make([]byte, 4096)
 						n := runtime.Stack(b, false)
 						c.event.Sendf(event.LPC_PANIC, "PANIC: %s: %s\n%s", c.monitorId, err, string(b[0:n]))
 					}
 				}()
-				c.collect(levelName)
-			}(c.levels[level].Name)
+				c.collect(levelName, t)
+			}(c.levels[level].Name, ticket)
 			status.Monitor(c.monitorId, status.LEVEL_COLLECTOR, "idle; started collecting %s/%s at %s", c.plan.Name, c.levels[level].Name, blip.FormatTime(time.Now()))
 		default:
 			// all collectors blocked
@@ -203,7 +236,7 @@ func (c *lco) Run(stopChan, doneChan chan struct{}) error {
 	return nil
 }
 
-func (c *lco) collect(levelName string) {
+func (c *lco) collect(levelName string, ticket *EntranceTicket) {
 	collectNo := status.MonitorMulti(c.monitorId, status.LEVEL_COLLECT, "%s/%s: collecting", c.plan.Name, levelName)
 	defer status.RemoveComponent(c.monitorId, collectNo)
 
@@ -237,26 +270,50 @@ func (c *lco) collect(levelName string) {
 		c.transformMetrics(metrics)
 	}
 
-	// Send metrics to all sinks configured for this monitor. This is done
-	// sync because sinks are supposed to be fast or async _and_ have their
-	// timeout, which is why we pass context.Background() here. Also, this
-	// func runs in parallel (up to maxCollectors), so if a sink is slow,
-	// that might be ok.
-	blip.Debug("%s: level %s: sending metrics", c.monitorId, levelName)
-	for i := range c.sinks {
-		sinkName := c.sinks[i].Name()
-		status.Monitor(c.monitorId, collectNo, "%s/%s: sending to %s", c.plan.Name, levelName, sinkName)
-		err := c.sinks[i].Send(context.Background(), metrics)
-		if err != nil {
-			c.event.Errorf(event.SINK_SEND_ERROR, "%s :%s", sinkName, err) // log by default
-			status.Monitor(c.monitorId, "error:"+sinkName, err.Error())
-		} else {
-			status.RemoveComponent(c.monitorId, "error:"+sinkName)
+	// Send metrics to all sinks configured for this monitor. The metric
+	// data is processed by a separate routine, but the buffering is required to be
+	// in-order so that an metric calculation by sinks that needs correct
+	// historical data can function properly.
+	//
+	// The entrance ticket controls the order that metrics can be submitted to
+	// the sink buffer.
+	<-ticket.Enter()
+	blip.Debug("%s: level %s: queuing metrics", c.monitorId, levelName)
+	c.sinkChan <- sinkPayload{
+		metrics:   metrics,
+		levelName: levelName,
+		collectNo: collectNo,
+		t0:        t0,
+	}
+	ticket.Exit()
+	blip.Debug("%s: level %s: done in %s", c.monitorId, levelName, time.Since(t0))
+}
+
+// Processes metrics that are pending being submitted to sinks.
+// As some sinks may process the metrics prior to sending them
+// we need to ensure that metrics are sent in-order to sinks
+// to prevent issues from arising from out-of-order processing.
+func (c *lco) processSinkBuffer() {
+	for {
+		select {
+		case <-c.stopSinkChan:
+			return
+		case bundle := <-c.sinkChan:
+			blip.Debug("%s: level %s: sink thread got metrics", c.monitorId, bundle.levelName)
+			for i := range c.sinks {
+				sinkName := c.sinks[i].Name()
+				status.Monitor(c.monitorId, bundle.collectNo, "%s/%s: sending to %s", c.plan.Name, bundle.levelName, sinkName)
+				err := c.sinks[i].Send(context.Background(), bundle.metrics)
+				if err != nil {
+					c.event.Errorf(event.SINK_SEND_ERROR, "%s :%s", sinkName, err) // log by default
+					status.Monitor(c.monitorId, "error:"+sinkName, err.Error())
+				} else {
+					status.RemoveComponent(c.monitorId, "error:"+sinkName)
+				}
+			}
+			status.Monitor(c.monitorId, status.LEVEL_COLLECT, "last collected and sent metrics for %s/%s at %s in %s", c.plan.Name, bundle.levelName, blip.FormatTime(bundle.t0), time.Since(bundle.t0))
 		}
 	}
-
-	status.Monitor(c.monitorId, status.LEVEL_COLLECT, "last collected and sent metrics for %s/%s at %s in %s", c.plan.Name, levelName, blip.FormatTime(t0), time.Since(t0))
-	blip.Debug("%s: level %s: done in %s", c.monitorId, levelName, time.Since(t0))
 }
 
 // ChangePlan changes the metrics collect plan based on database state.

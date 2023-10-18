@@ -172,8 +172,8 @@ func (f *factory) Make(args blip.SinkFactoryArgs) (blip.Sink, error) {
 	// versions for counters, which should wrap the Retry sink
 	switch args.SinkName {
 	case "datadog":
-		return NewDelta(NewRetry(retryArgs)), nil
+		return NewDelta(NewBufferedRetry(retryArgs)), nil
 	default:
-		return NewRetry(retryArgs), nil
+		return NewBufferedRetry(retryArgs), nil
 	}
 }

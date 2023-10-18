@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"fmt"
 	"math"
+	"sync"
 	"time"
 
 	myerr "github.com/go-mysql/errors"
@@ -45,6 +46,7 @@ type qrtConfig struct {
 	errPolicy         map[string]*errors.Policy
 	truncateErrPolicy *errors.TruncateErrorPolicy
 	lockWaitQuery     string
+	mx                sync.Mutex
 }
 
 type ResponseTime struct {
@@ -200,6 +202,14 @@ func (c *ResponseTime) Collect(ctx context.Context, levelName string) ([]blip.Me
 	if c.atLevel[levelName].stop {
 		blip.Debug("stopped by previous error")
 		return nil, nil
+	}
+
+	if c.atLevel[levelName].truncate {
+		// Since collections can run in parallel we need to ensure
+		// that quering and truncating the table occur together
+		// and are not interrupted.
+		c.atLevel[levelName].mx.Lock()
+		defer c.atLevel[levelName].mx.Unlock()
 	}
 
 	var metrics []blip.MetricValue
