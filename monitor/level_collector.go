@@ -46,9 +46,7 @@ var _ LevelCollector = &lco{}
 
 type sinkPayload struct {
 	metrics   *blip.Metrics
-	collectNo string
 	levelName string
-	t0        time.Time
 }
 
 // lco is the implementation of LevelCollector.
@@ -250,7 +248,7 @@ func (c *lco) collect(levelName string, ticket *EntranceTicket) {
 	metrics, err := c.engine.Collect(context.Background(), levelName)
 	// **************************************************************
 	if err != nil {
-		status.Monitor(c.monitorId, "error:"+collectNo, err.Error())
+		status.Monitor(c.monitorId, collectNo, err.Error())
 		c.event.Errorf(event.ENGINE_COLLECT_ERROR, err.Error())
 	} else {
 		status.RemoveComponent(c.monitorId, "error:"+collectNo)
@@ -282,10 +280,9 @@ func (c *lco) collect(levelName string, ticket *EntranceTicket) {
 	c.sinkChan <- sinkPayload{
 		metrics:   metrics,
 		levelName: levelName,
-		collectNo: collectNo,
-		t0:        t0,
 	}
 	ticket.Exit()
+	status.Monitor(c.monitorId, status.LEVEL_COLLECT, "last collected and sent metrics for %s/%s at %s in %s", c.plan.Name, levelName, blip.FormatTime(t0), time.Since(t0))
 	blip.Debug("%s: level %s: done in %s", c.monitorId, levelName, time.Since(t0))
 }
 
@@ -302,16 +299,11 @@ func (c *lco) processSinkBuffer() {
 			blip.Debug("%s: level %s: sink thread got metrics", c.monitorId, bundle.levelName)
 			for i := range c.sinks {
 				sinkName := c.sinks[i].Name()
-				status.Monitor(c.monitorId, bundle.collectNo, "%s/%s: sending to %s", c.plan.Name, bundle.levelName, sinkName)
 				err := c.sinks[i].Send(context.Background(), bundle.metrics)
 				if err != nil {
 					c.event.Errorf(event.SINK_SEND_ERROR, "%s :%s", sinkName, err) // log by default
-					status.Monitor(c.monitorId, "error:"+sinkName, err.Error())
-				} else {
-					status.RemoveComponent(c.monitorId, "error:"+sinkName)
 				}
 			}
-			status.Monitor(c.monitorId, status.LEVEL_COLLECT, "last collected and sent metrics for %s/%s at %s in %s", c.plan.Name, bundle.levelName, blip.FormatTime(bundle.t0), time.Since(bundle.t0))
 		}
 	}
 }
