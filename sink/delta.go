@@ -79,7 +79,10 @@ func (d *Delta) Send(ctx context.Context, metrics *blip.Metrics) error {
 				if delta >= 0 {
 					metricValue = delta
 				} else {
-					blip.Debug("found negative delta for: %s (can happen due to restart), sending the potentially partial metric value", value.Name)
+					// Don't send the non-delta value in the event we have a negative value, as that will
+					// cause anomolies in the data.
+					blip.Debug("found negative delta for: %s (can happen due to restart), skipping", value.Name)
+					continue
 				}
 
 				value.Value = metricValue

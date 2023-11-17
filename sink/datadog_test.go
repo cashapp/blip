@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"math"
 	"net/http"
@@ -415,6 +416,7 @@ func TestDatadogCounterMetricsDeltaCalculation_DeltaSink(t *testing.T) {
 	// simulate a restart
 	blipMetricsThirdBatch := getBlipCounterMetrics(metricCount, 1.0, true)
 	err = deltaSink.Send(context.Background(), blipMetricsThirdBatch)
+	require.NoError(t, err)
 	require.Equal(t, metricCount, len(collectedMetrics))
 
 	// reset collected
@@ -466,7 +468,7 @@ func TestDatadogCounterMetricsDeltaCalculation_RetrySinkDeltaSink(t *testing.T) 
 				var payload datadogV2.MetricPayload
 				body, _ := r.GetBody()
 				defer body.Close()
-				data, _ := ioutil.ReadAll(body)
+				data, _ := io.ReadAll(body)
 				json.Unmarshal(data, &payload)
 
 				for _, metric := range payload.Series {
@@ -585,8 +587,10 @@ func getExpectedMetrics(currentBatch, previousBatch *blip.Metrics) map[string]fl
 		} else {
 			metricVal = currentMetric.Value - previousBatch.Values["testdomain"][i].Value
 		}
-		name := fmt.Sprintf("testdomain.%s", currentMetric.Name)
-		expectedMetrics[name] = metricVal
+		if metricVal > 0 {
+			name := fmt.Sprintf("testdomain.%s", currentMetric.Name)
+			expectedMetrics[name] = metricVal
+		}
 	}
 	return expectedMetrics
 }
