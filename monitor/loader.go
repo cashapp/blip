@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
+	"github.com/cashapp/blip/ha"
 	"os"
 	"sync"
 	"time"
@@ -463,11 +464,19 @@ func (ml *Loader) makeMonitor(cfg blip.ConfigMonitor) (*Monitor, error) {
 		sinks = append(sinks, sink)
 	}
 
+	// Configure the HA Manager for the monitor
+	var ham ha.Manager
+	ham, err := ha.Make(cfg)
+	if err != nil {
+		return nil, err
+	}
+
 	mon := NewMonitor(MonitorArgs{
 		Config:          cfg,
 		DbMaker:         ml.factory.DbConn,
 		PlanLoader:      ml.planLoader,
 		Sinks:           sinks,
+		HA:              ham,
 		TransformMetric: ml.plugin.TransformMetrics,
 	})
 	return mon, nil
