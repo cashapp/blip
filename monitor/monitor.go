@@ -73,6 +73,7 @@ type Monitor struct {
 
 	event event.MonitorReceiver
 	retry *backoff.ExponentialBackOff
+	ha    ha.Manager
 }
 
 // MonitorArgs are required arguments to NewMonitor.
@@ -82,6 +83,7 @@ type MonitorArgs struct {
 	PlanLoader      *plan.Loader
 	Sinks           []blip.Sink
 	TransformMetric func(metrics *blip.Metrics) error
+	HA              ha.Manager
 }
 
 // NewMonitor creates a new Monitor with the given arguments. The caller must
@@ -98,6 +100,7 @@ func NewMonitor(args MonitorArgs) *Monitor {
 		planLoader:      args.PlanLoader,
 		sinks:           args.Sinks,
 		transformMetric: args.TransformMetric,
+		ha:              args.HA,
 		// --
 		runMux: &sync.RWMutex{},
 		wg:     sync.WaitGroup{},
@@ -422,7 +425,7 @@ func (m *Monitor) startup() error {
 			Config:    m.cfg.Plans.Change,
 			DB:        m.db,
 			LCO:       m.lco,
-			HA:        ha.Disabled,
+			HA:        m.ha,
 		})
 
 		m.wg.Add(1)

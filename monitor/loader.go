@@ -17,6 +17,7 @@ import (
 	"github.com/cashapp/blip/aws"
 	"github.com/cashapp/blip/dbconn"
 	"github.com/cashapp/blip/event"
+	"github.com/cashapp/blip/ha"
 	"github.com/cashapp/blip/plan"
 	"github.com/cashapp/blip/sink"
 	"github.com/cashapp/blip/status"
@@ -463,11 +464,19 @@ func (ml *Loader) makeMonitor(cfg blip.ConfigMonitor) (*Monitor, error) {
 		sinks = append(sinks, sink)
 	}
 
+	// Configure the HA Manager for the monitor
+	var ham ha.Manager
+	ham, err := ha.Make(cfg)
+	if err != nil {
+		return nil, err
+	}
+
 	mon := NewMonitor(MonitorArgs{
 		Config:          cfg,
 		DbMaker:         ml.factory.DbConn,
 		PlanLoader:      ml.planLoader,
 		Sinks:           sinks,
+		HA:              ham,
 		TransformMetric: ml.plugin.TransformMetrics,
 	})
 	return mon, nil
