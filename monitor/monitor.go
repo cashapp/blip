@@ -323,7 +323,7 @@ func (m *Monitor) startup() error {
 
 	// ----------------------------------------------------------------------
 	// Exporter API (Prometheus emulation)
-
+	// TODO: This need to collect metrics synchronously
 	if m.cfg.Exporter.Mode != "" {
 		status.Monitor(m.monitorId, status.MONITOR, "starting exporter")
 

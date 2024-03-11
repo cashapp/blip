@@ -5,8 +5,8 @@ package sink
 import (
 	"context"
 	"fmt"
-	"io/ioutil"
 	"net/http"
+	"os"
 	"strconv"
 	"time"
 
@@ -41,7 +41,7 @@ func NewSignalFx(monitorId string, opts, tags map[string]string, httpClient *htt
 	for k, v := range opts {
 		switch k {
 		case "auth-token-file":
-			bytes, err := ioutil.ReadFile(v)
+			bytes, err := os.ReadFile(v)
 			if err != nil {
 				return nil, err
 			} else {

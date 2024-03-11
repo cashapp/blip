@@ -44,6 +44,14 @@ type Engine struct {
 
 	mcMux  *sync.Mutex
 	mcList map[string]*amc // keyed on domain
+
+	ctxList  map[string]context.CancelFunc
+	domainWg map[string]*sync.WaitGroup
+
+	mcContext  context.Context
+	mcCancelFn context.CancelFunc
+
+	wg sync.WaitGroup
 }
 
 func NewEngine(cfg blip.ConfigMonitor, db *sql.DB) *Engine {
@@ -57,8 +65,10 @@ func NewEngine(cfg blip.ConfigMonitor, db *sql.DB) *Engine {
 		planMux: &sync.RWMutex{},
 		atLevel: map[string][]blip.Collector{},
 
-		mcMux:  &sync.Mutex{},
-		mcList: map[string]*amc{},
+		mcMux:    &sync.Mutex{},
+		mcList:   map[string]*amc{},
+		ctxList:  map[string]context.CancelFunc{},
+		domainWg: map[string]*sync.WaitGroup{},
 	}
 }
 
@@ -161,6 +171,11 @@ func (e *Engine) Prepare(ctx context.Context, plan blip.Plan, before, after func
 	e.planMux.Lock() // LOCK plan -------------------------------------------
 	e.mcMux.Lock()   // LOCK mc
 
+	// Cancel prior collector contexts, if any
+	if e.mcCancelFn != nil {
+		e.mcCancelFn()
+	}
+
 	// Clean up old mc before swapping lists. Currently, the repl collector
 	// uses this to stop its heartbeat.BlipReader goroutine.
 	for _, mc := range e.mcList {
@@ -170,11 +185,12 @@ func (e *Engine) Prepare(ctx context.Context, plan blip.Plan, before, after func
 			mc.cleanup()
 		}
 	}
-	e.mcList = mcNew    // new mcs
-	e.plan = plan       // new plan
-	e.atLevel = atLevel // new levels
+	e.mcList = mcNew                                                     // new mcs
+	e.plan = plan                                                        // new plan
+	e.atLevel = atLevel                                                  // new levels
+	e.mcContext, e.mcCancelFn = context.WithCancel(context.Background()) // New context for collectors
 
-	e.mcMux.Unlock()   // UNLCOK mc
+	e.mcMux.Unlock()   // UNLOCK mc
 	e.planMux.Unlock() // UNLOCK plan ---------------------------------------
 
 	status.Monitor(e.monitorId, status.ENGINE_PLAN, plan.Name)
@@ -186,7 +202,7 @@ func (e *Engine) Prepare(ctx context.Context, plan blip.Plan, before, after func
 	return nil
 }
 
-func (e *Engine) Collect(ctx context.Context, levelName string) (*blip.Metrics, error) {
+func (e *Engine) CollectSynchronous(ctx context.Context, levelName string) (*blip.Metrics, error) {
 	blip.Debug("%s: collect plan %s level %s", e.monitorId, e.plan.Name, levelName)
 	collectNo := status.MonitorMulti(e.monitorId, status.ENGINE_COLLECT, "%s/%s: acquire read lock", e.plan.Name, levelName)
 	defer status.RemoveComponent(e.monitorId, collectNo)
@@ -303,6 +319,125 @@ func (e *Engine) Collect(ctx context.Context, levelName string) (*blip.Metrics, 
 	return nil, fmt.Errorf("failed to collect %s/%s", e.plan.Name, levelName)
 }
 
+// We need a context that wraps a larger context for plan changes so that we can cancel collections that are
+// in process for plan changes
+
+func (e *Engine) Collect(levelName string, sinkChan chan<- sinkPayload) {
+	blip.Debug("%s: collect plan %s level %s", e.monitorId, e.plan.Name, levelName)
+	collectNo := status.MonitorMulti(e.monitorId, status.ENGINE_COLLECT, "%s/%s: acquire read lock", e.plan.Name, levelName)
+	defer status.RemoveComponent(e.monitorId, collectNo)
+
+	//
+	// *** This func can run concurrently! ***
+	//
+	// READ lock while collecting so Prepare cannot change plan while using it.
+	// Must be read lock to allow concurrent calls.
+	e.planMux.RLock()
+	defer e.planMux.RUnlock()
+
+	// Did the engine context expire while we were waiting for the lock?
+	// If so this could be due to a plan change or shutting down.
+	select {
+	case <-e.mcContext.Done():
+		return
+	default:
+	}
+
+	// All metric collectors at this level
+	collectors := e.atLevel[levelName]
+	if collectors == nil {
+		blip.Debug("%s: no collectors at %s/%s, ignoring", e.monitorId, e.plan.Name, levelName)
+		return
+	}
+
+	status.Monitor(e.monitorId, collectNo, "%s/%s: run collectors", e.plan.Name, levelName)
+
+	for i := range collectors {
+		domain := collectors[i].Domain()
+		if cancelFn := e.ctxList[domain]; cancelFn != nil {
+			cancelFn()
+		}
+
+		oldWg := e.domainWg[domain]
+		newWg := &sync.WaitGroup{}
+		e.domainWg[domain] = newWg
+
+		domainCtx, domainCancelFn := context.WithCancel(e.mcContext)
+		e.ctxList[domain] = domainCancelFn
+
+		// Indicate that we have a collector running in the engine
+		e.wg.Add(1)
+		// Indicate that we have a collector running for the domain
+		newWg.Add(1)
+		go func(ctx context.Context, mc blip.Collector, priorWg *sync.WaitGroup, wg *sync.WaitGroup) {
+			defer e.wg.Done()
+
+			// Wait for any prior invocation of the collection for this domain to be done
+			if priorWg != nil {
+				priorWg.Wait()
+			}
+			defer wg.Done()
+
+			defer func() {
+				// Handle collector panic
+				if r := recover(); r != nil {
+					b := make([]byte, 4096)
+					n := runtime.Stack(b, false)
+					perr := fmt.Errorf("PANIC: monitor ID %s: %v\n%s", e.monitorId, r, string(b[0:n]))
+					e.event.Errorf(event.COLLECTOR_PANIC, perr.Error())
+					// TODO
+					/*mux.Lock()
+					errs[mc.Domain()] = perr
+					mux.Unlock()*/
+				}
+			}()
+
+			// TODO: Should we use a single starting time for all domains
+			// or set it specific to each domain?
+			ts := time.Now()
+
+			// **************************************************************
+			// COLLECT METRICS
+			//
+			// Collect metrics in this domain. This is where metrics collection
+			// happens: this domain-specific blip.Collector queries MySQL and
+			// returns blip.Metrics at this level.
+			vals, err := mc.Collect(ctx, levelName)
+			// TODO: How do we handle errors when the return of
+			// metrics is not synchronized across the domains?
+			if err != nil {
+				errMsg := fmt.Sprintf("error collecting %s/%s/%s: %s", e.plan.Name, levelName, domain, err)
+				status.Monitor(e.monitorId, "error:"+domain, "at %s: %s", ts, errMsg)
+				e.event.Errorf(event.COLLECTOR_ERROR, errMsg) // log by default
+			} else {
+				status.RemoveComponent(e.monitorId, "error:"+domain)
+			}
+
+			if len(vals) > 0 { // save metrics, if any
+				metrics := &blip.Metrics{
+					Plan:      e.plan.Name,
+					Level:     levelName,
+					MonitorId: e.monitorId,
+					Begin:     ts,
+					End:       time.Now(),
+					Values: map[string][]blip.MetricValue{
+						mc.Domain(): vals,
+					},
+				}
+
+				sinkChan <- sinkPayload{
+					metrics:   metrics,
+					collectNo: "temp",
+				}
+
+			}
+		}(domainCtx, collectors[i], oldWg, newWg)
+	}
+
+	// Note that we started all the collectors
+	status.Monitor(e.monitorId, collectNo, "%s/%s: done starting collectors", e.plan.Name, levelName)
+}
+
 // Stop the engine and cleanup any metrics associated with it.
 // TODO: There is a possible race condition when this is called. Since
 // Engine.Collect is called as a go-routine, we could have an invocation
@@ -310,13 +445,18 @@ func (e *Engine) Collect(ctx context.Context, levelName string) (*blip.Metrics, 
 // after which Collect would run after cleanup has been called.
 // This could result in a panic, though that should be caught and logged.
 // Since the monitor is stopping anyway this isn't a huge issue.
-func (e *Engine) Stop() {
+func (e *Engine) Stop() <-chan struct{} {
 	blip.Debug("Stopping engine...")
 	e.planMux.Lock()
 	defer e.planMux.Unlock()
 
 	e.mcMux.Lock()
 	defer e.mcMux.Unlock()
+
+	// Stop any collectors that are running
+	if e.mcCancelFn != nil {
+		e.mcCancelFn()
+	}
 
 	// Clean up the monitors
 	for _, mc := range e.mcList {
@@ -325,4 +465,11 @@ func (e *Engine) Stop() {
 			mc.cleanup()
 		}
 	}
+
+	doneChan := make(chan struct{})
+	go func() {
+		e.wg.Wait()
+		close(doneChan)
+	}()
+	return doneChan
 }
