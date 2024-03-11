@@ -154,7 +154,7 @@ func (c *Lag) Collect(ctx context.Context, levelName string) ([]blip.MetricValue
 		return c.collectLagFromPFS(ctx, levelName)
 	}
 
-	panic(fmt.Sprintf("invalid source writer in Collect %s", c.lagSourceIn[levelName]))
+	panic(fmt.Sprintf("invalid lag source in Collect %s", c.lagSourceIn[levelName]))
 }
 
 // //////////////////////////////////////////////////////////////////////////
@@ -165,15 +165,15 @@ func (c *Lag) prepareLevel(levelName string, monitorID string, monitorName strin
 	c.dropNotAReplica[levelName] = !blip.Bool(options[OPT_REPORT_NOT_A_REPLICA])
 	c.replCheck = sqlutil.CleanObjectName(options[OPT_REPL_CHECK]) // @todo sanitize better
 
-	if writer, ok := options[OPT_LAG_SOURCE]; ok {
-		if len(writer) > 0 && writer != "auto" {
-			switch writer {
+	if source, ok := options[OPT_LAG_SOURCE]; ok {
+		if len(source) > 0 && source != "auto" {
+			switch source {
 			case LAG_SOURCE_PFS:
 				return nil, c.preparePFS(levelName)
 			case LAG_SOURCE_BLIP:
 				return c.prepareBlipHeartbeatLag(levelName, monitorID, monitorName, options)
 			default:
-				return nil, fmt.Errorf("invalid lag source: %s; valid values: auto, pfs, blip", writer)
+				return nil, fmt.Errorf("invalid lag source: %s; valid values: auto, pfs, blip", source)
 			}
 		}
 	}
@@ -300,7 +300,7 @@ func (c *Lag) collectLagFromPFS(ctx context.Context, levelName string) ([]blip.M
 	}
 	if !lagValue.Valid {
 		// it is a MySQL 8 instance and performance schema is enabled, otherwise the query would have returned error
-		// if replCheck is empty, we can assume based on the query that it's a replica and return nil or -1
+		// if replCheck is empty, we can assume based on the query that it's not a replica and return nil or -1
 		if c.replCheck == "" {
 			return defaultLag()
 		} else {
