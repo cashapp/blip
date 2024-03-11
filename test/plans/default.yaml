@@ -7,8 +7,6 @@ kpi:
       metrics:
         - read_only
       options: {}  # Needed so tests don't get a nil map
-    repl.lag:
-      options: {}
     status.global:
       options:
         source: auto
