@@ -5,6 +5,7 @@ package blip
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 )
 
@@ -133,3 +134,5 @@ type CollectorFactoryArgs struct {
 type CollectorFactory interface {
 	Make(domain string, args CollectorFactoryArgs) (Collector, error)
 }
+
+var ErrMore = errors.New("more metrics")

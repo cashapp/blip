@@ -8,6 +8,7 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
+	"math"
 	"net/http"
 	"os"
 	"path"
@@ -39,6 +40,7 @@ type Metrics struct {
 	MonitorId string                   // ID of monitor (MySQL)
 	Plan      string                   // plan name
 	Level     string                   // level name
+	Interval  uint                     // interval number
 	State     string                   // state of monitor
 	Values    map[string][]MetricValue // keyed on domain
 }
@@ -221,4 +223,14 @@ func SetOrDefault(a, b string) string {
 
 var FormatTime func(time.Time) string = func(t time.Time) string {
 	return t.Format(time.RFC3339)
+}
+
+// TimeLimit returns s seconds minus p percentage (0.1 = 10%) of time up to max.
+// For example, (5, 0.1, 1000) returns 4.5s: 5000ms - 10% = 45000ms.
+// But (30, 0.1, 1000) returns 29s because 10% of 30s = 3s > 1s max, so the
+// buffer is redused to max. This is used to calculate engine max runtime (EMR)
+// and collector max runtime (CMR).
+func TimeLimit(s int, p float64, max float64) time.Duration {
+	ms := float64(s * 1000) // s -> ms
+	return time.Duration(ms-math.Min(ms*p, max)) * time.Millisecond
 }

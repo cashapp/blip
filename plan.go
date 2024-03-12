@@ -90,6 +90,27 @@ func (p Plan) Validate() error {
 	return nil
 }
 
+func (p Plan) Freq() (int, map[string]int) {
+	min := 0
+	domain := map[string]int{}
+	for _, level := range p.Levels {
+		d, _ := time.ParseDuration(level.Freq) // already validated
+		freqL := int(d.Seconds())
+		if freqL < min || min == 0 {
+			min = freqL
+		}
+		for name := range level.Collect {
+			freqD, ok := domain[name]
+			if !ok {
+				domain[name] = freqL
+			} else if freqL < freqD || freqD == 0 {
+				domain[name] = freqL
+			}
+		}
+	}
+	return min, domain
+}
+
 func (p *Plan) InterpolateEnvVars() {
 	for levelName := range p.Levels {
 		for domainName := range p.Levels[levelName].Collect {

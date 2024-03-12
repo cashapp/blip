@@ -1,4 +1,4 @@
-// Copyright 2023 Block, Inc.
+// Copyright 2024 Block, Inc.
 
 package monitor
 
@@ -44,13 +44,6 @@ type LevelCollector interface {
 
 var _ LevelCollector = &lco{}
 
-const maxSinkPayloads = 5
-
-type sinkPayload struct {
-	metrics   *blip.Metrics
-	collectNo string
-}
-
 // lco is the implementation of LevelCollector.
 type lco struct {
 	cfg              blip.ConfigMonitor
@@ -60,6 +53,7 @@ type lco struct {
 	// --
 	monitorId string
 	engine    *Engine
+	emr       time.Duration // engine max runtime = levels[0].Freq
 
 	stateMux *sync.Mutex
 	state    string
@@ -72,10 +66,8 @@ type lco struct {
 	changePlanDoneChan   chan struct{}
 	stopped              bool
 
-	event event.MonitorReceiver
-
-	sinkChan     chan sinkPayload
-	stopSinkChan chan struct{}
+	event       event.MonitorReceiver
+	metricsChan chan *blip.Metrics
 }
 
 type LevelCollectorArgs struct {
@@ -93,14 +85,13 @@ func NewLevelCollector(args LevelCollectorArgs) *lco {
 		sinks:            args.Sinks,
 		transformMetrics: args.TransformMetrics,
 		// --
-		monitorId:    args.Config.MonitorId,
-		engine:       NewEngine(args.Config, args.DB),
-		stateMux:     &sync.Mutex{},
-		paused:       true,
-		changeMux:    &sync.Mutex{},
-		event:        event.MonitorReceiver{MonitorId: args.Config.MonitorId},
-		sinkChan:     make(chan sinkPayload, maxSinkPayloads),
-		stopSinkChan: make(chan struct{}),
+		monitorId:   args.Config.MonitorId,
+		engine:      NewEngine(args.Config, args.DB),
+		stateMux:    &sync.Mutex{},
+		paused:      true,
+		changeMux:   &sync.Mutex{},
+		event:       event.MonitorReceiver{MonitorId: args.Config.MonitorId},
+		metricsChan: make(chan *blip.Metrics, 10),
 	}
 }
 
@@ -112,33 +103,38 @@ func TickerDuration(d time.Duration) {
 
 var tickerDuration = 1 * time.Second // used for testing
 
-// maxCollectors is the maximum number of parallel collect() goroutines.
-// Code comment block just below for variable sem.
-const maxCollectors = 2
-
-// Processes metrics that are pending being submitted to sinks.
-// As some sinks may process the metrics prior to sending them
-// we need to ensure that metrics are sent in-order to sinks
-// to prevent issues from arising from out-of-order processing.
-func (c *lco) processSinkBuffer() {
+// recvMetrics receives metrics on metricsChan and send them to all the sinks.
+// This is a goroutine run by keepRecvMetrics and restarted by keepRecvMetrics
+// if a sink (or the transformMetrics) panics. It stops when stopSinksChan is
+// closed in Run, and it closes doneChan when stopped.
+func (c *lco) recvMetrics(stopSinksChan, doneChan chan struct{}) {
+	defer func() {
+		close(doneChan)
+		if r := recover(); r != nil {
+			b := make([]byte, 4096)
+			n := runtime.Stack(b, false)
+			perr := fmt.Errorf("PANIC: sinks: %s: %v\n%s", c.monitorId, r, string(b[0:n]))
+			c.event.Errorf(event.LPC_PANIC, perr.Error())
+		}
+	}()
 	for {
+		status.Monitor(c.monitorId, status.LEVEL_SINKS, "idle")
 		select {
-		case <-c.stopSinkChan:
+		case <-stopSinksChan:
 			return
-		case bundle := <-c.sinkChan:
-			blip.Debug("%s: level %s: sink thread got metrics", c.monitorId, bundle.metrics.Level)
+		case metrics := <-c.metricsChan:
+			coId := fmt.Sprintf("%s/%d/%s", c.plan.Name, metrics.Interval, metrics.Level)
+
 			if c.transformMetrics != nil {
-				blip.Debug("%s: level %s: transform metrics", c.monitorId, bundle.metrics.Level)
-				// TODO: This may not work as the monitor could have been removed under the old logic?
-				status.Monitor(c.monitorId, bundle.collectNo, "%s/%s: TransformMetrics", bundle.metrics.Plan, bundle.metrics.Level)
-				// Transform metrics before sending
-				c.transformMetrics(bundle.metrics)
+				blip.Debug("%s: %s: transform metrics", c.monitorId, coId)
+				status.Monitor(c.monitorId, status.LEVEL_SINKS, coId+": TransformMetrics")
+				c.transformMetrics(metrics)
 			}
 
 			for i := range c.sinks {
 				sinkName := c.sinks[i].Name()
-				status.Monitor(c.monitorId, bundle.collectNo, "%s/%s: sending to %s", bundle.metrics.Plan, bundle.metrics.Level, sinkName)
-				err := c.sinks[i].Send(context.Background(), bundle.metrics)
+				status.Monitor(c.monitorId, status.LEVEL_SINKS, coId+": sending to "+sinkName)
+				err := c.sinks[i].Send(context.Background(), metrics) // @todo ctx with timeout
 				if err != nil {
 					c.event.Errorf(event.SINK_SEND_ERROR, "%s :%s", sinkName, err) // log by default
 					status.Monitor(c.monitorId, "error:"+sinkName, err.Error())
@@ -146,7 +142,28 @@ func (c *lco) processSinkBuffer() {
 					status.RemoveComponent(c.monitorId, "error:"+sinkName)
 				}
 			}
-			status.Monitor(c.monitorId, status.LEVEL_COLLECT, "last collected and sent metrics for %s/%s at %s in %s", bundle.metrics.Plan, bundle.metrics.Level, blip.FormatTime(bundle.metrics.Begin), time.Since(bundle.metrics.Begin))
+		}
+	}
+}
+
+// keepRecvMetrics keeps a recvMetrics goroutine running. If a sink or the
+// transformMetrics plugin panic, it must be restarted to keep metrics flowing.
+func (c *lco) keepRecvMetrics(stopSinksChan chan struct{}) {
+	for {
+		doneChan := make(chan struct{})
+		go c.recvMetrics(stopSinksChan, doneChan)
+		select {
+		case <-stopSinksChan:
+			return
+		case <-doneChan:
+			// recvMetrics goroutine stopped but why? Did it return because
+			// stopSinksChan, or because of a panic?
+			select {
+			case <-stopSinksChan:
+				return // stopSinksChan closed
+			default:
+				// Probably a sink panic
+			}
 		}
 	}
 }
@@ -154,7 +171,10 @@ func (c *lco) processSinkBuffer() {
 func (c *lco) Run(stopChan, doneChan chan struct{}) error {
 	defer close(doneChan)
 
-	go c.processSinkBuffer()
+	// Keep receiving metrics for as long as the LCO is running
+	stopSinksChan := make(chan struct{})
+	go c.keepRecvMetrics(stopSinksChan)
+	defer close(stopSinksChan)
 
 	// -----------------------------------------------------------------------
 	// LCO main loop: collect metrics on whole second ticks
@@ -164,10 +184,11 @@ func (c *lco) Run(stopChan, doneChan chan struct{}) error {
 	s := -1 // number of whole second ticks
 	ticker := time.NewTicker(tickerDuration)
 	defer ticker.Stop()
-	for range ticker.C {
+	var interval uint
+	for startTime := range ticker.C {
 		s = s + 1 // count seconds
 
-		// Was Stop called?
+		// Was monitor stopped?
 		select {
 		case <-stopChan: // yes, return immediately
 			// Stop changePlan goroutine (if any) and prevent new ones in the
@@ -182,27 +203,15 @@ func (c *lco) Run(stopChan, doneChan chan struct{}) error {
 				<-c.changePlanDoneChan   // wait for changePlan goroutine
 			default:
 			}
-
-			// Stop the engine and clean up metrics
-			// TODO: Need configuration on this?
-			timer := time.NewTimer(10 * time.Second)
-			defer timer.Stop()
-
-			select {
-			case <-c.engine.Stop():
-			case <-timer.C:
-			}
-
-			// Close the metric sink after waiting for the
-			// engine and collectors to stop
-			close(c.stopSinkChan)
+			c.engine.Stop() // stop all collectors and run their cleanup func
 			return nil
 		default: // no
 		}
 
 		c.stateMux.Lock() // -- LOCK --
 		if c.paused {
-			s = -1              // reset count on pause
+			s = -1 // reset count on pause
+			interval = 0
 			c.stateMux.Unlock() // -- Unlock
 			continue
 		}
@@ -220,37 +229,50 @@ func (c *lco) Run(stopChan, doneChan chan struct{}) error {
 		}
 
 		// Collect metrics at this level
-		c.collect(c.levels[level].Name)
+		interval += 1
+		c.collect(interval, c.levels[level].Name, startTime)
 
 		c.stateMux.Unlock() // -- UNLOCK --
 	}
 	return nil
 }
 
-func (c *lco) collect(levelName string) {
+func (c *lco) collect(interval uint, levelName string, startTime time.Time) {
+	status.Monitor(c.monitorId, status.LEVEL_COLLECT, "%s/%s: collecting", c.plan.Name, levelName)
+	var d time.Duration
 	defer func() {
-		if err := recover(); err != nil { // catch panic in collectors, TransformMetrics, and sinks
+		status.Monitor(c.monitorId, status.LEVEL_COLLECT, "%s/%s: collected in %d ms", c.plan.Name, levelName, d.Milliseconds())
+		if err := recover(); err != nil { // catch panic in engine and TransformMetrics
 			b := make([]byte, 4096)
 			n := runtime.Stack(b, false)
 			c.event.Sendf(event.LPC_PANIC, "PANIC: %s: %s\n%s", c.monitorId, err, string(b[0:n]))
 		}
 	}()
-	// TODO: This monitoring won't work as-is as we
-	// need to only destroy it once _all_ metrics for the current pass have been
-	// collected and submitted
-	collectNo := status.MonitorMulti(c.monitorId, status.LEVEL_COLLECT, "%s/%s: collecting", c.plan.Name, levelName)
-	defer status.RemoveComponent(c.monitorId, collectNo)
-
-	t0 := time.Now()
 
 	// **************************************************************
 	// COLLECT METRICS
 	//
 	// Collect all metrics at this level. This is where metrics
 	// collection begins. Then Engine.Collect does the real work.
-	c.engine.Collect(levelName, c.sinkChan)
+	emrCtx, emrCancel := context.WithDeadline(context.Background(), startTime.Add(c.emr))
+	defer emrCancel()
 
-	blip.Debug("%s: level %s: done in %s", c.monitorId, levelName, time.Since(t0))
+	metrics, err := c.engine.Collect(emrCtx, interval, levelName, startTime)
+
+	d = time.Now().Sub(startTime)
+	blip.Debug("%s: level %s: done in %s", c.monitorId, levelName, d)
+
+	if err != nil {
+		status.Monitor(c.monitorId, "error:collect", err.Error())
+		c.event.Errorf(event.ENGINE_COLLECT_ERROR, err.Error())
+	} else {
+		status.RemoveComponent(c.monitorId, "error:collect")
+	}
+
+	status.Monitor(c.monitorId, status.LEVEL_COLLECT, "%s/%s: sending", c.plan.Name, levelName)
+	for i := range metrics {
+		c.metricsChan <- metrics[i]
+	}
 }
 
 // ChangePlan changes the metrics collect plan based on database state.
@@ -381,6 +403,7 @@ func (c *lco) changePlan(ctx context.Context, doneChan chan struct{}, newState, 
 		c.state = newState
 		c.plan = newPlan
 		c.levels = levels
+		c.emr = blip.TimeLimit(levels[0].Freq, 0.1, 1000) // interval minus 10% (max 1s)
 
 		// Changing state/plan always resumes (if paused); in fact, it's the
 		// only way to resume after Pause is called

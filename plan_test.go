@@ -1,4 +1,4 @@
-// Copyright 2022 Block, Inc.
+// Copyright 2024 Block, Inc.
 
 package blip_test
 
@@ -6,6 +6,8 @@ import (
 	"os"
 	"strings"
 	"testing"
+
+	"github.com/go-test/deep"
 
 	"github.com/cashapp/blip"
 	"github.com/cashapp/blip/plan/default"
@@ -97,5 +99,26 @@ func TestValidateDefaultPlans(t *testing.T) {
 	err = plan.Validate()
 	if err != nil {
 		t.Error(err)
+	}
+}
+
+func TestPlanFreq(t *testing.T) {
+	plan := default_plan.MySQL()
+	min, domain := plan.Freq()
+	if min != 5 {
+		t.Errorf("got min freq %d, expected 5", min)
+	}
+	expect := map[string]int{
+		"status.global": 5, // in two levels: 5s and 20s
+		"innodb":        5,
+		"repl":          5,
+		"repl.lag":      5,
+		"size.database": 300, // 5min
+		"size.table":    300, // 5min
+		"size.binlog":   300, // 5min
+		"var.global":    900, // 15min
+	}
+	if diff := deep.Equal(domain, expect); diff != nil {
+		t.Error(diff)
 	}
 }

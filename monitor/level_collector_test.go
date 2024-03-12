@@ -39,7 +39,7 @@ func TestLevelCollector(t *testing.T) {
 	// Create and register a mock blip.Collector that saves the level name
 	// every time it's called. This is quite deep within the call stack,
 	// which is what we want: LCO->engine->collector. By using a fake collector
-	// but real LCO and enginer, we testing the real, unmodified logic--
+	// but real LCO and engine , we testing the real, unmodified logic--
 	// the LCO and engine don't know or care that this collector is a mock.
 	_, db, err := test.Connection("mysql57")
 	if err != nil {
@@ -148,7 +148,7 @@ func TestLevelCollector(t *testing.T) {
 	// slow, so we'll allow 15 or 16 calls.
 	mux.Lock()
 	if len(gotLevels) > 16 {
-		t.Errorf("got %d levels, expected 15 (exactxly) or 16 (at most)", len(gotLevels))
+		t.Errorf("got %d levels, expected 15 or 16 ", len(gotLevels))
 	}
 
 	// If leveled collection is working properly, the first 12 levels collected--
