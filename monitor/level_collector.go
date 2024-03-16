@@ -49,7 +49,7 @@ type lco struct {
 	cfg              blip.ConfigMonitor
 	planLoader       *plan.Loader
 	sinks            []blip.Sink
-	transformMetrics func(*blip.Metrics) error
+	transformMetrics func([]*blip.Metrics)
 	// --
 	monitorId string
 	engine    *Engine
@@ -67,7 +67,7 @@ type lco struct {
 	stopped              bool
 
 	event       event.MonitorReceiver
-	metricsChan chan *blip.Metrics
+	metricsChan chan []*blip.Metrics
 }
 
 type LevelCollectorArgs struct {
@@ -75,7 +75,7 @@ type LevelCollectorArgs struct {
 	DB               *sql.DB
 	PlanLoader       *plan.Loader
 	Sinks            []blip.Sink
-	TransformMetrics func(*blip.Metrics) error
+	TransformMetrics func([]*blip.Metrics)
 }
 
 func NewLevelCollector(args LevelCollectorArgs) *lco {
@@ -91,17 +91,22 @@ func NewLevelCollector(args LevelCollectorArgs) *lco {
 		paused:      true,
 		changeMux:   &sync.Mutex{},
 		event:       event.MonitorReceiver{MonitorId: args.Config.MonitorId},
-		metricsChan: make(chan *blip.Metrics, 10),
+		metricsChan: make(chan []*blip.Metrics, 10),
 	}
 }
 
 // TickerDuration sets the internal ticker duration for testing. This is only
 // called for testing; do not called outside testing.
-func TickerDuration(d time.Duration) {
+func TickerDuration(d, a time.Duration) {
+	tickerMux.Lock() // make go test -race happy
 	tickerDuration = d
+	tickerAdded = a
+	tickerMux.Unlock()
 }
 
+var tickerMux = &sync.Mutex{}        // make go test -race happy
 var tickerDuration = 1 * time.Second // used for testing
+var tickerAdded = 1 * time.Second    // used for testing
 
 // recvMetrics receives metrics on metricsChan and send them to all the sinks.
 // This is a goroutine run by keepRecvMetrics and restarted by keepRecvMetrics
@@ -114,7 +119,7 @@ func (c *lco) recvMetrics(stopSinksChan, doneChan chan struct{}) {
 			b := make([]byte, 4096)
 			n := runtime.Stack(b, false)
 			perr := fmt.Errorf("PANIC: sinks: %s: %v\n%s", c.monitorId, r, string(b[0:n]))
-			c.event.Errorf(event.LPC_PANIC, perr.Error())
+			c.event.Errorf(event.LCO_RECEIVER_PANIC, perr.Error())
 		}
 	}()
 	for {
@@ -123,23 +128,23 @@ func (c *lco) recvMetrics(stopSinksChan, doneChan chan struct{}) {
 		case <-stopSinksChan:
 			return
 		case metrics := <-c.metricsChan:
-			coId := fmt.Sprintf("%s/%d/%s", c.plan.Name, metrics.Interval, metrics.Level)
-
 			if c.transformMetrics != nil {
-				blip.Debug("%s: %s: transform metrics", c.monitorId, coId)
-				status.Monitor(c.monitorId, status.LEVEL_SINKS, coId+": TransformMetrics")
+				blip.Debug("%s: transform metrics", c.monitorId)
+				status.Monitor(c.monitorId, status.LEVEL_SINKS, "TransformMetrics")
 				c.transformMetrics(metrics)
 			}
-
-			for i := range c.sinks {
-				sinkName := c.sinks[i].Name()
-				status.Monitor(c.monitorId, status.LEVEL_SINKS, coId+": sending to "+sinkName)
-				err := c.sinks[i].Send(context.Background(), metrics) // @todo ctx with timeout
-				if err != nil {
-					c.event.Errorf(event.SINK_SEND_ERROR, "%s :%s", sinkName, err) // log by default
-					status.Monitor(c.monitorId, "error:"+sinkName, err.Error())
-				} else {
-					status.RemoveComponent(c.monitorId, "error:"+sinkName)
+			for _, m := range metrics {
+				coId := fmt.Sprintf("%s/%s/%d", m.Plan, m.Level, m.Interval)
+				for _, sink := range c.sinks {
+					sinkName := sink.Name()
+					status.Monitor(c.monitorId, status.LEVEL_SINKS, coId+": sending to "+sinkName)
+					err := sink.Send(context.Background(), m) // @todo ctx with timeout
+					if err != nil {
+						c.event.Errorf(event.SINK_SEND_ERROR, "%s :%s", sinkName, err) // log by default
+						status.Monitor(c.monitorId, "error:"+sinkName, err.Error())
+					} else {
+						status.RemoveComponent(c.monitorId, "error:"+sinkName)
+					}
 				}
 			}
 		}
@@ -180,20 +185,26 @@ func (c *lco) Run(stopChan, doneChan chan struct{}) error {
 	// LCO main loop: collect metrics on whole second ticks
 
 	status.Monitor(c.monitorId, status.LEVEL_COLLECTOR, "started at %s (paused until plan change)", blip.FormatTime(time.Now()))
-
-	s := -1 // number of whole second ticks
-	ticker := time.NewTicker(tickerDuration)
+	tickerMux.Lock() // make go test -race happy
+	td, ta := tickerDuration, tickerAdded
+	tickerMux.Unlock()
+	s := -1 * ta // -1 so first tick=0 and all levels collected
+	interval := uint(0)
+	ticker := time.NewTicker(td)
 	defer ticker.Stop()
-	var interval uint
 	for startTime := range ticker.C {
-		s = s + 1 // count seconds
+		s = s + ta
 
 		// Was monitor stopped?
 		select {
-		case <-stopChan: // yes, return immediately
+		case _, ok := <-stopChan: // yes, return immediately
 			// Stop changePlan goroutine (if any) and prevent new ones in the
 			// pathological case that the LCH calls ChangePlan while the LCO
 			// is terminating
+			if ok {
+				break
+			}
+			blip.Debug("stopChan closed at %s s=%d interval=%d", startTime, s, interval)
 			c.changeMux.Lock()
 			defer c.changeMux.Unlock()
 			c.stopped = true // make ChangePlan do nothing
@@ -210,7 +221,7 @@ func (c *lco) Run(stopChan, doneChan chan struct{}) error {
 
 		c.stateMux.Lock() // -- LOCK --
 		if c.paused {
-			s = -1 // reset count on pause
+			s = -1 * tickerAdded // reset count on pause
 			interval = 0
 			c.stateMux.Unlock() // -- Unlock
 			continue
@@ -245,7 +256,7 @@ func (c *lco) collect(interval uint, levelName string, startTime time.Time) {
 		if err := recover(); err != nil { // catch panic in engine and TransformMetrics
 			b := make([]byte, 4096)
 			n := runtime.Stack(b, false)
-			c.event.Sendf(event.LPC_PANIC, "PANIC: %s: %s\n%s", c.monitorId, err, string(b[0:n]))
+			c.event.Errorf(event.LCO_COLLECT_PANIC, "PANIC: %s: %s\n%s", c.monitorId, err, string(b[0:n]))
 		}
 	}()
 
@@ -256,11 +267,8 @@ func (c *lco) collect(interval uint, levelName string, startTime time.Time) {
 	// collection begins. Then Engine.Collect does the real work.
 	emrCtx, emrCancel := context.WithDeadline(context.Background(), startTime.Add(c.emr))
 	defer emrCancel()
-
 	metrics, err := c.engine.Collect(emrCtx, interval, levelName, startTime)
-
-	d = time.Now().Sub(startTime)
-	blip.Debug("%s: level %s: done in %s", c.monitorId, levelName, d)
+	blip.Debug("%s: level %s: done in %s", c.monitorId, levelName, metrics[0].End.Sub(metrics[0].Begin))
 
 	if err != nil {
 		status.Monitor(c.monitorId, "error:collect", err.Error())
@@ -270,9 +278,7 @@ func (c *lco) collect(interval uint, levelName string, startTime time.Time) {
 	}
 
 	status.Monitor(c.monitorId, status.LEVEL_COLLECT, "%s/%s: sending", c.plan.Name, levelName)
-	for i := range metrics {
-		c.metricsChan <- metrics[i]
-	}
+	c.metricsChan <- metrics
 }
 
 // ChangePlan changes the metrics collect plan based on database state.
@@ -403,7 +409,7 @@ func (c *lco) changePlan(ctx context.Context, doneChan chan struct{}, newState, 
 		c.state = newState
 		c.plan = newPlan
 		c.levels = levels
-		c.emr = blip.TimeLimit(levels[0].Freq, 0.1, 1000) // interval minus 10% (max 1s)
+		c.emr = blip.TimeLimit(0.1, levels[0].Freq, time.Second) // interval minus 10% (max 1s)
 
 		// Changing state/plan always resumes (if paused); in fact, it's the
 		// only way to resume after Pause is called
@@ -455,6 +461,6 @@ func (c *lco) Pause() {
 	c.stateMux.Lock()
 	c.paused = true
 	status.Monitor(c.monitorId, status.LEVEL_COLLECTOR, "paused at %s", blip.FormatTime(time.Now()))
-	c.event.Send(event.LPC_PAUSED)
+	c.event.Send(event.LCO_PAUSED)
 	c.stateMux.Unlock()
 }

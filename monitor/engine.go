@@ -23,12 +23,11 @@ var CollectParallel = 2
 
 // collection is the return values from one Collector.Collect call.
 type collection struct {
-	Interval uint
-	Level    string
-	Domain   string
-	Values   []blip.MetricValue
-	Err      error
-	Runtime  time.Duration
+	blip.Metrics
+	domain  string
+	vals    []blip.MetricValue // don't name "values": conflicts with embedded blip.Metrics.Values
+	err     error
+	runtime time.Duration
 }
 
 // Engine does the real work: collect metrics.
@@ -157,9 +156,9 @@ func (e *Engine) Prepare(ctx context.Context, plan blip.Plan, before, after func
 			collectors[domain] = &clutch{ // new clutch
 				c:              c,
 				cleanup:        cleanup,
-				cmr:            blip.TimeLimit(domainFreq[domain], 0.2, 2000), // collector interval minus 20% (max 2s)
+				domain:         domain,
+				cmr:            blip.TimeLimit(0.2, domainFreq[domain], 2*time.Second), // collector interval minus 20% (max 2s)
 				collectionChan: e.collectionChan,
-				monitorId:      e.monitorId,
 				event:          e.event,
 				Mutex:          &sync.Mutex{},
 			}
@@ -240,7 +239,7 @@ func (e *Engine) Collect(emrCtx context.Context, interval uint, levelName string
 	domains := e.collectAt[levelName]
 	if domains == nil {
 		blip.Debug("%s: %s: no domains, ignoring", e.monitorId, coId)
-		return nil, nil
+		return nil, nil // @todo doesn't guarantee metrics[0]
 	}
 	blip.Debug("%s: %s: collect", e.monitorId, coId)
 	status.Monitor(e.monitorId, status.ENGINE_COLLECT, coId+": collecting")
@@ -252,15 +251,23 @@ func (e *Engine) Collect(emrCtx context.Context, interval uint, levelName string
 	}
 
 	// Collect domains at this level
+	m := &blip.Metrics{
+		Plan:      e.plan.Name,
+		Level:     levelName,
+		Interval:  interval,
+		MonitorId: e.monitorId,
+		Begin:     startTime,
+		// Don't set Values yet because these fields are copied in cl.collect
+	}
 	running := map[string]bool{}
-	begin := time.Now()
 	for _, cl := range domains {
 		select {
 		case <-sem:
-			go cl.collect(interval, levelName, startTime, sem)
+			go cl.collect(*m, sem)
 			running[cl.c.Domain()] = true
 		case <-emrCtx.Done():
 			blip.Debug("EMR timeout starting collectors")
+			// @todo skip pending and sweep, goto end?
 			break
 		}
 	}
@@ -275,16 +282,8 @@ func (e *Engine) Collect(emrCtx context.Context, interval uint, levelName string
 	}
 
 	// Wait for all collectors to finish, then record end time
-	metrics := []*blip.Metrics{
-		{
-			Plan:      e.plan.Name,
-			Level:     levelName,
-			Interval:  interval,
-			MonitorId: e.monitorId,
-			Values:    map[string][]blip.MetricValue{},
-			Begin:     begin,
-		},
-	}
+	m.Values = map[string][]blip.MetricValue{}
+	metrics := []*blip.Metrics{m}
 	errs := map[string]error{}
 	nValues := 0
 SWEEP:
@@ -292,18 +291,38 @@ SWEEP:
 		status.Monitor(e.monitorId, status.ENGINE_COLLECT, "%s: receiving metrics, %d collectors running", coId, len(running))
 		select {
 		case c := <-e.collectionChan:
-			if c.Interval == interval {
-				delete(running, c.Domain)
-				if n := len(c.Values); n > 0 {
-					metrics[0].Values[c.Domain] = c.Values
+			/*
+				DO NOT USE c.Values!
+				That's the embedded collection.(blip.Metrics).Values.
+				Use only c.vals.
+			*/
+			if c.Interval == interval { // this interval/collection
+				delete(running, c.domain)
+				if n := len(c.vals); n > 0 {
+					metrics[0].Values[c.domain] = c.vals
 					nValues += n
 				}
-				if c.Err != nil {
-					errs[c.Domain] = c.Err
+				if c.err != nil && c.err != blip.ErrMore {
+					errs[c.domain] = c.err
 				}
-			} else {
-				// Old metrics
+			} else { // past interval/collection
+				// Merge with existing past interval metrics, else append new *blip.Metrics
+				merged := false
+				for _, m := range metrics {
+					if m.Interval != c.Interval {
+						continue
+					}
+					m.Values[c.domain] = c.vals
+					merged = true
+					break
+				}
+				if !merged {
+					old := c.Metrics
+					old.Values = map[string][]blip.MetricValue{c.domain: c.vals}
+					metrics = append(metrics, &old)
+				}
 			}
+			// @todo do somethign with c.runtime: collector run
 		case <-emrCtx.Done(): // engine runtime max
 			blip.Debug("EMR timeout receiving collections")
 			break SWEEP
@@ -315,7 +334,6 @@ SWEEP:
 	status.Monitor(e.monitorId, status.ENGINE_COLLECT, coId+": logging errors")
 	errCount := 0
 	for domain, err := range errs {
-		// Update MonitorEngineStatus: set new error or clear old error
 		if err != nil {
 			errCount += 1
 			errMsg := fmt.Sprintf("error collecting %s/%s/%s: %s", e.plan.Name, levelName, domain, err)
@@ -327,7 +345,21 @@ SWEEP:
 	}
 
 	status.Monitor(e.monitorId, status.ENGINE_COLLECT, "%s: done: %d started, %d domains %d values collected, %s runtime, %d error",
-		coId, len(domains), len(domains)-len(running), nValues, metrics[0].End.Sub(begin), errCount)
+		coId, len(domains), len(domains)-len(running), nValues, metrics[0].End.Sub(metrics[0].Begin), errCount)
+
+	// Sort intervals in ascending order so sinks receive domains in order.
+	// This is a special case but possible when, for example, domain X runs
+	// every 3rd interval and uses ErrMore to report progressively:
+	//   interval 1: start, report, bg (ErrMore,keep running)
+	//   interval 2: report more and stop
+	//   interval 3: flush ^ and start again
+	// In this case, metrics has X@1 and X@3 and must be sorted in metrics
+	// in that order so a sink processing X gets them in order. Since clutch
+	// serializes per-domain, sorting by interval is sufficient because there
+	// cannot be two X@N for the same N (unless there's a bug in the clutch).
+	if len(metrics) > 1 {
+		sort.Slice(metrics, func(i, j int) bool { return metrics[i].Interval < metrics[j].Interval })
+	}
 
 	// Total success? Yes if no errors.
 	if errCount == 0 {
@@ -366,6 +398,7 @@ func (e *Engine) stopCollectors() {
 	for _, cl := range e.collectors {
 		cl.Lock()
 		if !cl.running {
+			cl.Unlock()
 			blip.Debug("%s: %s not running", e.monitorId, cl.c.Domain())
 			continue
 		}
@@ -389,63 +422,77 @@ func (e *Engine) stopCollectors() {
 type clutch struct {
 	c              blip.Collector
 	cleanup        func()            // from c.Prepare (optional)
+	domain         string            // c.Domain
 	cmr            time.Duration     // collector max runtime (CMR)
 	collectionChan chan<- collection // flush vals/err to
-	monitorId      string            // for logging
 	event          event.MonitorReceiver
 	*sync.Mutex
 
 	// When running:
+	m         blip.Metrics
 	ctx       context.Context // context.WithTimeout(cmr)
 	cancel    context.CancelFunc
-	interval  uint               // invoked for interval
-	level     string             // invoked at level
 	running   bool               // collect() running
 	bg        bool               // true if c.Collect returns ErrMore
 	pending   bool               // vals ready to flush
 	vals      []blip.MetricValue // pending values from c
 	err       error              // last error from c
-	startTime time.Time          // when collect(true) called
-	stopTime  time.Time          // when collect(true) called
+	startTime time.Time          // collector runtime
+	stopTime  time.Time          // collector runtime
+	fence     uint               // set on collect fault (see below)
 }
 
-func (cl *clutch) collect(interval uint, level string, startTime time.Time, sem chan bool) {
-	blip.Debug("[[[ %+v ]]]\n", cl)
+func (cl *clutch) collect(m blip.Metrics, sem chan bool) {
 	cl.Lock() // ___LOCK___
+
+	// ----------------------------------------------------------------------
+	// Check that previous collection is done and flushed
 
 	if cl.running {
 		// Collector fault: it didn't terminate itself at CMR
-		blip.Debug("~~~~~~~~~~~~~~~~~~~~~ collector fault ~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
-		// @todo
+		cl.event.Errorf(event.COLLECTOR_FAULT, fmt.Sprintf("%s: metrics from interval %d will be dropped if the collector recovers: %+v", cl.domain, cl.m.Interval, cl))
+		cl.fence = m.Interval
+		if cl.cancel != nil {
+			cl.cancel()
+		}
 	}
 
-	// Metrics from previous run, do first so cl.internal level don't overwrite
+	// Background collection finished after last interval sweep and now
+	// the domain is schedule to run at this interval, which is fine because
+	// collector did stop running within its CMR (checked above ^), so we
+	// just flush the last metrics (if any) then start again.
 	if cl.pending {
+		blip.Debug("flushing last values from background %s", cl.domain)
 		cl.flush(false) // false -> don't override bg stop time (see defer below)
 	}
 
+	// ----------------------------------------------------------------------
 	// Start new collection. DO NOT defer and set cl.running = false before
-	// here else the period flush block above ^ will set cl.running = false
+	// here else the last values flush case above ^ will set cl.running = false
 	// when it returns, which is not the case: this func is only done running
 	// when the code below returns.
-	blip.Debug("<< CL %d/%s", cl.interval, cl.level)
-	cl.ctx, cl.cancel = context.WithDeadline(context.Background(), startTime.Add(cl.cmr))
-	cl.startTime = time.Now()
+	cl.startTime = time.Now() // real start time, not interval start time
+	cl.m = m                  // copy blip.Metrics fields
 	cl.running = true
-	cl.interval = interval
-	cl.level = level
+
+	// Collector max runtime (CMR) is interval start time + cmr because this
+	// collector might have been started after some delay in Engine.Collect
+	// but it complete
+	cl.ctx, cl.cancel = context.WithDeadline(context.Background(), m.Begin.Add(cl.cmr))
+
+	// Local interval for this run/goroutine. If the collector has a bug such that
+	// it doesn't return within its CMR and Engine.Collect runs this domain again,
+	// then the very first if-block in this function will fence off this interval.
+	// If/when the faulty Collect finally returns, "if interval < cl.fence" checks
+	// will cause the faulty Collect metrics to be dropped. This var must be local
+	// and it must be check before changing any cl.* fields because the goroutine
+	// that detects the fault will write over the cl.* fields with the new interval.
+	interval := m.Interval
+	cancel := cl.cancel
+
 	cl.Unlock() // ___unlock___
 
 	defer func() {
-		cl.Lock()
-		cl.running = false
-		cl.cancel() // cl.ctx
-		if cl.bg {
-			cl.stopTime = time.Now() // bg stop time
-		}
-		cl.Unlock()
-
-		// Handle collector panic
 		if r := recover(); r != nil {
 			if !cl.bg { // foreground
 				select {
@@ -453,31 +500,47 @@ func (cl *clutch) collect(interval uint, level string, startTime time.Time, sem 
 				default:
 				}
 			}
-
 			b := make([]byte, 4096)
 			n := runtime.Stack(b, false)
-			perr := fmt.Errorf("PANIC: monitor ID %s: %v\n%s", cl.monitorId, r, string(b[0:n]))
+			perr := fmt.Errorf("PANIC: monitor ID %s: %s: %v\n%s", cl.m.MonitorId, cl.domain, r, string(b[0:n]))
 			cl.event.Errorf(event.COLLECTOR_PANIC, perr.Error())
 		}
+		cancel() // local cancel, not cl.cancel, in case goroutine is behind the fence
+		cl.Lock()
+		if interval < cl.fence {
+			cl.event.Errorf(event.DROP_METRICS_FENCE, "%s: dropping metrics because this interval %d < fence %d due to collector fault", cl.domain, interval, cl.fence)
+			cl.Unlock()
+			return // this goroutine is behind the fence, do NOT modify cl fields
+		}
+		cl.running = false
+		if cl.bg {
+			cl.stopTime = time.Now() // bg stop time
+			blip.Debug("background %s done: runtime=%s pending=%t err=%v",
+				cl.domain, cl.stopTime.Sub(cl.startTime), cl.pending, cl.err)
+		}
+		cl.Unlock()
 
 	}()
 
 	// ----------------------------------------------------------------------
-	// FAST PATH, NORMAL CASE: collect once quickly, flush metrics back to
-	// engine for reporting, and done.
-	vals, err := cl.c.Collect(cl.ctx, cl.level) // foreground collect
+	// FAST PATH: foreground collect once, unblock next collector (sem), and
+	// flush metrics back to engine for reporting, the probably done
+	vals, err := cl.c.Collect(cl.ctx, cl.m.Level)
+	sem <- true
 	cl.Lock()
+	if interval < cl.fence {
+		cl.Unlock()
+		return // this goroutine is behind the fence, do NOT modify cl fields
+	}
 	cl.vals = vals
 	cl.err = err
 	cl.flush(err != blip.ErrMore)
 	cl.Unlock()
-	sem <- true // always unblock next collector
 	if err != blip.ErrMore {
 		return
 	}
 
 	// ----------------------------------------------------------------------
-
 	// Special case: blip.ErrMore == long-running collector, keep running and
 	// saving metrics in cl.vals until collector stops returning blip.ErrMore.
 	// The engine will call cl.flush every interval if cl.pending is true.
@@ -487,6 +550,10 @@ func (cl *clutch) collect(interval uint, level string, startTime time.Time, sem 
 	for err == blip.ErrMore && err != context.Canceled && err != context.DeadlineExceeded {
 		vals, err = cl.c.Collect(nil, "") // background collect
 		cl.Lock()
+		if interval < cl.fence {
+			cl.Unlock()
+			return // this goroutine is behind the fence, do NOT modify cl fields
+		}
 		if len(vals) > 0 {
 			cl.pending = true
 			cl.vals = append(cl.vals, vals...)
@@ -499,25 +566,24 @@ func (cl *clutch) collect(interval uint, level string, startTime time.Time, sem 
 func (cl *clutch) flush(done bool) {
 	/* -- CALLER MUST LOCK clutch -- */
 	c := collection{
-		Interval: cl.interval,
-		Level:    cl.level,
-		Domain:   cl.c.Domain(),
-		Values:   cl.vals,
-		Err:      cl.err,
+		Metrics: cl.m, // embedded blip.Metrics fields
+		domain:  cl.domain,
+		vals:    cl.vals,
+		err:     cl.err,
 	}
 	if done {
 		cl.stopTime = time.Now()
 	}
 	if !cl.stopTime.IsZero() {
-		c.Runtime = cl.stopTime.Sub(cl.startTime)
+		c.End = cl.stopTime
+		c.runtime = cl.stopTime.Sub(cl.startTime)
 	}
 
 	// Flush metrics back to engine BEFORE resetting them below
 	select {
 	case cl.collectionChan <- c:
 	default:
-		blip.Debug("flush blocked: %v", c)
-		// @todo error? panic?
+		cl.event.Errorf(event.DROP_METRICS_FLUSH, "%s: dropping metrics interval %d because channel blocked", cl.domain, c.Interval)
 	}
 
 	cl.pending = false

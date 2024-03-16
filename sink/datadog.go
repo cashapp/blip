@@ -1,4 +1,4 @@
-// Copyright 2022 Block, Inc.
+// Copyright 2024 Block, Inc.
 
 package sink
 
@@ -17,14 +17,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/cashapp/blip/event"
-
-	"github.com/DataDog/datadog-go/v5/statsd"
-
 	"github.com/DataDog/datadog-api-client-go/v2/api/datadog"
 	"github.com/DataDog/datadog-api-client-go/v2/api/datadogV2"
+	"github.com/DataDog/datadog-go/v5/statsd"
 
 	"github.com/cashapp/blip"
+	"github.com/cashapp/blip/event"
 	"github.com/cashapp/blip/sink/tr"
 	"github.com/cashapp/blip/status"
 )
@@ -276,10 +274,11 @@ func (s *Datadog) Send(ctx context.Context, m *blip.Metrics) error {
 			// Convert Blip metric type to Datadog metric type
 			switch metrics[i].Type {
 			case blip.CUMULATIVE_COUNTER, blip.DELTA_COUNTER:
-				metricVal := metrics[i].Value
-
+				// This sinks is wrapped in a Delta pseduo-sink, so
+				// do NOT calculate delta values here; it's already
+				// done on a per-domain basis.
 				if s.dogstatsd {
-					err := s.dogstatsdClient.Count(name, int64(metricVal), tags, 1)
+					err := s.dogstatsdClient.Count(name, int64(metrics[i].Value), tags, 1)
 					if err != nil {
 						blip.Debug("error sending data points to Datadog: %s", err)
 					}
@@ -289,7 +288,7 @@ func (s *Datadog) Send(ctx context.Context, m *blip.Metrics) error {
 						Type:   datadogV2.METRICINTAKETYPE_COUNT.Ptr(),
 						Points: []datadogV2.MetricPoint{
 							{
-								Value:     datadog.PtrFloat64(metricVal),
+								Value:     datadog.PtrFloat64(metrics[i].Value),
 								Timestamp: datadog.PtrInt64(timestamp),
 							},
 						},

@@ -55,7 +55,7 @@ type Monitor struct {
 	dbMaker         blip.DbFactory
 	planLoader      *plan.Loader
 	sinks           []blip.Sink
-	transformMetric func(metrics *blip.Metrics) error
+	transformMetric func([]*blip.Metrics)
 
 	// Core components
 	runMux  *sync.RWMutex
@@ -82,7 +82,7 @@ type MonitorArgs struct {
 	DbMaker         blip.DbFactory
 	PlanLoader      *plan.Loader
 	Sinks           []blip.Sink
-	TransformMetric func(metrics *blip.Metrics) error
+	TransformMetric func([]*blip.Metrics)
 	HA              ha.Manager
 }
 

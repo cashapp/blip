@@ -1,4 +1,4 @@
-// Copyright 2022 Block, Inc.
+// Copyright 2024 Block, Inc.
 
 package blip
 
@@ -90,12 +90,11 @@ func (p Plan) Validate() error {
 	return nil
 }
 
-func (p Plan) Freq() (int, map[string]int) {
-	min := 0
-	domain := map[string]int{}
+func (p Plan) Freq() (time.Duration, map[string]time.Duration) {
+	var min time.Duration
+	domain := map[string]time.Duration{}
 	for _, level := range p.Levels {
-		d, _ := time.ParseDuration(level.Freq) // already validated
-		freqL := int(d.Seconds())
+		freqL, _ := time.ParseDuration(level.Freq) // already validated
 		if freqL < min || min == 0 {
 			min = freqL
 		}

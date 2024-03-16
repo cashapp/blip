@@ -1,4 +1,4 @@
-// Copyright 2023 Block, Inc.
+// Copyright 2024 Block, Inc.
 
 // Package blip provides high-level data structs and const for integrating with Blip.
 package blip
@@ -125,7 +125,7 @@ type Plugins struct {
 	// TransformMetrics transforms metrics before they are sent to sinks.
 	// This is called for all monitors, metrics, and sinks. Use Metrics.MonitorId
 	// to determine the source of the metrics.
-	TransformMetrics func(*Metrics) error
+	TransformMetrics func([]*Metrics)
 }
 
 // Factories are interfaces that override certain object creation of Blip.
@@ -225,12 +225,12 @@ var FormatTime func(time.Time) string = func(t time.Time) string {
 	return t.Format(time.RFC3339)
 }
 
-// TimeLimit returns s seconds minus p percentage (0.1 = 10%) of time up to max.
-// For example, (5, 0.1, 1000) returns 4.5s: 5000ms - 10% = 45000ms.
-// But (30, 0.1, 1000) returns 29s because 10% of 30s = 3s > 1s max, so the
+// TimeLimit returns d minus p percentage (0.1 = 10%) of time up to max.
+// For example, (0.1, 5s, 1s) returns 4.5s: 5000ms - 10% = 45000ms.
+// But (0.1, 20s, 1s) returns 29s because 10% of 30s = 3s > 1s max, so the
 // buffer is redused to max. This is used to calculate engine max runtime (EMR)
 // and collector max runtime (CMR).
-func TimeLimit(s int, p float64, max float64) time.Duration {
-	ms := float64(s * 1000) // s -> ms
-	return time.Duration(ms-math.Min(ms*p, max)) * time.Millisecond
+func TimeLimit(p float64, d, max time.Duration) time.Duration {
+	ns := float64(d)
+	return time.Duration(ns - math.Min(ns*p, float64(max)))
 }

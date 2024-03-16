@@ -50,9 +50,6 @@ func TestLoaderLoadOne(t *testing.T) {
 		Factories: blip.Factories{
 			DbConn: dbconn.NewConnFactory(nil, nil),
 		},
-		Plugins: blip.Plugins{TransformMetrics: func(metrics *blip.Metrics) error {
-			return nil
-		}},
 		PlanLoader: plan.NewLoader(nil),
 		RDSLoader:  aws.RDSLoader{ClientFactory: mock.RDSClientFactory{}},
 	}

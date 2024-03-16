@@ -6,6 +6,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/go-test/deep"
 
@@ -105,18 +106,24 @@ func TestValidateDefaultPlans(t *testing.T) {
 func TestPlanFreq(t *testing.T) {
 	plan := default_plan.MySQL()
 	min, domain := plan.Freq()
-	if min != 5 {
+
+	d5s := time.Duration(5) * time.Second
+	d300s := time.Duration(300) * time.Second
+	d900s := time.Duration(900) * time.Second
+
+	if min != d5s {
 		t.Errorf("got min freq %d, expected 5", min)
 	}
-	expect := map[string]int{
-		"status.global": 5, // in two levels: 5s and 20s
-		"innodb":        5,
-		"repl":          5,
-		"repl.lag":      5,
-		"size.database": 300, // 5min
-		"size.table":    300, // 5min
-		"size.binlog":   300, // 5min
-		"var.global":    900, // 15min
+
+	expect := map[string]time.Duration{
+		"status.global": d5s, // in two levels: 5s and 20s
+		"innodb":        d5s,
+		"repl":          d5s,
+		"repl.lag":      d5s,
+		"size.database": d300s, // 5min
+		"size.table":    d300s, // 5min
+		"size.binlog":   d300s, // 5min
+		"var.global":    d900s, // 15min
 	}
 	if diff := deep.Equal(domain, expect); diff != nil {
 		t.Error(diff)

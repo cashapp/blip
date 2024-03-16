@@ -61,9 +61,6 @@ func TestMonitor(t *testing.T) {
 		PlanLoader: pl,
 		DbMaker:    dbMaker,
 		Sinks:      []blip.Sink{sink},
-		TransformMetric: func(metrics *blip.Metrics) error {
-			return nil
-		},
 	})
 
 	if err := mon.Start(); err != nil {
