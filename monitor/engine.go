@@ -21,7 +21,16 @@ import (
 // is not configurable via Blip config; it can only be changed via integration.
 var CollectParallel = 2
 
-// collection is the return values from one Collector.Collect call.
+// collection is the metrics from one domain. The flow is roughly:
+//
+//	Engine.collectionChan <- go cl.collect(<domain collector>)
+//
+// See clutch ("cl") at the bottom of this file. The embedded blip.Metrics
+// is used for field Interval: if collection.Interval == the current interval
+// (normal case), then it's metrics for the current Engine.Collect call.
+// Else, collection.Interval < current interval because it's metrics from a
+// long-running collector. In this case, the embedded blip.Metrics is used to
+// recreate the blip.Metrics from the past.
 type collection struct {
 	blip.Metrics
 	domain  string
@@ -30,7 +39,12 @@ type collection struct {
 	runtime time.Duration
 }
 
-// Engine does the real work: collect metrics.
+// Engine runs domain metric collectors to collect metrics. It's called by the
+// LevelCollector (LCO) at intervals and expected to collect and return within
+// an engine make runtime (EMR) passed to Collect. The LCO creates the Engine.
+// On LCO.Stop, the Engine must stop/destroy all collectors because the LCO will
+// stop/destroy the Engine. Like all Monitor components, an Engine is not restarted
+// or reused, it's recreated if the Monitor is restarted.
 type Engine struct {
 	cfg       blip.ConfigMonitor
 	db        *sql.DB
@@ -68,9 +82,9 @@ func (e *Engine) DB() *sql.DB {
 	return e.db
 }
 
-// Prepare prepares the monitor to collect metrics for the plan. The monitor
+// Prepare prepares the engine to collect metrics for the plan. The engine
 // must be successfully prepared for Collect() to work because Prepare()
-// initializes metrics collectors for every level of the plan. Prepare() can
+// initializes metric collectors for every level of the plan. Prepare() can
 // be called again when, for example, the PlanChanger detects a state change
 // and calls the LevelCollector to change plans, which than calls this func with
 // the new state plan.
@@ -228,7 +242,22 @@ func (e *Engine) Prepare(ctx context.Context, plan blip.Plan, before, after func
 	return nil
 }
 
+// Collect collects the metrics at the given level. There are 3 return guarantees
+// for the slice of metrics:
+//
+//   - metrics[0] is non-nil (always returns at least one blip.Metrics)
+//   - metrics[n].Values is non-nil (but might be empty, no values)
+//   - []metrics is sorted ascending by Interval
+//
+// Collect returns when all collectors it starts return, or when emrCtx
+// (engine max runtime) expires. The former is the normal case.
+//
+// Both metrics and an error can be returned in the case of partially success:
+// some collectors work but others fail. Caller should check returned metrics
+// even if an error is returned.
 func (e *Engine) Collect(emrCtx context.Context, interval uint, levelName string, startTime time.Time) ([]*blip.Metrics, error) {
+	// Don't change plans or stop while collecting. Engine max runtime (emrCtx)
+	// ensures this collection won't take too long and block Prepare or Stop.
 	e.Lock()
 	defer e.Unlock()
 
@@ -236,10 +265,13 @@ func (e *Engine) Collect(emrCtx context.Context, interval uint, levelName string
 	coId := fmt.Sprintf("%s/%s/%d", e.plan.Name, levelName, interval)
 
 	// All metric collectors at this level
-	domains := e.collectAt[levelName]
+	domains, ok := e.collectAt[levelName]
+	if !ok {
+		panic(fmt.Sprintf("Engine.Collect called for interval %d level %s but plan has no domains at this level", interval, levelName))
+	}
 	if domains == nil {
-		blip.Debug("%s: %s: no domains, ignoring", e.monitorId, coId)
-		return nil, nil // @todo doesn't guarantee metrics[0]
+		blip.Debug("Engine.Stop was called, dropping interval %d level %s", interval, levelName)
+		return []*blip.Metrics{&blip.Metrics{Values: map[string][]blip.MetricValue{}}}, nil // see return guarantee in Collect comment
 	}
 	blip.Debug("%s: %s: collect", e.monitorId, coId)
 	status.Monitor(e.monitorId, status.ENGINE_COLLECT, coId+": collecting")
@@ -322,9 +354,10 @@ SWEEP:
 					metrics = append(metrics, &old)
 				}
 			}
-			// @todo do somethign with c.runtime: collector run
+			// @todo if c.runtime > some config, drop and send event.DROP_METRICS_RUNTIME
 		case <-emrCtx.Done(): // engine runtime max
 			blip.Debug("EMR timeout receiving collections")
+			// @todo event so we can monitor is edge case
 			break SWEEP
 		}
 	}
@@ -383,7 +416,7 @@ SWEEP:
 // This could result in a panic, though that should be caught and logged.
 // Since the monitor is stopping anyway this isn't a huge issue.
 func (e *Engine) Stop() {
-	blip.Debug("Stopping engine...")
+	blip.Debug("Engine.Stop called")
 	e.Lock()
 	defer e.Unlock()
 	e.stopCollectors()
@@ -414,11 +447,18 @@ func (e *Engine) stopCollectors() {
 
 // --------------------------------------------------------------------------
 
-// amc represents one active metric collector and its cleanup func (if any).
-// There's only one mc per domain, even if the domain is used at multiple levels
-// (because the mc prepares itself for each level). When plans change, we start
-// over (we don't reset/reuse mcs): discard all old mc (calling their cleanup funcs)
-// then create a new list of mcs.
+// A clutch connects the engine to one domain metric collector. It's 1-to-1:
+// one domain metrics collector to one clutch ("cl"). Each one is created in
+// Engine.Prepare and run as a goroutine in Engine.Collect. The clutch is
+// primarily responsible for ensuring its collector runs only in serial.
+// The first if-block of cl.run checks this: if an earlier cl.run is still
+// running, it's a collector fault and the earlier cl.run is fenced off
+// (metrics will be dropped) in case it ever returns. Second responsibility
+// is letting the collector run without blocking Engine.Collect because some
+// domains are long-running but the engine has to collect in serial, so it
+// can't wait for long-running collectors.
+//
+// Follow the link in DESIGN.md to learn more about this component.
 type clutch struct {
 	c              blip.Collector
 	cleanup        func()            // from c.Prepare (optional)

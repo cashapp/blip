@@ -1,4 +1,4 @@
-// Copyright 2022 Block, Inc.
+// Copyright 2024 Block, Inc.
 
 package monitor_test
 
@@ -14,10 +14,10 @@ import (
 
 func TestProm(t *testing.T) {
 	// Test that the Prometheus-emulating Exporter scrapes from MySQL
-	_, db, err := test.Connection("mysql57")
+	_, db, err := test.Connection(test.DefaultMySQLVersion)
 	if err != nil {
 		if test.Build {
-			t.Skip("mysql57 not running")
+			t.Skip(test.DefaultMySQLVersion + " not running")
 		} else {
 			t.Fatal(err)
 		}

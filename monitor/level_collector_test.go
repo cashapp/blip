@@ -34,15 +34,15 @@ var dbs = map[string]*sql.DB{}
 var dbMaker = dbconn.NewConnFactory(nil, nil)
 var pl = plan.NewLoader(nil)
 
-func setup(t *testing.T, mysqlVersion string) *sql.DB {
-	db, ok := dbs[mysqlVersion]
+func setup(t *testing.T, myVersion string) *sql.DB {
+	db, ok := dbs[myVersion]
 	if ok && db != nil {
 		return db
 	}
-	_, db, err := test.Connection(mysqlVersion)
+	_, db, err := test.Connection(myVersion)
 	if err != nil {
 		if test.Build {
-			t.Skip("mysql57 not running")
+			t.Skip(myVersion + " not running")
 		} else {
 			t.Fatal(err)
 		}
@@ -103,7 +103,7 @@ func TestLevelCollector(t *testing.T) {
 	// which is what we want: LCO->engine->collector. By using a fake collector
 	// but real LCO and engine , we testing the real, unmodified logic--
 	// the LCO and engine don't know or care that this collector is a mock.
-	db := setup(t, "mysql57")
+	db := setup(t, test.DefaultMySQLVersion)
 
 	monitorId := "m1"
 	defer status.RemoveMonitor(monitorId)
@@ -135,7 +135,7 @@ func TestLevelCollector(t *testing.T) {
 		MonitorId: monitorId,
 		Username:  "root",
 		Password:  "test",
-		Hostname:  "127.0.0.1:33560", // 5.6
+		Hostname:  "127.0.0.1:" + test.MySQLPort[test.DefaultMySQLVersion],
 	}
 	cfg := blip.Config{
 		Plans:    blip.ConfigPlans{Files: []string{planName}},
@@ -232,7 +232,7 @@ func TestLevelCollector_SinkProcessing(t *testing.T) {
 	// which is what we want: LCO->engine->collector. By using a fake collector
 	// but real LCO and enginer, we testing the real, unmodified logic--
 	// the LCO and engine don't know or care that this collector is a mock.
-	db := setup(t, "mysql57")
+	db := setup(t, test.DefaultMySQLVersion)
 
 	monitorId := "m1"
 	defer status.RemoveMonitor(monitorId)
@@ -294,7 +294,7 @@ func TestLevelCollector_SinkProcessing(t *testing.T) {
 		MonitorId: monitorId,
 		Username:  "root",
 		Password:  "test",
-		Hostname:  "127.0.0.1:33560", // 5.6
+		Hostname:  "127.0.0.1" + test.MySQLPort[test.DefaultMySQLVersion],
 	}
 	cfg := blip.Config{
 		Plans:    blip.ConfigPlans{Files: []string{planName}},
@@ -388,7 +388,7 @@ func TestLevelCollectorChangePlan(t *testing.T) {
 	//   1. LCO.ChangePlan
 	//   0. test
 
-	db := setup(t, "mysql57")
+	db := setup(t, test.DefaultMySQLVersion)
 
 	monitorId := "m2"
 	defer status.RemoveMonitor(monitorId)
@@ -517,7 +517,7 @@ func TestLevelCollector_RGB_DomainPrioirty(t *testing.T) {
 	monitor.CollectParallel = 1
 	defer func() { monitor.CollectParallel = 2 }()
 
-	myVersion := "mysql57"
+	myVersion := test.DefaultMySQLVersion
 	db := setup(t, myVersion)
 
 	// Create and register fake red, blue, green domain collectors. This must be
@@ -624,7 +624,7 @@ func TestLevelCollector_RGB_SlowBlue(t *testing.T) {
 	// This test makes blue slow to verify that interval 1 does not block but,
 	// rather, returns when its EMR expires after ~90ms.
 
-	myVersion := "mysql57"
+	myVersion := test.DefaultMySQLVersion
 	db := setup(t, myVersion)
 
 	mux := &sync.Mutex{}
@@ -758,7 +758,7 @@ func TestLevelCollector_RGB_ProgressiveBlue(t *testing.T) {
 	// each interval. That means it verifies 1) ErrMore works (don't block collection)
 	// and 2) each interval sweeps up past/pending metrics.
 
-	myVersion := "mysql57"
+	myVersion := test.DefaultMySQLVersion
 	db := setup(t, myVersion)
 
 	mux := &sync.Mutex{}
@@ -933,7 +933,7 @@ func TestLevelCollector_RGB_Fault(t *testing.T) {
 	// This causes the clutch to fence off the old interval so that when
 	// the faulty collections return, they're discarded.
 
-	myVersion := "mysql57"
+	myVersion := test.DefaultMySQLVersion
 	db := setup(t, myVersion)
 
 	mux := &sync.Mutex{}

@@ -51,9 +51,11 @@ type lco struct {
 	sinks            []blip.Sink
 	transformMetrics func([]*blip.Metrics)
 	// --
-	monitorId string
-	engine    *Engine
-	emr       time.Duration // engine max runtime = levels[0].Freq
+	monitorId   string
+	engine      *Engine
+	emr         time.Duration        // engine max runtime = levels[0].Freq
+	metricsChan chan []*blip.Metrics // sorted ascending by Interval
+	event       event.MonitorReceiver
 
 	stateMux *sync.Mutex
 	state    string
@@ -65,9 +67,6 @@ type lco struct {
 	changePlanCancelFunc context.CancelFunc
 	changePlanDoneChan   chan struct{}
 	stopped              bool
-
-	event       event.MonitorReceiver
-	metricsChan chan []*blip.Metrics
 }
 
 type LevelCollectorArgs struct {
@@ -97,16 +96,21 @@ func NewLevelCollector(args LevelCollectorArgs) *lco {
 
 // TickerDuration sets the internal ticker duration for testing. This is only
 // called for testing; do not called outside testing.
-func TickerDuration(d, a time.Duration) {
+func TickerDuration(d, e time.Duration) {
 	tickerMux.Lock() // make go test -race happy
 	tickerDuration = d
-	tickerAdded = a
+	timeElapsed = e
 	tickerMux.Unlock()
 }
 
+// Normally Blip runs 1s to 1s: tick every 1s (duration) = 1s elapsed. But for
+// testing we speed up both. For example, 10ms/1s makes Run tick every 10 ms but
+// act like 1s has elapsed. This is for test plans with realistic whole-second
+// durations. The RBB tests use 100ms/100ms because that test plan is design for
+// 100ms intervals, so it can run through 5 intervals in about 500ms.
 var tickerMux = &sync.Mutex{}        // make go test -race happy
 var tickerDuration = 1 * time.Second // used for testing
-var tickerAdded = 1 * time.Second    // used for testing
+var timeElapsed = 1 * time.Second    // used for testing
 
 // recvMetrics receives metrics on metricsChan and send them to all the sinks.
 // This is a goroutine run by keepRecvMetrics and restarted by keepRecvMetrics
@@ -182,18 +186,18 @@ func (c *lco) Run(stopChan, doneChan chan struct{}) error {
 	defer close(stopSinksChan)
 
 	// -----------------------------------------------------------------------
-	// LCO main loop: collect metrics on whole second ticks
+	// LCO main loop: collect metrics every configured minimum level interval
 
 	status.Monitor(c.monitorId, status.LEVEL_COLLECTOR, "started at %s (paused until plan change)", blip.FormatTime(time.Now()))
 	tickerMux.Lock() // make go test -race happy
-	td, ta := tickerDuration, tickerAdded
+	td, te := tickerDuration, timeElapsed
 	tickerMux.Unlock()
-	s := -1 * ta // -1 so first tick=0 and all levels collected
+	s := -1 * te // -1 so first tick=0 and all levels collected
 	interval := uint(0)
 	ticker := time.NewTicker(td)
 	defer ticker.Stop()
 	for startTime := range ticker.C {
-		s = s + ta
+		s = s + te
 
 		// Was monitor stopped?
 		select {
@@ -219,9 +223,10 @@ func (c *lco) Run(stopChan, doneChan chan struct{}) error {
 		default: // no
 		}
 
+		// Paused because no plan is set or it's being changed?
 		c.stateMux.Lock() // -- LOCK --
 		if c.paused {
-			s = -1 * tickerAdded // reset count on pause
+			s = -1 * timeElapsed
 			interval = 0
 			c.stateMux.Unlock() // -- Unlock
 			continue
