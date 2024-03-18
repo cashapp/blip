@@ -17,7 +17,7 @@ import (
 	"github.com/cashapp/blip/prom"
 )
 
-// Exporter emulates a Prometheus mysqld_exporter. It implement prom.Exporter.
+// Exporter emulates a Prometheus mysqld_exporter. It implements prom.Exporter.
 type Exporter struct {
 	cfg    blip.ConfigExporter
 	plan   blip.Plan
@@ -27,6 +27,7 @@ type Exporter struct {
 	*sync.Mutex
 	prepared bool
 	event    event.MonitorReceiver
+	interval uint
 }
 
 var _ prom.Exporter = Exporter{}
@@ -75,9 +76,9 @@ func (e Exporter) Describe(descs chan<- *prometheus.Desc) {
 
 var noop = func() {}
 
-// Collect collects metrics. It is called indirectly via Scrpe.
+// Collect collects metrics. It is called indirectly via Scrape.
 func (e Exporter) Collect(ch chan<- prometheus.Metric) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second) // @todo make configurable
 	defer cancel()
 
 	e.Lock()
@@ -91,16 +92,13 @@ func (e Exporter) Collect(ch chan<- prometheus.Metric) {
 	}
 	e.Unlock()
 
-	metrics, err := e.engine.Collect(ctx, "prom")
+	e.interval += 1
+	metrics, err := e.engine.Collect(ctx, e.interval, "prom", time.Now())
 	if err != nil {
 		e.event.Errorf(event.ENGINE_COLLECT_ERROR, "%s; see monitor status or event log for details", err)
 	}
 
-	if len(metrics.Values) == 0 {
-		return
-	}
-
-	for domain, vals := range metrics.Values {
+	for domain, vals := range metrics[0].Values {
 		tr := prom.Translator(domain)
 		if tr == nil {
 			blip.Debug("no translator registered for %s", domain)

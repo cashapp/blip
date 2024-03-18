@@ -1,0 +1,15 @@
+---
+level_1:
+  freq: 1s
+  collect:
+    test:
+      metrics:
+        - m1
+      options: {}  # Needed so tests don't get a nil map
+level_2:
+  freq: 5s
+  collect:
+    long:
+      metrics:
+        - m2
+      options: {}

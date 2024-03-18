@@ -1,4 +1,4 @@
-// Copyright 2022 Block, Inc.
+// Copyright 2024 Block, Inc.
 
 package plan
 
@@ -11,7 +11,7 @@ import (
 
 // SortedLevel represents a sorted level created by sortedLevels below.
 type SortedLevel struct {
-	Freq int
+	Freq time.Duration
 	Name string
 }
 
@@ -43,7 +43,7 @@ func Sort(p *blip.Plan) []SortedLevel {
 		d, _ := time.ParseDuration(l.Freq) // "5s" -> 5 (for freq below)
 		levels[i] = SortedLevel{
 			Name: l.Name,
-			Freq: int(d.Seconds()),
+			Freq: d,
 		}
 		i++
 	}

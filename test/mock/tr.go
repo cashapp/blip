@@ -1,3 +1,5 @@
+// Copyright 2024 Block, Inc.
+
 package mock
 
 type Tr struct {

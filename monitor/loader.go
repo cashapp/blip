@@ -1,4 +1,4 @@
-// Copyright 2023 Block, Inc.
+// Copyright 2024 Block, Inc.
 
 package monitor
 
@@ -30,7 +30,10 @@ type LoadFunc func(blip.Config) ([]blip.ConfigMonitor, error)
 // StartMonitorFunc is a callback that matches blip.Plugin.StartMonitor.
 type StartMonitorFunc func(blip.ConfigMonitor) bool
 
-var ErrStopLoss = errors.New("stop-loss prevents reloading")
+var (
+	ErrMonitorNotLoaded = errors.New("monitor not loaded")
+	ErrStopLoss         = errors.New("stop-loss prevents reloading")
+)
 
 // loadedMonitor represents one validated and loaded Monitor created by
 // a call to Load. started is false until StartMonitors or Start is called.
@@ -609,7 +612,7 @@ func (ml *Loader) Start(monitorId string, lock bool) error {
 	defer ml.Unlock()
 	m, ok := ml.repo[monitorId]
 	if !ok {
-		return nil
+		return ErrMonitorNotLoaded
 	}
 	if m.started {
 		return nil

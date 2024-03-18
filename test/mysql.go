@@ -11,10 +11,16 @@ import (
 // and the Go build still run.
 var Build = os.Getenv("GITHUB_ACTION") != ""
 
+// DefaultMySQLVersion is used in all tests, corresponds to a MySQLPort value.
+// To make a specify test use a different MySQL version, set it explicitly in
+// the test, like test.Connection("<specific version>"). Make sure it has a key
+// in MySQLPort.
+var DefaultMySQLVersion = "mysql80"
+
+// MySQLPort maps to Docker ports in docker/docker-compose.yaml.
 var MySQLPort = map[string]string{
-	//"mysql56": "33560",
-	"mysql57": "33570",
 	"mysql80": "33800",
+	"mysql57": "33570",
 	"ps57":    "33900",
 }
 

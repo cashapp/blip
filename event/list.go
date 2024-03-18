@@ -1,4 +1,4 @@
-// Copyright 2022 Block, Inc.
+// Copyright 2024 Block, Inc.
 
 package event
 
@@ -30,17 +30,16 @@ const (
 	CHANGE_PLAN              = "change-plan"
 	CHANGE_PLAN_ERROR        = "change-plan-error"
 	CHANGE_PLAN_SUCCESS      = "change-plan-success"
-	COLLECTOR_ERROR          = "collector-error"
-	COLLECTOR_PANIC          = "collector-panic"
 	DB_RELOAD_PASSWORD_ERROR = "db-reload-password-error"
 	ENGINE_COLLECT_ERROR     = "engine-collect-error"
 	ENGINE_PREPARE           = "engine-prepare"
 	ENGINE_PREPARE_ERROR     = "engine-prepare-error"
 	ENGINE_PREPARE_SUCCESS   = "engine-prepare-success"
-	LPC_BLOCKED              = "lpc-blocked"
-	LPC_PANIC                = "lpc-panic"
-	LPC_PAUSED               = "lpc-paused"
-	LPC_RUNNING              = "lpc-running"
+	ENGINE_EMR_TIMEOUT       = "engine-emr-timeout"
+	LCO_COLLECT_PANIC        = "lco-collect-panic"
+	LCO_RECEIVER_PANIC       = "lco-receiver-panic"
+	LCO_PAUSED               = "lco-paused"
+	LCO_RUNNING              = "lco-running"
 	MONITOR_CONNECTED        = "connected"
 	MONITOR_CONNECTING       = "connecting"
 	MONITOR_ERROR            = "monitor-error"
@@ -52,6 +51,16 @@ const (
 	STATE_CHANGE_BEGIN       = "state-change-begin"
 	STATE_CHANGE_END         = "state-change-end"
 	REPL_SOURCE_CHANGE       = "repl-soruce-change"
+)
+
+const (
+	COLLECTOR_CMR_TIMEOUT = "collector-cmr-timeout"
+	COLLECTOR_ERROR       = "collector-error"
+	COLLECTOR_PANIC       = "collector-panic"
+	COLLECTOR_FAULT       = "collector-fault"
+	DROP_METRICS_FENCE    = "drop-metrics-fence"   // behind fence due to collector fault
+	DROP_METRICS_FLUSH    = "drop-metrics-flush"   // Engine.collectionChan <- collection{} blocked
+	DROP_METRICS_RUNTIME  = "drop-metrics-runtime" // @todo collection.runtime > user-configured timeout
 )
 
 // Sink Events

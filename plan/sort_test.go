@@ -1,9 +1,10 @@
-// Copyright 2022 Block, Inc.
+// Copyright 2024 Block, Inc.
 
 package plan_test
 
 import (
 	"testing"
+	"time"
 
 	"github.com/go-test/deep"
 
@@ -14,6 +15,13 @@ import (
 )
 
 // --------------------------------------------------------------------------
+
+var d5 = time.Duration(5) * time.Second
+var d10 = time.Duration(10) * time.Second
+var d20 = time.Duration(20) * time.Second
+var d30 = time.Duration(30) * time.Second
+var d60 = time.Duration(60) * time.Second
+var d300 = time.Duration(300) * time.Second
 
 func TestSort(t *testing.T) {
 	// The smallest possible plan: 1 level, 1 domain, 1 metric
@@ -36,7 +44,7 @@ func TestSort(t *testing.T) {
 	}
 	expectPlan := p // copy
 	expectLevels := []plan.SortedLevel{
-		{Freq: 1, Name: "L1"},
+		{Freq: time.Second, Name: "L1"},
 	}
 	gotLevels := plan.Sort(&p)
 	assert.Equal(t, expectLevels, gotLevels)
@@ -129,9 +137,9 @@ func TestSort(t *testing.T) {
 		},
 	}
 	expectLevels = []plan.SortedLevel{
-		{Freq: 5, Name: "L1"},
-		{Freq: 10, Name: "L2"},
-		{Freq: 20, Name: "L3"},
+		{Freq: d5, Name: "L1"},
+		{Freq: d10, Name: "L2"},
+		{Freq: d20, Name: "L3"},
 	}
 	gotLevels = plan.Sort(&p)
 	assert.Equal(t, expectLevels, gotLevels)
@@ -228,8 +236,8 @@ func TestSort(t *testing.T) {
 		},
 	}
 	expectLevels = []plan.SortedLevel{
-		{Freq: 5, Name: "L1"},
-		{Freq: 10, Name: "L2"},
+		{Freq: d5, Name: "L1"},
+		{Freq: d10, Name: "L2"},
 	}
 	gotLevels = plan.Sort(&p)
 	assert.Equal(t, expectLevels, gotLevels)
@@ -451,11 +459,11 @@ func TestSortComplex(t *testing.T) {
 		},
 	}
 	expectLevels := []plan.SortedLevel{
-		{Freq: 5, Name: "L1"},
-		{Freq: 20, Name: "L2"},
-		{Freq: 30, Name: "L3"},
-		{Freq: 60, Name: "L4"},
-		{Freq: 300, Name: "L5"},
+		{Freq: d5, Name: "L1"},
+		{Freq: d20, Name: "L2"},
+		{Freq: d30, Name: "L3"},
+		{Freq: d60, Name: "L4"},
+		{Freq: d300, Name: "L5"},
 	}
 	gotLevels := plan.Sort(&p)
 	assert.Equal(t, expectLevels, gotLevels)

@@ -1,4 +1,4 @@
-// Copyright 2022 Block, Inc.
+// Copyright 2024 Block, Inc.
 
 package dbconn_test
 
@@ -21,7 +21,7 @@ func sysvar(db *sql.DB, name string) (string, error) {
 
 // --------------------------------------------------------------------------
 func TestConnect(t *testing.T) {
-	if _, _, err := test.Connection("mysql57"); err != nil {
+	if _, _, err := test.Connection(test.DefaultMySQLVersion); err != nil {
 		if test.Build {
 			t.Skip("mysql57 not running")
 		} else {
@@ -29,7 +29,7 @@ func TestConnect(t *testing.T) {
 		}
 	}
 
-	// The most basic functionality: connect to the MySQL 5.7 instance in Docker
+	// The most basic functionality: connect to the MySQL instance in Docker
 	called := false
 	modifyDB := func(*sql.DB, string) {
 		called = true
@@ -40,7 +40,7 @@ func TestConnect(t *testing.T) {
 	cfg := blip.ConfigMonitor{
 		Username: "root",
 		Password: "test",
-		Hostname: "127.0.0.1:" + test.MySQLPort["mysql57"],
+		Hostname: "127.0.0.1:" + test.MySQLPort[test.DefaultMySQLVersion],
 	}
 
 	// Make makes the connection (sql.DB) or returns an error
@@ -60,16 +60,16 @@ func TestConnect(t *testing.T) {
 	}
 
 	// Verify that the conn (sql.DB) truly works by querying MySQL for a simple
-	// SELECT @@version which should return some string containing "5.7" in all
-	// cases. The actual string can vary like "5.7.41-community" and such, but
-	// if we're truly connect to the MySQL 5.7 test instance, then @@version must
-	// contain at least "5.7".
+	// SELECT @@version which should return some string containing "8.0" in all
+	// cases. The actual string can vary like "8.0.41-community" and such, but
+	// if we're truly connect to the MySQL 8.0 test instance, then @@version must
+	// contain at least "8.0".
 	val, err := sysvar(db, "version")
 	if err != nil {
 		t.Error(err)
 	}
-	if !strings.Contains(val, "5.7") {
-		t.Errorf("@@version=%s: does not contain '5.7')", val)
+	if !strings.Contains(val, "8.0") {
+		t.Errorf("@@version=%s: does not contain '8.0')", val)
 	}
 
 	// Make should call the modifyDB plugin. We don't do anything here,

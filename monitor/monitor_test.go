@@ -1,4 +1,4 @@
-// Copyright 2022 Block, Inc.
+// Copyright 2024 Block, Inc.
 
 package monitor_test
 
@@ -18,7 +18,7 @@ import (
 )
 
 func TestMonitor(t *testing.T) {
-	_, _, err := test.Connection("mysql57")
+	_, _, err := test.Connection(test.DefaultMySQLVersion)
 	if err != nil {
 		if test.Build {
 			t.Skip("mysql57 not running")
@@ -31,7 +31,7 @@ func TestMonitor(t *testing.T) {
 		MonitorId: "tm1",
 		Username:  "root",
 		Password:  "test",
-		Hostname:  "127.0.0.1:" + test.MySQLPort["mysql57"],
+		Hostname:  "127.0.0.1:" + test.MySQLPort[test.DefaultMySQLVersion],
 	}
 	cfg := blip.Config{
 		Plans:    blip.ConfigPlans{Files: []string{"../test/plans/var_global.yaml"}},
@@ -61,9 +61,6 @@ func TestMonitor(t *testing.T) {
 		PlanLoader: pl,
 		DbMaker:    dbMaker,
 		Sinks:      []blip.Sink{sink},
-		TransformMetric: func(metrics *blip.Metrics) error {
-			return nil
-		},
 	})
 
 	if err := mon.Start(); err != nil {
@@ -101,7 +98,7 @@ func TestMonitor(t *testing.T) {
 		},
 		{
 			Name:  "innodb_max_dirty_pages_pct",
-			Value: 75,
+			Value: 90,
 			Type:  blip.GAUGE,
 		},
 	}

@@ -28,9 +28,13 @@ var _ blip.Collector = MetricsCollector{}
 type MetricsCollector struct {
 	PrepareFunc func(ctx context.Context, plan blip.Plan) (func(), error)
 	CollectFunc func(ctx context.Context, levelName string) ([]blip.MetricValue, error)
+	DomainFunc  func() string
 }
 
 func (c MetricsCollector) Domain() string {
+	if c.DomainFunc != nil {
+		return c.DomainFunc()
+	}
 	return "test"
 }
 

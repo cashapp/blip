@@ -6,9 +6,7 @@ package status
 
 import (
 	"fmt"
-	"strconv"
 	"sync"
-	"sync/atomic"
 )
 
 type status struct {
@@ -49,28 +47,6 @@ func Monitor(monitorId, component string, msg string, args ...interface{}) {
 		s.counters[monitorId] = map[string]*uint64{}
 	}
 	s.monitors[monitorId][component] = fmt.Sprintf(msg, args...)
-}
-
-func MonitorMulti(monitorId, component, msg string, args ...interface{}) string {
-	s.Lock()
-	defer s.Unlock()
-	if _, ok := s.monitors[monitorId]; !ok {
-		s.monitors[monitorId] = map[string]string{}
-		s.counters[monitorId] = map[string]*uint64{}
-	}
-	var uniqComponent string
-	n, ok := s.counters[monitorId][component]
-	if ok {
-		// 2nd+ instance of this component; increase the counter
-		uniqComponent = component + "(" + strconv.FormatUint(atomic.AddUint64(n, 1), 10) + ")"
-	} else {
-		// 1st instance of this component; init the counter
-		var first uint64 = 1
-		s.counters[monitorId][component] = &first
-		uniqComponent = component + "(1)"
-	}
-	s.monitors[monitorId][uniqComponent] = fmt.Sprintf(msg, args...)
-	return uniqComponent
 }
 
 func RemoveComponent(monitorId, component string) {

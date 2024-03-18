@@ -63,10 +63,10 @@ func heartbreatRows(db *sql.DB) ([]hbRows, error) {
 // --------------------------------------------------------------------------
 
 func TestWriter(t *testing.T) {
-	_, db, err := test.Connection("mysql57")
+	_, db, err := test.Connection(test.DefaultMySQLVersion)
 	if err != nil {
 		if test.Build {
-			t.Skip("mysql57 not running")
+			t.Skip(test.DefaultMySQLVersion + " not running")
 		} else {
 			t.Fatal(err)
 		}
@@ -150,10 +150,10 @@ func TestWriter(t *testing.T) {
 }
 
 func TestReader(t *testing.T) {
-	_, db, err := test.Connection("mysql57")
+	_, db, err := test.Connection(test.DefaultMySQLVersion)
 	if err != nil {
 		if test.Build {
-			t.Skip("mysql57 not running")
+			t.Skip(test.DefaultMySQLVersion + " not running")
 		} else {
 			t.Fatal(err)
 		}

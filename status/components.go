@@ -14,6 +14,7 @@ const (
 	LEVEL_PLAN        = "level-plan"
 	LEVEL_STATE       = "level-state"
 	LEVEL_COLLECT     = "level-collect"
+	LEVEL_SINKS       = "level-sinks"
 	LEVEL_CHANGE_PLAN = "level-change-plan"
 
 	ENGINE_COLLECT = "engine-collect"

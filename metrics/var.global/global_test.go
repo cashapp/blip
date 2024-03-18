@@ -1,4 +1,4 @@
-// Copyright 2022 Block, Inc.
+// Copyright 2024 Block, Inc.
 
 package varglobal
 
@@ -14,10 +14,10 @@ import (
 func TestPrepareForSingleLevelAndNoSource(t *testing.T) {
 	// Given a LevelPlan for a collector with single level and no supplied source,
 	// test that Prepare correctly constructs the query for that level (ie: select query)
-	_, db, err := test.Connection("mysql57")
+	_, db, err := test.Connection(test.DefaultMySQLVersion)
 	if err != nil {
 		if test.Build {
-			t.Skip("mysql57 not running")
+			t.Skip(test.DefaultMySQLVersion + " not running")
 		} else {
 			t.Fatal(err)
 		}
@@ -42,10 +42,10 @@ func TestPrepareWithAllSources(t *testing.T) {
 	// Given a LevelPlan for a collector with single level and a custom source,
 	// test that Prepare correctly constructs the query for that level
 	// using that source query.
-	_, db, err := test.Connection("mysql57")
+	_, db, err := test.Connection(test.DefaultMySQLVersion)
 	if err != nil {
 		if test.Build {
-			t.Skip("mysql57 not running")
+			t.Skip(test.DefaultMySQLVersion + " not running")
 		} else {
 			t.Fatal(err)
 		}
@@ -78,10 +78,10 @@ func TestPrepareWithAllSources(t *testing.T) {
 func TestPrepareWithCustomInvalidSource(t *testing.T) {
 	// Given a LevelPlan for a collector with single level and a custom source,
 	// which is invalid, test that Prepare returns an error
-	_, db, err := test.Connection("mysql57")
+	_, db, err := test.Connection(test.DefaultMySQLVersion)
 	if err != nil {
 		if test.Build {
-			t.Skip("mysql57 not running")
+			t.Skip(test.DefaultMySQLVersion + " not running")
 		} else {
 			t.Fatal(err)
 		}
@@ -98,10 +98,10 @@ func TestPrepareWithCustomInvalidSource(t *testing.T) {
 func TestPrepareWithInvalidMetricName(t *testing.T) {
 	// Given a LevelPlan for a collector with single level and
 	// invalid metricname, test that Prepare returns an error
-	_, db, err := test.Connection("mysql57")
+	_, db, err := test.Connection(test.DefaultMySQLVersion)
 	if err != nil {
 		if test.Build {
-			t.Skip("mysql57 not running")
+			t.Skip(test.DefaultMySQLVersion + " not running")
 		} else {
 			t.Fatal(err)
 		}
@@ -125,10 +125,10 @@ var fourMetrics = []string{"max_connections", "max_prepared_stmt_count", "innodb
 func TestCollectWithSingleLevelPlanAndNoSource(t *testing.T) {
 	// Given a plan with single level containing a list of metrics for domain
 	// and no custom source, verify that those metrics are retrieved correctly.
-	_, db, err := test.Connection("mysql57")
+	_, db, err := test.Connection(test.DefaultMySQLVersion)
 	if err != nil {
 		if test.Build {
-			t.Skip("mysql57 not running")
+			t.Skip(test.DefaultMySQLVersion + " not running")
 		} else {
 			t.Fatal(err)
 		}
@@ -152,10 +152,10 @@ func TestCollectWithSingleLevelPlanAndNoSource(t *testing.T) {
 func TestCollectWithAllSources(t *testing.T) {
 	// Given a level plan with custom source option
 	// collect should return the list of metrics correctly.
-	_, db, err := test.Connection("mysql57")
+	_, db, err := test.Connection(test.DefaultMySQLVersion)
 	if err != nil {
 		if test.Build {
-			t.Skip("mysql57 not running")
+			t.Skip(test.DefaultMySQLVersion + " not running")
 		} else {
 			t.Fatal(err)
 		}
@@ -187,10 +187,10 @@ func TestCollectWithAllSources(t *testing.T) {
 func TestCollectWithMultipleLevels(t *testing.T) {
 	// Given a plan with multiple levels containing a list of metrics for each level
 	// verify that those metrics are retrieved correctly only at their respective levels.
-	_, db, err := test.Connection("mysql57")
+	_, db, err := test.Connection(test.DefaultMySQLVersion)
 	if err != nil {
 		if test.Build {
-			t.Skip("mysql57 not running")
+			t.Skip(test.DefaultMySQLVersion + " not running")
 		} else {
 			t.Fatal(err)
 		}
@@ -221,10 +221,10 @@ func TestCollectWithMultipleLevels(t *testing.T) {
 func TestCollectWithOneNonExistentMetric(t *testing.T) {
 	// Given a level plan with single level which contains 3 valid metrics and
 	// 1 non existent metric, it should successfully return 3 metrics
-	_, db, err := test.Connection("mysql57")
+	_, db, err := test.Connection(test.DefaultMySQLVersion)
 	if err != nil {
 		if test.Build {
-			t.Skip("mysql57 not running")
+			t.Skip(test.DefaultMySQLVersion + " not running")
 		} else {
 			t.Fatal(err)
 		}

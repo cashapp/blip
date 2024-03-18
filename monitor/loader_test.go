@@ -1,4 +1,4 @@
-// Copyright 2022 Block, Inc.
+// Copyright 2024 Block, Inc.
 
 package monitor_test
 
@@ -13,6 +13,7 @@ import (
 	"github.com/cashapp/blip/dbconn"
 	"github.com/cashapp/blip/monitor"
 	"github.com/cashapp/blip/plan"
+	"github.com/cashapp/blip/test"
 	"github.com/cashapp/blip/test/mock"
 )
 
@@ -37,7 +38,7 @@ func TestLoaderLoadOne(t *testing.T) {
 		MonitorId: "m1",
 		Username:  "root",
 		Password:  "test",
-		Hostname:  "127.0.0.1:33560", // 5.6
+		Hostname:  "127.0.0.1:" + test.MySQLPort[test.DefaultMySQLVersion],
 	}
 	cfg := blip.Config{
 		Plans:    blip.ConfigPlans{Files: []string{planName}},
@@ -50,9 +51,6 @@ func TestLoaderLoadOne(t *testing.T) {
 		Factories: blip.Factories{
 			DbConn: dbconn.NewConnFactory(nil, nil),
 		},
-		Plugins: blip.Plugins{TransformMetrics: func(metrics *blip.Metrics) error {
-			return nil
-		}},
 		PlanLoader: plan.NewLoader(nil),
 		RDSLoader:  aws.RDSLoader{ClientFactory: mock.RDSClientFactory{}},
 	}

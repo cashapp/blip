@@ -11,7 +11,7 @@ func Exporter() blip.Plan {
 		Levels: map[string]blip.Level{
 			"prom": blip.Level{ // key name and
 				Name: "prom", // level Name must be equal
-				Freq: "0",    // none, pulled/scaped on demand
+				Freq: "10s",  // not real but gives collectors a time limit
 				Collect: map[string]blip.Domain{
 					"status.global": {
 						Name: "status.global",

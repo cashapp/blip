@@ -1,4 +1,4 @@
-// Copyright 2022 Block, Inc.
+// Copyright 2024 Block, Inc.
 
 // Package monitor provides core Blip components that, together, monitor one
 // MySQL instance. Most monitoring logic happens in the package, but package
@@ -55,7 +55,7 @@ type Monitor struct {
 	dbMaker         blip.DbFactory
 	planLoader      *plan.Loader
 	sinks           []blip.Sink
-	transformMetric func(metrics *blip.Metrics) error
+	transformMetric func([]*blip.Metrics)
 
 	// Core components
 	runMux  *sync.RWMutex
@@ -82,7 +82,7 @@ type MonitorArgs struct {
 	DbMaker         blip.DbFactory
 	PlanLoader      *plan.Loader
 	Sinks           []blip.Sink
-	TransformMetric func(metrics *blip.Metrics) error
+	TransformMetric func([]*blip.Metrics)
 	HA              ha.Manager
 }
 
