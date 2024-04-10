@@ -37,7 +37,7 @@ type Receiver interface {
 // receiver before calling Server.Boot.
 func SetReceiver(r Receiver, override bool) {
 	// Don't override becuase it's set only once. If user calls before
-	// Server.Start, then we keep their receiver. Else, Server.Start calls
+	// Server.Boot, then we keep their receiver. Else, Server.Boot calls
 	// to set a built-in Log receiver.
 	if receiver != nil && !override {
 		return
@@ -46,9 +46,9 @@ func SetReceiver(r Receiver, override bool) {
 }
 
 // receiver is the private package Receiver that the public packages below use.
-// It defaults to a Log type receiver (set by Server.Start), but users can call
-// SetReceiver (before Server.Start) to override.
-var receiver Receiver = Log{}
+// It defaults to a Log type receiver (set in Server.Boot), but users can call
+// SetReceiver (before Server.Boot) to override.
+var receiver Receiver
 
 var subscribers = []Receiver{}
 var submux = &sync.Mutex{}
