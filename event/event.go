@@ -36,19 +36,26 @@ type Receiver interface {
 // receiver is Log. To override the default, call this function to set a new
 // receiver before calling Server.Boot.
 func SetReceiver(r Receiver, override bool) {
-	// Don't override becuase it's set only once. If user calls before
-	// Server.Boot, then we keep their receiver. Else, Server.Boot calls
-	// to set a built-in Log receiver.
-	if receiver != nil && !override {
-		return
+	// Is r the default Log receiver set below (outside this func)?
+	// Yes if r type = Log and that Log.internal = true. If Log.internal = false,
+	// then it's the Log set in Server.Boot because that pkg can't see/set the
+	// private Log.internal field.
+	defaultLog := false
+	if lr, ok := receiver.(Log); ok && lr.internal {
+		defaultLog = true
 	}
-	receiver = r
+
+	if override || receiver == nil || defaultLog {
+		receiver = r
+	}
+
+	return
 }
 
 // receiver is the private package Receiver that the public packages below use.
 // It defaults to a Log type receiver (set in Server.Boot), but users can call
 // SetReceiver (before Server.Boot) to override.
-var receiver Receiver
+var receiver Receiver = Log{internal: true}
 
 var subscribers = []Receiver{}
 var submux = &sync.Mutex{}
@@ -150,7 +157,8 @@ var stderr = log.New(os.Stderr, "", log.LstdFlags|log.Lmicroseconds)
 // certain events to STDOUT and error events to STDERR. Call SetReceiver to
 // override this default.
 type Log struct {
-	All bool
+	All      bool
+	internal bool
 }
 
 func (s Log) Recv(e Event) {

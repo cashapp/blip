@@ -46,7 +46,6 @@ const (
 	MONITOR_PANIC            = "monitor-panic"
 	MONITOR_STARTED          = "monitor-started"
 	MONITOR_STOPPED          = "monitor-stopped"
-	SINK_SEND_ERROR          = "sink-send-error"
 	STATE_CHANGE_ABORT       = "state-change-abort"
 	STATE_CHANGE_BEGIN       = "state-change-begin"
 	STATE_CHANGE_END         = "state-change-end"
@@ -64,7 +63,8 @@ const (
 )
 
 // Sink Events
-
 const (
-	SINK_ERROR = "sink-error"
+	SINK_INVALID_METRICS = "sink-invalid-metrics" // invalid metrics, drop
+	SINK_SERVER_ERROR    = "sink-server-error"    // send ok but remote server returned an error
+	SINK_SEND_ERROR      = "sink-send-error"      // e.g. network timeout
 )

@@ -39,6 +39,7 @@ type Datadog struct {
 	tags      []string            // monitor.tags (dimensions)
 	tr        tr.DomainTranslator // datadog.metric-translator
 	prefix    string              // datadog.metric-prefix
+	event     event.MonitorReceiver
 
 	// -- Api
 	metricsApi *datadogV2.MetricsApi
@@ -78,6 +79,7 @@ func NewDatadog(monitorId string, opts, tags map[string]string, httpClient *http
 
 	d := &Datadog{
 		monitorId:            monitorId,
+		event:                event.MonitorReceiver{MonitorId: monitorId},
 		tags:                 tagList,
 		resources:            resources,
 		maxMetricsPerRequest: math.MaxInt32, // By default, don't limit the number of metrics per request.
@@ -172,25 +174,27 @@ func NewDatadog(monitorId string, opts, tags map[string]string, httpClient *http
 func (s *Datadog) Send(ctx context.Context, m *blip.Metrics) error {
 	status.Monitor(s.monitorId, s.Name(), "sending metrics")
 
-	// On return, set monitor status for this sink
-	n := 0
-	defer func() {
-		status.Monitor(s.monitorId, s.Name(), "last sent %d metrics at %s", n, time.Now())
-	}()
-
-	// Pre-alloc SFX data points
+	// Pre-alloc data points if using Datadog API (not DogStatsD)
+	var dp []datadogV2.MetricSeries
+	var n int
 	for _, metrics := range m.Values {
 		n += len(metrics)
 	}
+	// Return nil is no metric values. This happens when collection runs but
+	// MySQL is offline (or some other error), so metrics were collected.
 	if n == 0 {
-		return fmt.Errorf("no Blip metrics were collected")
+		blip.Debug("%s: zero metric values collect: %s", m)
+		return nil
 	}
-	var dp []datadogV2.MetricSeries
-
 	if !s.dogstatsd {
 		dp = make([]datadogV2.MetricSeries, n)
 	}
 	n = 0
+
+	// On return, set monitor status for this sink
+	defer func() {
+		status.Monitor(s.monitorId, s.Name(), "last sent %d metrics at %s", n, time.Now())
+	}()
 
 	// Make a copy of maxMetricsPerRequest in case it gets updated by other threads
 	localMaxMetricsPerRequest := s.maxMetricsPerRequest
@@ -211,7 +215,7 @@ func (s *Datadog) Send(ctx context.Context, m *blip.Metrics) error {
 		},
 	)
 
-	// Convert each Blip metric value to an SFX data point
+	// Convert Blip metric values to Datadog data points
 	for domain := range m.Values { // each domain
 		metrics := m.Values[domain]
 		var name string
@@ -274,7 +278,7 @@ func (s *Datadog) Send(ctx context.Context, m *blip.Metrics) error {
 			// Convert Blip metric type to Datadog metric type
 			switch metrics[i].Type {
 			case blip.CUMULATIVE_COUNTER, blip.DELTA_COUNTER:
-				// This sinks is wrapped in a Delta pseduo-sink, so
+				// This sinks is wrapped in a Delta pseudo-sink, so
 				// do NOT calculate delta values here; it's already
 				// done on a per-domain basis.
 				if s.dogstatsd {
@@ -337,12 +341,14 @@ func (s *Datadog) Send(ctx context.Context, m *blip.Metrics) error {
 
 	// This shouldn't happen: >0 Blip metrics in but =0 Datadog data points out
 	if n == 0 {
-		return fmt.Errorf("no Datadog data points after processing %d Blip metrics", len(m.Values))
+		errMsg := fmt.Sprintf("zero data points created after processing Blip metrics: %s", m)
+		s.event.Errorf(event.SINK_INVALID_METRICS, errMsg)
+		return nil // do not retry
 	}
 
-	// dogstatsd metrics are sent to the datadog agent inside the loop, there's nothing else to do
+	// dogstatsd metrics are sent to the Datadog agent inside the loop, there's nothing else to do
 	if s.dogstatsd {
-		return nil
+		return nil // success (dogstatsd)
 	}
 
 	if n-rangeStart > 0 {
@@ -355,7 +361,7 @@ func (s *Datadog) Send(ctx context.Context, m *blip.Metrics) error {
 		return fmt.Errorf("%s", strings.Join(apiErrors, "\n"))
 	}
 
-	return nil
+	return nil // success (API)
 }
 
 // Send metrics to the API taking into consideration the number of metrics sent per request.
@@ -377,33 +383,32 @@ func (s *Datadog) sendApi(ddCtx context.Context, dp []datadogV2.MetricSeries) er
 
 		apiResponse, r, err := s.metricsApi.SubmitMetrics(ddCtx, *datadogV2.NewMetricPayload(dp[rangeStart:rangeEnd]), optParams)
 		if err != nil {
-			if r != nil && r.StatusCode == http.StatusRequestEntityTooLarge {
-				// Is the number of metrics sent already the smallest possible?
-				if localMaxMetricsPerRequest == 1 {
-					return fmt.Errorf("unable to send metrics: %v", err)
-				}
+			if r != nil {
+				if r.StatusCode == http.StatusRequestEntityTooLarge {
+					// Is the number of metrics sent already the smallest possible?
+					if localMaxMetricsPerRequest == 1 {
+						return fmt.Errorf("HTTP status %d (request too large) but dynamic request size at minimum: 1 metric per request; send err: %v; response body: %v", r.StatusCode, err, r.Body)
+					}
 
-				// The payload was too large, so we need to recalculate it and try with a smaller size
-				if localMaxMetricsPerRequest, err = s.estimateMaxMetricsPerRequest(dp[rangeStart:rangeEnd], localMaxMetricsPerRequest); err != nil {
-					return fmt.Errorf("unable to determine proper number of metrics per request: %v", err)
-				}
+					// The payload was too large, so we need to recalculate it and try with a smaller size
+					var err2 error
+					if localMaxMetricsPerRequest, err2 = s.estimateMaxMetricsPerRequest(dp[rangeStart:rangeEnd], localMaxMetricsPerRequest); err2 != nil {
+						return fmt.Errorf("HTTP status %d (request too large) and error estimating new dynamic request size: %v; send err: %v; response body: %v", r.StatusCode, err2, err, r.Body)
+					}
 
-				// Retry the metrics with the new payload size
-				continue
+					continue // Retry the metrics with the new payload size
+				}
+				return fmt.Errorf("%s (HTTP status %d: %v)", err, r.StatusCode, r.Body)
 			}
 
-			blip.Debug("error sending data points to Datadog: %s, Http Response: %s", err, r)
-			return err
+			return fmt.Errorf("network error (nil response): %v", err)
 		}
 
+		// Datadog can return a 202 Accepted response _and_ errors in the response.
+		// This probably means partial success, so keep sending but log the error.
 		if len(apiResponse.Errors) > 0 {
-			// datadog can return a 202 Accepted response code but errors in response payload
-			// this can be partial success, log it, raise an event and continue
-			errMsg := fmt.Sprintf("%s: error(s) returned from datadog: %s", s.monitorId, strings.Join(apiResponse.Errors, ","))
-			blip.Debug(errMsg)
-
-			// Send an event as well
-			event.Errorf(event.SINK_ERROR, errMsg) // log by default
+			errMsg := fmt.Sprintf("Datadog returned success and %d errors: %s", len(apiResponse.Errors), strings.Join(apiResponse.Errors, ", "))
+			s.event.Errorf(event.SINK_SERVER_ERROR, errMsg)
 		}
 
 		rangeStart = rangeEnd
@@ -412,11 +417,11 @@ func (s *Datadog) sendApi(ddCtx context.Context, dp []datadogV2.MetricSeries) er
 	// Update the maxMetricsPerRequest for the sink
 	if localMaxMetricsPerRequest < s.maxMetricsPerRequest {
 		s.maxMetricsPerRequestLock.Lock()
-		defer s.maxMetricsPerRequestLock.Unlock()
 		// Check the value again in case it changed after getting the lock
 		if localMaxMetricsPerRequest < s.maxMetricsPerRequest {
 			s.maxMetricsPerRequest = localMaxMetricsPerRequest
 		}
+		s.maxMetricsPerRequestLock.Unlock()
 	}
 
 	return nil

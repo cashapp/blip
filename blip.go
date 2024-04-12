@@ -45,6 +45,12 @@ type Metrics struct {
 	Values    map[string][]MetricValue // keyed on domain
 }
 
+func (m *Metrics) String() string {
+	return fmt.Sprintf("%s: %s/%s/%d (%s): %s to %s (%d)",
+		m.MonitorId, m.Plan, m.Level, m.Interval, m.State,
+		m.Begin.Round(time.Microsecond), m.End.Round(time.Microsecond), m.End.Sub(m.Begin).Round(time.Microsecond))
+}
+
 // MetricValue is one metric and its name, type, value, and tags. Tags are optional;
 // the other fields are required and always set. This is the lowest-level data struct:
 // a Collector reports metric values, which the monitor.Engine organize into Metrics
