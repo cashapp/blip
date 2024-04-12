@@ -316,7 +316,7 @@ func (e *Engine) Collect(emrCtx context.Context, interval uint, levelName string
 	// Wait for all collectors to finish, then record end time
 	m.Values = map[string][]blip.MetricValue{}
 	metrics := []*blip.Metrics{m}
-	errs := map[string]error{}
+	errs := map[string]error{} // includes nil to clear "error:domain" status
 	nValues := 0
 SWEEP:
 	for len(running) > 0 {
@@ -334,9 +334,7 @@ SWEEP:
 					metrics[0].Values[c.domain] = c.vals
 					nValues += n
 				}
-				if c.err != nil && c.err != blip.ErrMore {
-					errs[c.domain] = c.err
-				}
+				errs[c.domain] = c.err // save all, including nil
 			} else { // past interval/collection
 				// Merge with existing past interval metrics, else append new *blip.Metrics
 				merged := false
@@ -363,17 +361,22 @@ SWEEP:
 	}
 	metrics[0].End = time.Now()
 
-	// Process collector errors, if any
+	// Log collector errors and update collector status
 	status.Monitor(e.monitorId, status.ENGINE_COLLECT, coId+": logging errors")
 	errCount := 0
 	for domain, err := range errs {
-		if err != nil {
-			errCount += 1
-			errMsg := fmt.Sprintf("error collecting %s/%s/%s: %s", e.plan.Name, levelName, domain, err)
-			status.Monitor(e.monitorId, "error:"+domain, "at %s: %s: %s", metrics[0].Begin, coId, errMsg)
-			e.event.Errorf(event.COLLECTOR_ERROR, errMsg) // log by default
-		} else {
+		switch err {
+		case blip.ErrMore:
 			status.RemoveComponent(e.monitorId, "error:"+domain)
+			status.Monitor(e.monitorId, "background:"+domain, "at %s for %s", metrics[0].Begin, coId)
+		case nil:
+			status.RemoveComponent(e.monitorId, "error:"+domain)
+			status.RemoveComponent(e.monitorId, "background:"+domain)
+		default:
+			errCount += 1
+			errMsg := fmt.Sprintf("%s/%s: %s", coId, domain, err)
+			status.Monitor(e.monitorId, "error:"+domain, "at %s: %s", metrics[0].Begin, errMsg)
+			e.event.Errorf(event.COLLECTOR_ERROR, errMsg) // log by default
 		}
 	}
 

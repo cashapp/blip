@@ -40,6 +40,7 @@ const (
 	LCO_RECEIVER_PANIC       = "lco-receiver-panic"
 	LCO_PAUSED               = "lco-paused"
 	LCO_RUNNING              = "lco-running"
+	LCO_METRICS_FAULT        = "lco-metrics-fault"
 	MONITOR_CONNECTED        = "connected"
 	MONITOR_CONNECTING       = "connecting"
 	MONITOR_ERROR            = "monitor-error"

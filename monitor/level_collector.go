@@ -255,14 +255,13 @@ func (c *lco) Run(stopChan, doneChan chan struct{}) error {
 
 func (c *lco) collect(interval uint, levelName string, startTime time.Time) {
 	status.Monitor(c.monitorId, status.LEVEL_COLLECT, "%s/%s: collecting", c.plan.Name, levelName)
-	var d time.Duration
 	defer func() {
-		status.Monitor(c.monitorId, status.LEVEL_COLLECT, "%s/%s: collected in %d ms", c.plan.Name, levelName, d.Milliseconds())
 		if err := recover(); err != nil { // catch panic in engine and TransformMetrics
 			b := make([]byte, 4096)
 			n := runtime.Stack(b, false)
 			c.event.Errorf(event.LCO_COLLECT_PANIC, "PANIC: %s: %s\n%s", c.monitorId, err, string(b[0:n]))
 		}
+		status.Monitor(c.monitorId, status.LEVEL_COLLECT, "%s/%s/%d: collected in %s", c.plan.Name, levelName, interval, time.Now().Sub(startTime))
 	}()
 
 	// **************************************************************
@@ -283,7 +282,11 @@ func (c *lco) collect(interval uint, levelName string, startTime time.Time) {
 	}
 
 	status.Monitor(c.monitorId, status.LEVEL_COLLECT, "%s/%s: sending", c.plan.Name, levelName)
-	c.metricsChan <- metrics
+	select {
+	case c.metricsChan <- metrics:
+	default:
+		c.event.Errorf(event.LCO_METRICS_FAULT, "metrics channel blocked (check for sink errors), dropping metrics: %s", metrics)
+	}
 }
 
 // ChangePlan changes the metrics collect plan based on database state.
@@ -421,6 +424,7 @@ func (c *lco) changePlan(ctx context.Context, doneChan chan struct{}, newState, 
 		c.paused = false
 		status.Monitor(c.monitorId, status.LEVEL_STATE, newState)
 		status.Monitor(c.monitorId, status.LEVEL_PLAN, newPlan.Name)
+		status.Monitor(c.monitorId, status.LEVEL_COLLECTOR, "running since %s", blip.FormatTime(time.Now()))
 		blip.Debug("%s: resume", c.monitorId)
 
 		c.stateMux.Unlock() // -- X unlock --
