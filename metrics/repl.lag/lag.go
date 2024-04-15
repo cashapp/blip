@@ -138,10 +138,40 @@ LEVEL:
 		if !ok {
 			continue LEVEL // not collected in this level
 		}
-		cleanup, err := c.prepareLevel(levelName, plan.MonitorId, plan.Name, dom.Options)
-		if err != nil {
-			return cleanup, err
+		c.dropNotAReplica[levelName] = !blip.Bool(dom.Options[OPT_REPORT_NOT_A_REPLICA])
+		c.replCheck = sqlutil.CleanObjectName(dom.Options[OPT_REPL_CHECK]) // @todo sanitize better
+
+		if source, ok := dom.Options[OPT_LAG_SOURCE]; ok {
+			if len(source) > 0 && source != "auto" {
+				switch source {
+				case LAG_SOURCE_PFS:
+					c.lagSourceIn[levelName] = LAG_SOURCE_PFS
+					// Try collecting, discard metrics
+					_, err := c.collectPFS(ctx, levelName)
+					return nil, err
+				case LAG_SOURCE_BLIP:
+					return c.prepareBlip(levelName, plan.MonitorId, plan.Name, dom.Options)
+				default:
+					return nil, fmt.Errorf("invalid lag source: %s; valid values: auto, pfs, blip", source)
+				}
+			}
 		}
+
+		// -------------------------------------------------------------------------
+		// Auto source (default)
+		// -------------------------------------------------------------------------
+		var err error
+		if _, err = c.collectPFS(ctx, levelName); err == nil {
+			c.lagSourceIn[levelName] = LAG_SOURCE_PFS
+			return nil, nil
+		}
+
+		cleanup, err := c.prepareBlip(levelName, plan.MonitorId, plan.Name, dom.Options)
+		if err == nil {
+			return cleanup, nil
+		}
+
+		return nil, fmt.Errorf("auto lag source failed, last error: %s", err)
 	}
 	return nil, nil
 }
@@ -149,9 +179,9 @@ LEVEL:
 func (c *Lag) Collect(ctx context.Context, levelName string) ([]blip.MetricValue, error) {
 	switch c.lagSourceIn[levelName] {
 	case LAG_SOURCE_BLIP:
-		return c.collectBlipHeartBeatLag(ctx, levelName)
+		return c.collectBlip(ctx, levelName)
 	case LAG_SOURCE_PFS:
-		return c.collectLagFromPFS(ctx, levelName)
+		return c.collectPFS(ctx, levelName)
 	}
 
 	panic(fmt.Sprintf("invalid lag source in Collect %s", c.lagSourceIn[levelName]))
@@ -161,71 +191,41 @@ func (c *Lag) Collect(ctx context.Context, levelName string) ([]blip.MetricValue
 // Internal methods
 // //////////////////////////////////////////////////////////////////////////
 
-func (c *Lag) prepareLevel(levelName string, monitorID string, monitorName string, options map[string]string) (func(), error) {
-	c.dropNotAReplica[levelName] = !blip.Bool(options[OPT_REPORT_NOT_A_REPLICA])
-	c.replCheck = sqlutil.CleanObjectName(options[OPT_REPL_CHECK]) // @todo sanitize better
-
-	if source, ok := options[OPT_LAG_SOURCE]; ok {
-		if len(source) > 0 && source != "auto" {
-			switch source {
-			case LAG_SOURCE_PFS:
-				return nil, c.preparePFS(levelName)
-			case LAG_SOURCE_BLIP:
-				return c.prepareBlipHeartbeatLag(levelName, monitorID, monitorName, options)
-			default:
-				return nil, fmt.Errorf("invalid lag source: %s; valid values: auto, pfs, blip", source)
-			}
-		}
-	}
-
-	// -------------------------------------------------------------------------
-	// Auto source (default)
-	// -------------------------------------------------------------------------
-	var err error
-	if err = c.preparePFS(levelName); err == nil {
+func (c *Lag) prepareBlip(levelName string, monitorID string, planName string, options map[string]string) (func(), error) {
+	if c.lagReader != nil {
 		return nil, nil
 	}
 
-	if cleanup, err := c.prepareBlipHeartbeatLag(levelName, monitorID, monitorName, options); err == nil {
-		return cleanup, nil
+	c.dropNoHeartbeat[levelName] = !blip.Bool(options[OPT_REPORT_NO_HEARTBEAT])
+
+	table := options[OPT_HEARTBEAT_TABLE]
+	if table == "" {
+		table = blip.DEFAULT_HEARTBEAT_TABLE
 	}
-
-	return nil, fmt.Errorf("auto lag source failed, last error: %s", err)
-}
-
-func (c *Lag) prepareBlipHeartbeatLag(levelName string, monitorID string, planName string, options map[string]string) (func(), error) {
-	if c.lagReader == nil {
-		c.dropNoHeartbeat[levelName] = !blip.Bool(options[OPT_REPORT_NO_HEARTBEAT])
-
-		table := options[OPT_HEARTBEAT_TABLE]
-		if table == "" {
-			table = blip.DEFAULT_HEARTBEAT_TABLE
+	netLatency := 50 * time.Millisecond
+	if s, ok := options[OPT_NETWORK_LATENCY]; ok {
+		n, err := strconv.Atoi(s)
+		if err != nil {
+			blip.Debug("%s: invalid network-latency: %s: %s (ignoring; using default 50 ms)", monitorID, s, err)
+		} else {
+			netLatency = time.Duration(n) * time.Millisecond
 		}
-		netLatency := 50 * time.Millisecond
-		if s, ok := options[OPT_NETWORK_LATENCY]; ok {
-			n, err := strconv.Atoi(s)
-			if err != nil {
-				blip.Debug("%s: invalid network-latency: %s: %s (ignoring; using default 50 ms)", monitorID, s, err)
-			} else {
-				netLatency = time.Duration(n) * time.Millisecond
-			}
-		}
-		// Only 1 reader per plan
-		c.lagReader = heartbeat.NewBlipReader(heartbeat.BlipReaderArgs{
-			MonitorId:  monitorID,
-			DB:         c.db,
-			Table:      table,
-			SourceId:   options[OPT_HEARTBEAT_SOURCE_ID],
-			SourceRole: options[OPT_HEARTBEAT_SOURCE_ROLE],
-			ReplCheck:  c.replCheck,
-			Waiter: heartbeat.SlowFastWaiter{
-				MonitorId:      monitorID,
-				NetworkLatency: netLatency,
-			},
-		})
-		go c.lagReader.Start()
-		blip.Debug("%s: started reader: %s/%s (network latency: %s)", monitorID, planName, levelName, netLatency)
 	}
+	// Only 1 reader per plan
+	c.lagReader = heartbeat.NewBlipReader(heartbeat.BlipReaderArgs{
+		MonitorId:  monitorID,
+		DB:         c.db,
+		Table:      table,
+		SourceId:   options[OPT_HEARTBEAT_SOURCE_ID],
+		SourceRole: options[OPT_HEARTBEAT_SOURCE_ROLE],
+		ReplCheck:  c.replCheck,
+		Waiter: heartbeat.SlowFastWaiter{
+			MonitorId:      monitorID,
+			NetworkLatency: netLatency,
+		},
+	})
+	go c.lagReader.Start()
+	blip.Debug("%s: started reader: %s/%s (network latency: %s)", monitorID, planName, levelName, netLatency)
 	c.lagSourceIn[levelName] = LAG_SOURCE_BLIP
 	var cleanup func()
 	if c.lagReader != nil {
@@ -237,15 +237,7 @@ func (c *Lag) prepareBlipHeartbeatLag(levelName string, monitorID string, planNa
 	return cleanup, nil
 }
 
-func (c *Lag) preparePFS(levelName string) error {
-	c.lagSourceIn[levelName] = LAG_SOURCE_PFS
-
-	// Try collecting, discard metrics
-	_, err := c.collectLagFromPFS(context.TODO(), levelName)
-	return err
-}
-
-func (c *Lag) collectBlipHeartBeatLag(ctx context.Context, levelName string) ([]blip.MetricValue, error) {
+func (c *Lag) collectBlip(ctx context.Context, levelName string) ([]blip.MetricValue, error) {
 	lag, err := c.lagReader.Lag(ctx)
 	if err != nil {
 		return nil, err
@@ -266,43 +258,43 @@ func (c *Lag) collectBlipHeartBeatLag(ctx context.Context, levelName string) ([]
 	return []blip.MetricValue{m}, nil
 }
 
-func (c *Lag) collectLagFromPFS(ctx context.Context, levelName string) ([]blip.MetricValue, error) {
-	// if isReplCheck is supplied, check if it's a replica
-	defaultLag := func() ([]blip.MetricValue, error) {
-		if c.dropNotAReplica[levelName] {
-			return nil, nil
-		} else {
-			// send -1 for lag
-			m := blip.MetricValue{
-				Name:  "current",
-				Type:  blip.GAUGE,
-				Value: float64(-1),
-			}
-			return []blip.MetricValue{m}, nil
+func (c *Lag) collectPFS(ctx context.Context, levelName string) ([]blip.MetricValue, error) {
+	var defaultLag []blip.MetricValue
+	if c.dropNotAReplica[levelName] {
+		defaultLag = nil
+	} else {
+		// send -1 for lag
+		m := blip.MetricValue{
+			Name:  "current",
+			Type:  blip.GAUGE,
+			Value: float64(-1),
 		}
+		defaultLag = []blip.MetricValue{m}
 	}
+
+	// if isReplCheck is supplied, check if it's a replica
 	isRepl := 1
 	if c.replCheck != "" {
 		query := "SELECT @@" + c.replCheck
-		if err := c.db.QueryRow(query).Scan(&isRepl); err != nil {
+		if err := c.db.QueryRowContext(ctx, query).Scan(&isRepl); err != nil {
 			return nil, fmt.Errorf("checking if instance is replica failed, please check value of %s. Err: %s", OPT_REPL_CHECK, err.Error())
 		}
 	}
 
 	if isRepl == 0 {
-		return defaultLag()
+		return defaultLag, nil
 	}
 	// instance is a replica or replCheck is not set
 
 	var lagValue sql.NullString
-	if err := c.db.QueryRow(MySQL8LagQuery).Scan(&lagValue); err != nil {
+	if err := c.db.QueryRowContext(ctx, MySQL8LagQuery).Scan(&lagValue); err != nil {
 		return nil, fmt.Errorf("could not check replication lag, check that this is a MySQL 8.0 replica, and that performance_schema is enabled. Err: %s", err.Error())
 	}
 	if !lagValue.Valid {
 		// it is a MySQL 8 instance and performance schema is enabled, otherwise the query would have returned error
 		// if replCheck is empty, we can assume based on the query that it's not a replica and return nil or -1
 		if c.replCheck == "" {
-			return defaultLag()
+			return defaultLag, nil
 		} else {
 			// it's a replica, so lagValue should be valid, raise error
 			return nil, fmt.Errorf("instance is a MySQL 8 replica and performance schema is enabled, still could not calculate lag, please check manually. Lag: %q", lagValue.String)
