@@ -160,12 +160,14 @@ LEVEL:
 		// -------------------------------------------------------------------------
 		// Auto source (default)
 		// -------------------------------------------------------------------------
+		// Try PFS first
 		var err error
 		if _, err = c.collectPFS(ctx, levelName); err == nil {
 			c.lagSourceIn[levelName] = LAG_SOURCE_PFS
 			return nil, nil
 		}
 
+		// then Blip HeartBeat
 		cleanup, err := c.prepareBlip(levelName, plan.MonitorId, plan.Name, dom.Options)
 		if err == nil {
 			return cleanup, nil
