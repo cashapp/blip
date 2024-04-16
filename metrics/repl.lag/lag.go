@@ -17,17 +17,17 @@ import (
 const (
 	DOMAIN = "repl.lag"
 
-	OPT_HEARTBEAT_SOURCE_ID   = "heartbeat-source-id"
-	OPT_HEARTBEAT_SOURCE_ROLE = "heartbeat-source-role"
-	OPT_HEARTBEAT_TABLE       = "heartbeat-table"
-	OPT_LAG_SOURCE            = "lag-source"
+	OPT_HEARTBEAT_SOURCE_ID   = "source-id"
+	OPT_HEARTBEAT_SOURCE_ROLE = "source-role"
+	OPT_HEARTBEAT_TABLE       = "table"
+	OPT_WRITER                = "writer"
 	OPT_REPL_CHECK            = "repl-check"
 	OPT_REPORT_NO_HEARTBEAT   = "report-no-heartbeat"
 	OPT_REPORT_NOT_A_REPLICA  = "report-not-a-replica"
 	OPT_NETWORK_LATENCY       = "network-latency"
 
-	LAG_SOURCE_BLIP = "blip"
-	LAG_SOURCE_PFS  = "pfs"
+	LAG_WRITER_BLIP = "blip"
+	LAG_WRITER_PFS  = "pfs"
 
 	// MySQL8LagQuery is the query to calculate approximate lag
 	// from replication worker stats in performance schema
@@ -42,7 +42,7 @@ FROM performance_schema.replication_applier_status_by_worker`
 type Lag struct {
 	db              *sql.DB
 	lagReader       heartbeat.Reader
-	lagSourceIn     map[string]string
+	lagWriterIn     map[string]string
 	dropNoHeartbeat map[string]bool
 	dropNotAReplica map[string]bool
 	replCheck       string
@@ -53,7 +53,7 @@ var _ blip.Collector = &Lag{}
 func NewLag(db *sql.DB) *Lag {
 	return &Lag{
 		db:              db,
-		lagSourceIn:     map[string]string{},
+		lagWriterIn:     map[string]string{},
 		dropNoHeartbeat: map[string]bool{},
 		dropNotAReplica: map[string]bool{},
 	}
@@ -68,14 +68,14 @@ func (c *Lag) Help() blip.CollectorHelp {
 		Domain:      DOMAIN,
 		Description: "Replication lag",
 		Options: map[string]blip.CollectorHelpOption{
-			OPT_LAG_SOURCE: {
-				Name:    OPT_LAG_SOURCE,
-				Desc:    "How to collect Lag from",
+			OPT_WRITER: {
+				Name:    OPT_WRITER,
+				Desc:    "How to collect Lag",
 				Default: "auto",
 				Values: map[string]string{
-					"auto": "Auto-determine best source",
+					"auto": "Auto-determine best lag writer",
 					"blip": "Native Blip heartbeat replication lag",
-					"pfs":  "MySQL8 Performance Schema",
+					"pfs":  "Performance Schema",
 					///"legacy": "Second_Behind_Slave|Replica from SHOW SHOW|REPLICA STATUS",
 				},
 			},
@@ -141,52 +141,46 @@ LEVEL:
 		c.dropNotAReplica[levelName] = !blip.Bool(dom.Options[OPT_REPORT_NOT_A_REPLICA])
 		c.replCheck = sqlutil.CleanObjectName(dom.Options[OPT_REPL_CHECK]) // @todo sanitize better
 
-		if source, ok := dom.Options[OPT_LAG_SOURCE]; ok {
-			if len(source) > 0 && source != "auto" {
-				switch source {
-				case LAG_SOURCE_PFS:
-					c.lagSourceIn[levelName] = LAG_SOURCE_PFS
-					// Try collecting, discard metrics
-					_, err := c.collectPFS(ctx, levelName)
-					return nil, err
-				case LAG_SOURCE_BLIP:
-					return c.prepareBlip(levelName, plan.MonitorId, plan.Name, dom.Options)
-				default:
-					return nil, fmt.Errorf("invalid lag source: %s; valid values: auto, pfs, blip", source)
+		if source, ok := dom.Options[OPT_WRITER]; ok {
+			switch source {
+			case LAG_WRITER_PFS:
+				c.lagWriterIn[levelName] = LAG_WRITER_PFS
+				// Try collecting, discard metrics
+				_, err := c.collectPFS(ctx, levelName)
+				return nil, err
+			case LAG_WRITER_BLIP:
+				return c.prepareBlip(levelName, plan.MonitorId, plan.Name, dom.Options)
+			case "auto", "": // default
+				// Try PFS first
+				var err error
+				if _, err = c.collectPFS(ctx, levelName); err == nil {
+					c.lagWriterIn[levelName] = LAG_WRITER_PFS
+					return nil, nil
 				}
+
+				// then Blip HeartBeat
+				cleanup, err := c.prepareBlip(levelName, plan.MonitorId, plan.Name, dom.Options)
+				if err == nil {
+					return cleanup, nil
+				}
+				return nil, fmt.Errorf("auto lag writer failed, last error: %s", err)
+			default:
+				return nil, fmt.Errorf("invalid lag writer: %s; valid values: auto, pfs, blip", source)
 			}
 		}
-
-		// -------------------------------------------------------------------------
-		// Auto source (default)
-		// -------------------------------------------------------------------------
-		// Try PFS first
-		var err error
-		if _, err = c.collectPFS(ctx, levelName); err == nil {
-			c.lagSourceIn[levelName] = LAG_SOURCE_PFS
-			return nil, nil
-		}
-
-		// then Blip HeartBeat
-		cleanup, err := c.prepareBlip(levelName, plan.MonitorId, plan.Name, dom.Options)
-		if err == nil {
-			return cleanup, nil
-		}
-
-		return nil, fmt.Errorf("auto lag source failed, last error: %s", err)
 	}
 	return nil, nil
 }
 
 func (c *Lag) Collect(ctx context.Context, levelName string) ([]blip.MetricValue, error) {
-	switch c.lagSourceIn[levelName] {
-	case LAG_SOURCE_BLIP:
+	switch c.lagWriterIn[levelName] {
+	case LAG_WRITER_BLIP:
 		return c.collectBlip(ctx, levelName)
-	case LAG_SOURCE_PFS:
+	case LAG_WRITER_PFS:
 		return c.collectPFS(ctx, levelName)
 	}
 
-	panic(fmt.Sprintf("invalid lag source in Collect %s", c.lagSourceIn[levelName]))
+	panic(fmt.Sprintf("invalid lag writer in Collect %s", c.lagWriterIn[levelName]))
 }
 
 // //////////////////////////////////////////////////////////////////////////
@@ -228,13 +222,11 @@ func (c *Lag) prepareBlip(levelName string, monitorID string, planName string, o
 	})
 	go c.lagReader.Start()
 	blip.Debug("%s: started reader: %s/%s (network latency: %s)", monitorID, planName, levelName, netLatency)
-	c.lagSourceIn[levelName] = LAG_SOURCE_BLIP
+	c.lagWriterIn[levelName] = LAG_WRITER_BLIP
 	var cleanup func()
-	if c.lagReader != nil {
-		cleanup = func() {
-			blip.Debug("%s: stopping reader", monitorID)
-			c.lagReader.Stop()
-		}
+	cleanup = func() {
+		blip.Debug("%s: stopping reader", monitorID)
+		c.lagReader.Stop()
 	}
 	return cleanup, nil
 }
@@ -286,20 +278,21 @@ func (c *Lag) collectPFS(ctx context.Context, levelName string) ([]blip.MetricVa
 	if isRepl == 0 {
 		return defaultLag, nil
 	}
-	// instance is a replica or replCheck is not set
 
+	// instance is a replica or replCheck is not set
 	var lagValue sql.NullString
 	if err := c.db.QueryRowContext(ctx, MySQL8LagQuery).Scan(&lagValue); err != nil {
 		return nil, fmt.Errorf("could not check replication lag, check that this is a MySQL 8.0 replica, and that performance_schema is enabled. Err: %s", err.Error())
 	}
 	if !lagValue.Valid {
-		// it is a MySQL 8 instance and performance schema is enabled, otherwise the query would have returned error
+		// required performance schema table exists, otherwise the query would have returned error
+
 		// if replCheck is empty, we can assume based on the query that it's not a replica and return nil or -1
 		if c.replCheck == "" {
 			return defaultLag, nil
 		} else {
 			// it's a replica, so lagValue should be valid, raise error
-			return nil, fmt.Errorf("instance is a MySQL 8 replica and performance schema is enabled, still could not calculate lag, please check manually. Lag: %q", lagValue.String)
+			return nil, fmt.Errorf("cannot determine replica lag because performance_schema.replication_applier_status_by_worker returned an invalid value: %q (expected a positive integer value)", lagValue.String)
 		}
 	}
 

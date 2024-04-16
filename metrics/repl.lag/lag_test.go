@@ -30,7 +30,7 @@ func TestPrepareForSingleLevelAndNoSourceOnMySQL57(t *testing.T) {
 		t.Error(err)
 	}
 
-	assert.Equal(t, "blip", c.lagSourceIn["kpi"])
+	assert.Equal(t, "blip", c.lagWriterIn["kpi"])
 }
 
 func TestPrepareForSingleLevelAndNoSourceOnMySQL80(t *testing.T) {
@@ -53,7 +53,7 @@ func TestPrepareForSingleLevelAndNoSourceOnMySQL80(t *testing.T) {
 		t.Error(err)
 	}
 
-	assert.Equal(t, "pfs", c.lagSourceIn["kpi"])
+	assert.Equal(t, "pfs", c.lagWriterIn["kpi"])
 }
 
 func TestPrepareWithInvalidSource(t *testing.T) {
@@ -70,7 +70,7 @@ func TestPrepareWithInvalidSource(t *testing.T) {
 	c := NewLag(db)
 
 	plan := test.ReadPlan(t, "")
-	plan.Levels["kpi"].Collect[DOMAIN].Options[OPT_LAG_SOURCE] = "invalid-lag-source"
+	plan.Levels["kpi"].Collect[DOMAIN].Options[OPT_WRITER] = "invalid-lag-source"
 	_, err = c.Prepare(context.Background(), plan)
 	assert.Error(t, err)
 }
