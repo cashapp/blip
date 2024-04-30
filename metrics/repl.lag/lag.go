@@ -291,7 +291,7 @@ func (c *Lag) collectPFS(ctx context.Context, levelName string) ([]blip.MetricVa
 		if c.replCheck == "" {
 			return defaultLag, nil
 		} else {
-			// it's a replica, so lagValue should be valid, raise error
+			// it's a replica, so lagValue should be valid, but it's not so raise error
 			return nil, fmt.Errorf("cannot determine replica lag because performance_schema.replication_applier_status_by_worker returned an invalid value: %q (expected a positive integer value)", lagValue.String)
 		}
 	}
