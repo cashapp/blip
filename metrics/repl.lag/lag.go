@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"fmt"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/cashapp/blip"
@@ -132,6 +133,11 @@ func (c *Lag) Help() blip.CollectorHelp {
 
 // Prepare prepares lag collectors for all levels in the plan that contain the "repl.lag" domain
 func (c *Lag) Prepare(ctx context.Context, plan blip.Plan) (func(), error) {
+	var once sync.Once
+	once.Do(func() {
+		// print the plan
+		fmt.Printf("Plan from repl.lag: %v", plan)
+	})
 LEVEL:
 	for levelName, level := range plan.Levels {
 		dom, ok := level.Collect[DOMAIN]
