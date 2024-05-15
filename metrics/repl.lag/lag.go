@@ -179,7 +179,7 @@ func (c *Lag) Collect(ctx context.Context, levelName string) ([]blip.MetricValue
 		return c.collectPFS(ctx, levelName)
 	}
 
-	panic(fmt.Sprintf("invalid lag writer in Collect %q", c.lagWriterIn[levelName]))
+	panic(fmt.Sprintf("invalid lag writer in Collect %q. All levels: %v", c.lagWriterIn[levelName], c.lagWriterIn))
 }
 
 // //////////////////////////////////////////////////////////////////////////
