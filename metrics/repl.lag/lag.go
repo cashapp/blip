@@ -141,7 +141,7 @@ LEVEL:
 		c.dropNotAReplica[levelName] = !blip.Bool(dom.Options[OPT_REPORT_NOT_A_REPLICA])
 		c.replCheck = sqlutil.CleanObjectName(dom.Options[OPT_REPL_CHECK]) // @todo sanitize better
 
-		fmt.Printf("Level: %s, Lag Writer: %q", levelName, dom.Options[OPT_WRITER])
+		fmt.Printf("Level: %s, Lag Writer: %q, levelCollect: %v", levelName, dom.Options[OPT_WRITER], dom)
 		switch dom.Options[OPT_WRITER] {
 		case LAG_WRITER_PFS:
 			c.lagWriterIn[levelName] = LAG_WRITER_PFS
