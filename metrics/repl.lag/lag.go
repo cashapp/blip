@@ -1,4 +1,4 @@
-// Copyright 2022 Block, Inc.
+// Copyright 2024 Block, Inc.
 
 package repllag
 
@@ -7,7 +7,6 @@ import (
 	"database/sql"
 	"fmt"
 	"strconv"
-	"sync"
 	"time"
 
 	"github.com/cashapp/blip"
@@ -131,50 +130,74 @@ func (c *Lag) Help() blip.CollectorHelp {
 	}
 }
 
-// Prepare prepares lag collectors for all levels in the plan that contain the "repl.lag" domain
+// Prepare prepares one lag collector for all levels in the plan. Lag can
+// (and probably will be) collected at multiple levels, but this domain can
+// be configured at only one level. For example, it's not possible to collect
+// lag from a Blip heartbeat and from Performance Schema. And since this
+// domain collects only one metric (repl.lag.current), there's no need to
+// collect different metrics at different frequencies.
 func (c *Lag) Prepare(ctx context.Context, plan blip.Plan) (func(), error) {
-	var once sync.Once
-	once.Do(func() {
-		// print the plan
-		fmt.Printf("Plan from repl.lag: %v", plan)
-	})
+	configured := ""   // set after first level to its writer value
+	var cleanup func() // Blip heartbeat reader func, else nil
+	var err error
+
 LEVEL:
 	for levelName, level := range plan.Levels {
 		dom, ok := level.Collect[DOMAIN]
 		if !ok {
 			continue LEVEL // not collected in this level
 		}
-		c.dropNotAReplica[levelName] = !blip.Bool(dom.Options[OPT_REPORT_NOT_A_REPLICA])
-		c.replCheck = sqlutil.CleanObjectName(dom.Options[OPT_REPL_CHECK]) // @todo sanitize better
 
-		fmt.Printf("Level: %s, Lag Writer: %q, levelCollect: %v", levelName, dom.Options[OPT_WRITER], dom)
-		switch dom.Options[OPT_WRITER] {
+		writer := dom.Options[OPT_WRITER]
+
+		// Already configured? If yes and same writer, that's ok and expected
+		// (lag collected at multiple levels). But if writer is different, that's
+		// and error.
+		if configured != "" {
+			if configured != writer {
+				return nil, fmt.Errorf("different writer configuration: %s != %s", configured, writer)
+			}
+			c.lagWriterIn[levelName] = writer // collect at this level
+			continue LEVEL
+		}
+
+		blip.Debug("repl.lag: config from level %s", levelName)
+		switch writer {
 		case LAG_WRITER_PFS:
-			c.lagWriterIn[levelName] = LAG_WRITER_PFS
 			// Try collecting, discard metrics
-			_, err := c.collectPFS(ctx, levelName)
-			return nil, err
+			if _, err = c.collectPFS(ctx, levelName); err != nil {
+				return nil, err
+			}
 		case LAG_WRITER_BLIP:
-			return c.prepareBlip(levelName, plan.MonitorId, plan.Name, dom.Options)
+			cleanup, err = c.prepareBlip(levelName, plan.MonitorId, plan.Name, dom.Options)
+			if err != nil {
+				return nil, err
+			}
 		case "auto", "": // default
 			// Try PFS first
-			var err error
 			if _, err = c.collectPFS(ctx, levelName); err == nil {
-				c.lagWriterIn[levelName] = LAG_WRITER_PFS
-				return nil, nil
+				blip.Debug("repl.lag auto-detected PFS")
+				writer = LAG_WRITER_PFS
+			} else {
+				// then Blip HeartBeat
+				if cleanup, err = c.prepareBlip(levelName, plan.MonitorId, plan.Name, dom.Options); err == nil {
+					blip.Debug("repl.lag auto-detected Blip heartbeat")
+					writer = LAG_WRITER_BLIP
+				} else {
+					return nil, fmt.Errorf("failed to auto-detect source, set %s manually", OPT_WRITER)
+				}
 			}
-
-			// then Blip HeartBeat
-			cleanup, err := c.prepareBlip(levelName, plan.MonitorId, plan.Name, dom.Options)
-			if err == nil {
-				return cleanup, nil
-			}
-			return nil, fmt.Errorf("auto lag writer failed, last error: %s", err)
 		default:
-			return nil, fmt.Errorf("invalid lag writer: %q; valid values: auto, pfs, blip", dom.Options[OPT_WRITER])
+			return nil, fmt.Errorf("invalid lag writer: %q; valid values: auto, pfs, blip", writer)
 		}
+
+		c.lagWriterIn[levelName] = writer // collect at this level
+
+		c.dropNotAReplica[levelName] = !blip.Bool(dom.Options[OPT_REPORT_NOT_A_REPLICA])
+		c.replCheck = sqlutil.CleanObjectName(dom.Options[OPT_REPL_CHECK]) // @todo sanitize better
 	}
-	return nil, nil
+
+	return cleanup, nil
 }
 
 func (c *Lag) Collect(ctx context.Context, levelName string) ([]blip.MetricValue, error) {
