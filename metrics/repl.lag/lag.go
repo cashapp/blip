@@ -141,32 +141,30 @@ LEVEL:
 		c.dropNotAReplica[levelName] = !blip.Bool(dom.Options[OPT_REPORT_NOT_A_REPLICA])
 		c.replCheck = sqlutil.CleanObjectName(dom.Options[OPT_REPL_CHECK]) // @todo sanitize better
 
-		if source, ok := dom.Options[OPT_WRITER]; ok {
-			switch source {
-			case LAG_WRITER_PFS:
+		switch dom.Options[OPT_WRITER] {
+		case LAG_WRITER_PFS:
+			c.lagWriterIn[levelName] = LAG_WRITER_PFS
+			// Try collecting, discard metrics
+			_, err := c.collectPFS(ctx, levelName)
+			return nil, err
+		case LAG_WRITER_BLIP:
+			return c.prepareBlip(levelName, plan.MonitorId, plan.Name, dom.Options)
+		case "auto", "": // default
+			// Try PFS first
+			var err error
+			if _, err = c.collectPFS(ctx, levelName); err == nil {
 				c.lagWriterIn[levelName] = LAG_WRITER_PFS
-				// Try collecting, discard metrics
-				_, err := c.collectPFS(ctx, levelName)
-				return nil, err
-			case LAG_WRITER_BLIP:
-				return c.prepareBlip(levelName, plan.MonitorId, plan.Name, dom.Options)
-			case "auto", "": // default
-				// Try PFS first
-				var err error
-				if _, err = c.collectPFS(ctx, levelName); err == nil {
-					c.lagWriterIn[levelName] = LAG_WRITER_PFS
-					return nil, nil
-				}
-
-				// then Blip HeartBeat
-				cleanup, err := c.prepareBlip(levelName, plan.MonitorId, plan.Name, dom.Options)
-				if err == nil {
-					return cleanup, nil
-				}
-				return nil, fmt.Errorf("auto lag writer failed, last error: %s", err)
-			default:
-				return nil, fmt.Errorf("invalid lag writer: %s; valid values: auto, pfs, blip", source)
+				return nil, nil
 			}
+
+			// then Blip HeartBeat
+			cleanup, err := c.prepareBlip(levelName, plan.MonitorId, plan.Name, dom.Options)
+			if err == nil {
+				return cleanup, nil
+			}
+			return nil, fmt.Errorf("auto lag writer failed, last error: %s", err)
+		default:
+			return nil, fmt.Errorf("invalid lag writer: %q; valid values: auto, pfs, blip", dom.Options[OPT_WRITER])
 		}
 	}
 	return nil, nil
@@ -180,7 +178,7 @@ func (c *Lag) Collect(ctx context.Context, levelName string) ([]blip.MetricValue
 		return c.collectPFS(ctx, levelName)
 	}
 
-	panic(fmt.Sprintf("invalid lag writer in Collect %s", c.lagWriterIn[levelName]))
+	panic(fmt.Sprintf("invalid lag writer in Collect %q", c.lagWriterIn[levelName]))
 }
 
 // //////////////////////////////////////////////////////////////////////////
