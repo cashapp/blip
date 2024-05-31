@@ -32,11 +32,26 @@ const (
 	// MySQL8LagQuery is the query to calculate approximate lag
 	// from replication worker stats in performance schema
 	// This is only available in MySQL 8 (and above) and when performance schema is enabled
-	MySQL8LagQuery = `SELECT TIMESTAMPDIFF(MICROSECOND,
-max(LAST_APPLIED_TRANSACTION_ORIGINAL_COMMIT_TIMESTAMP),
-max(LAST_APPLIED_TRANSACTION_END_APPLY_TIMESTAMP)
-)/1000
-FROM performance_schema.replication_applier_status_by_worker`
+	MySQL8LagQuery = `WITH applier_latency AS (
+ SELECT TIMESTAMPDIFF(MICROSECOND, LAST_APPLIED_TRANSACTION_ORIGINAL_COMMIT_TIMESTAMP, LAST_APPLIED_TRANSACTION_END_APPLY_TIMESTAMP)/1000 as applier_latency_ms
+ FROM performance_schema.replication_applier_status_by_worker ORDER BY LAST_APPLIED_TRANSACTION_END_APPLY_TIMESTAMP DESC LIMIT 1
+), queue_latency AS (
+ SELECT MIN(
+ CASE
+  WHEN
+   LAST_QUEUED_TRANSACTION = 'ANONYMOUS' OR
+   LAST_APPLIED_TRANSACTION = 'ANONYMOUS' OR
+   GTID_SUBTRACT(LAST_QUEUED_TRANSACTION, LAST_APPLIED_TRANSACTION) = ''
+  THEN 0
+   ELSE
+   TIMESTAMPDIFF(MICROSECOND, LAST_APPLIED_TRANSACTION_IMMEDIATE_COMMIT_TIMESTAMP, NOW(3))/1000
+ END
+) AS queue_latency_ms,
+IF(MIN(TIMESTAMPDIFF(MINUTE, LAST_QUEUED_TRANSACTION_ORIGINAL_COMMIT_TIMESTAMP, NOW()))>1,'IDLE','ACTIVE') as queue_status
+FROM performance_schema.replication_applier_status_by_worker w
+JOIN performance_schema.replication_connection_status s ON s.channel_name = w.channel_name
+)
+SELECT IF(queue_status='IDLE',0,GREATEST(applier_latency_ms, queue_latency_ms)) as lagMs FROM applier_latency, queue_latency;`
 )
 
 type Lag struct {
@@ -165,7 +180,7 @@ LEVEL:
 		switch writer {
 		case LAG_WRITER_PFS:
 			// Try collecting, discard metrics
-			if _, err = c.collectPFS(ctx, levelName); err != nil {
+			if _, err = c.collectPFSv2(ctx, levelName); err != nil {
 				return nil, err
 			}
 		case LAG_WRITER_BLIP:
@@ -175,7 +190,7 @@ LEVEL:
 			}
 		case "auto", "": // default
 			// Try PFS first
-			if _, err = c.collectPFS(ctx, levelName); err == nil {
+			if _, err = c.collectPFSv2(ctx, levelName); err == nil {
 				blip.Debug("repl.lag auto-detected PFS")
 				writer = LAG_WRITER_PFS
 			} else {
@@ -205,7 +220,7 @@ func (c *Lag) Collect(ctx context.Context, levelName string) ([]blip.MetricValue
 	case LAG_WRITER_BLIP:
 		return c.collectBlip(ctx, levelName)
 	case LAG_WRITER_PFS:
-		return c.collectPFS(ctx, levelName)
+		return c.collectPFSv2(ctx, levelName)
 	}
 
 	panic(fmt.Sprintf("invalid lag writer in Collect %q in level %q. All levels: %v", c.lagWriterIn[levelName], levelName, c.lagWriterIn))

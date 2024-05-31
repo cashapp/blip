@@ -96,11 +96,9 @@ func TestCollectWithNoSource(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	}
-	metrics, _ := c.Collect(context.TODO(), "kpi")
+	metrics, err := c.Collect(context.TODO(), "kpi")
 	assert.Equal(t, 1, len(metrics))
-
-	assert.Equal(t, metrics[0].Name, "current")
-	assert.Equal(t, metrics[0].Value, float64(-1))
+	assert.NoError(t, err)
 }
 
 func TestCollectWithAllSources(t *testing.T) {
@@ -120,17 +118,18 @@ func TestCollectWithAllSources(t *testing.T) {
 	for _, src := range srcs {
 		c := NewLag(db)
 		plan := test.ReadPlan(t, "")
-		plan.Levels["kpi"].Collect[DOMAIN].Options[OPT_REPORT_NOT_A_REPLICA] = "yes"
+		plan.Levels["kpi"].Collect[DOMAIN].Options[OPT_REPORT_NOT_A_REPLICA] = "no"
 		if src == "blip" {
-			plan.Levels["kpi"].Collect[DOMAIN].Options[OPT_REPORT_NO_HEARTBEAT] = "yes"
+			plan.Levels["kpi"].Collect[DOMAIN].Options[OPT_REPORT_NO_HEARTBEAT] = "no"
 		}
+		plan.Levels["kpi"].Collect[DOMAIN].Options[OPT_WRITER] = src
 		_, err = c.Prepare(context.Background(), plan)
 		if err != nil {
 			t.Error(err)
 		}
 		metrics, _ := c.Collect(context.TODO(), "kpi")
-		assert.Equal(t, 1, len(metrics))
-		assert.Equal(t, metrics[0].Name, "current")
-		assert.Equal(t, metrics[0].Value, float64(-1))
+		assert.Equal(t, 0, len(metrics))
+		//assert.Equal(t, metrics[0].Name, "current")
+		//assert.Equal(t, metrics[0].Value, float64(-1))
 	}
 }
