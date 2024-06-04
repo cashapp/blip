@@ -140,6 +140,7 @@ func (c *Lag) collectPFS(ctx context.Context, levelName string) ([]blip.MetricVa
 			Value: lag.workerUsage,
 			Group: map[string]string{"channel": channel},
 		})
+		fmt.Printf("(repl.lag from PFS): channel: %s txID: %s Observed State: %s Num of applying workers: %d | backlog: %3d worker Usage: %3.2f%% lag=%d ms", channel, lag.trxId, lag.observed, lag.applying, lag.backlog, lag.workerUsage, int(lag.current))
 		blip.Debug("(repl.lag from PFS): channel: %s txID: %s Observed State: %s Num of applying workers: %d | backlog: %3d worker Usage: %3.2f%% lag=%d ms", channel, lag.trxId, lag.observed, lag.applying, lag.backlog, lag.workerUsage, int(lag.current))
 	}
 	return lagMetrics, nil
