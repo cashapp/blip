@@ -194,7 +194,7 @@ LEVEL:
 		switch writer {
 		case LAG_WRITER_PFS:
 			// Try collecting, discard metrics
-			if _, err = c.collectPFSv2(ctx, levelName); err != nil {
+			if _, err = c.collectPFS(ctx, levelName); err != nil {
 				return nil, err
 			}
 		case LAG_WRITER_BLIP:
@@ -204,7 +204,7 @@ LEVEL:
 			}
 		case "auto", "": // default
 			// Try PFS first
-			if _, err = c.collectPFSv2(ctx, levelName); err == nil {
+			if _, err = c.collectPFS(ctx, levelName); err == nil {
 				blip.Debug("repl.lag auto-detected PFS")
 				writer = LAG_WRITER_PFS
 			} else {
@@ -235,7 +235,7 @@ func (c *Lag) Collect(ctx context.Context, levelName string) ([]blip.MetricValue
 	case LAG_WRITER_BLIP:
 		return c.collectBlip(ctx, levelName)
 	case LAG_WRITER_PFS:
-		return c.collectPFSv2(ctx, levelName)
+		return c.collectPFS(ctx, levelName)
 	}
 
 	panic(fmt.Sprintf("invalid lag writer in Collect %q in level %q. All levels: %v", c.lagWriterIn[levelName], levelName, c.lagWriterIn))
@@ -306,62 +306,6 @@ func (c *Lag) collectBlip(ctx context.Context, levelName string) ([]blip.MetricV
 		Type:  blip.GAUGE,
 		Value: float64(lag.Milliseconds),
 		Meta:  map[string]string{"source": lag.SourceId},
-	}
-	return []blip.MetricValue{m}, nil
-}
-
-func (c *Lag) collectPFS(ctx context.Context, levelName string) ([]blip.MetricValue, error) {
-	var defaultLag []blip.MetricValue
-	if c.dropNotAReplica[levelName] {
-		defaultLag = nil
-	} else {
-		// send -1 for lag
-		m := blip.MetricValue{
-			Name:  "current",
-			Type:  blip.GAUGE,
-			Value: float64(-1),
-		}
-		defaultLag = []blip.MetricValue{m}
-	}
-
-	// if isReplCheck is supplied, check if it's a replica
-	isRepl := 1
-	if c.replCheck != "" {
-		query := "SELECT @@" + c.replCheck
-		if err := c.db.QueryRowContext(ctx, query).Scan(&isRepl); err != nil {
-			return nil, fmt.Errorf("checking if instance is replica failed, please check value of %s. Err: %s", OPT_REPL_CHECK, err.Error())
-		}
-	}
-
-	if isRepl == 0 {
-		return defaultLag, nil
-	}
-
-	// instance is a replica or replCheck is not set
-	var lagValue sql.NullString
-	if err := c.db.QueryRowContext(ctx, MySQL8LagQuery).Scan(&lagValue); err != nil {
-		return nil, fmt.Errorf("could not check replication lag, check that this is a MySQL 8.0 replica, and that performance_schema is enabled. Err: %s", err.Error())
-	}
-	if !lagValue.Valid {
-		// required performance schema table exists, otherwise the query would have returned error
-
-		// if replCheck is empty, we can assume based on the query that it's not a replica and return nil or -1
-		if c.replCheck == "" {
-			return defaultLag, nil
-		} else {
-			// it's a replica, so lagValue should be valid, but it's not so raise error
-			return nil, fmt.Errorf("cannot determine replica lag because performance_schema.replication_applier_status_by_worker returned an invalid value: %q (expected a positive integer value)", lagValue.String)
-		}
-	}
-
-	f, ok := sqlutil.Float64(lagValue.String)
-	if !ok {
-		return nil, fmt.Errorf("couldn't convert replica lag from performance schema into float. Lag: %s", lagValue.String)
-	}
-	m := blip.MetricValue{
-		Name:  "current",
-		Type:  blip.GAUGE,
-		Value: f,
 	}
 	return []blip.MetricValue{m}, nil
 }

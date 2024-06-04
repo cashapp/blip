@@ -65,7 +65,7 @@ const (
 	O_IDLE     = " " // none of the above == true zero lag
 )
 
-func (c *Lag) collectPFSv2(ctx context.Context, levelName string) ([]blip.MetricValue, error) {
+func (c *Lag) collectPFS(ctx context.Context, levelName string) ([]blip.MetricValue, error) {
 	var defaultLag []blip.MetricValue
 	if c.dropNotAReplica[levelName] {
 		defaultLag = nil
