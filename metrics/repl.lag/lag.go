@@ -17,14 +17,15 @@ import (
 const (
 	DOMAIN = "repl.lag"
 
-	OPT_HEARTBEAT_SOURCE_ID   = "source-id"
-	OPT_HEARTBEAT_SOURCE_ROLE = "source-role"
-	OPT_HEARTBEAT_TABLE       = "table"
-	OPT_WRITER                = "writer"
-	OPT_REPL_CHECK            = "repl-check"
-	OPT_REPORT_NO_HEARTBEAT   = "report-no-heartbeat"
-	OPT_REPORT_NOT_A_REPLICA  = "report-not-a-replica"
-	OPT_NETWORK_LATENCY       = "network-latency"
+	OPT_HEARTBEAT_SOURCE_ID                = "source-id"
+	OPT_HEARTBEAT_SOURCE_ROLE              = "source-role"
+	OPT_HEARTBEAT_TABLE                    = "table"
+	OPT_WRITER                             = "writer"
+	OPT_REPL_CHECK                         = "repl-check"
+	OPT_REPORT_NO_HEARTBEAT                = "report-no-heartbeat"
+	OPT_REPORT_NOT_A_REPLICA               = "report-not-a-replica"
+	OPT_RENAME_DEFAULT_REPLICATION_CHANNEL = "rename-default-replication-channel"
+	OPT_NETWORK_LATENCY                    = "network-latency"
 
 	LAG_WRITER_BLIP = "blip"
 	LAG_WRITER_PFS  = "pfs"
@@ -52,25 +53,29 @@ FROM performance_schema.replication_applier_status_by_worker w
 JOIN performance_schema.replication_connection_status s ON s.channel_name = w.channel_name
 )
 SELECT IF(queue_status='IDLE',0,GREATEST(applier_latency_ms, queue_latency_ms)) as lagMs FROM applier_latency, queue_latency;`
+
+	defaultChannelName = "default"
 )
 
 type Lag struct {
-	db              *sql.DB
-	lagReader       heartbeat.Reader
-	lagWriterIn     map[string]string
-	dropNoHeartbeat map[string]bool
-	dropNotAReplica map[string]bool
-	replCheck       string
+	db                              *sql.DB
+	lagReader                       heartbeat.Reader
+	lagWriterIn                     map[string]string
+	dropNoHeartbeat                 map[string]bool
+	dropNotAReplica                 map[string]bool
+	renameDefaultReplicationChannel map[string]bool
+	replCheck                       string
 }
 
 var _ blip.Collector = &Lag{}
 
 func NewLag(db *sql.DB) *Lag {
 	return &Lag{
-		db:              db,
-		lagWriterIn:     map[string]string{},
-		dropNoHeartbeat: map[string]bool{},
-		dropNotAReplica: map[string]bool{},
+		db:                              db,
+		lagWriterIn:                     map[string]string{},
+		dropNoHeartbeat:                 map[string]bool{},
+		dropNotAReplica:                 map[string]bool{},
+		renameDefaultReplicationChannel: map[string]bool{},
 	}
 }
 
@@ -127,6 +132,15 @@ func (c *Lag) Help() blip.CollectorHelp {
 				Values: map[string]string{
 					"yes": "Enabled: report not a replica repl.lag.current = -1",
 					"no":  "Disabled: drop repl.lag.current if not a replica",
+				},
+			},
+			OPT_RENAME_DEFAULT_REPLICATION_CHANNEL: {
+				Name:    OPT_RENAME_DEFAULT_REPLICATION_CHANNEL,
+				Desc:    "Rename default replication channel to 'default'",
+				Default: "no",
+				Values: map[string]string{
+					"yes": "Enabled: rename default replication channel to 'default'",
+					"no":  "Disabled: do not rename default replication channel",
 				},
 			},
 			OPT_NETWORK_LATENCY: {
@@ -209,6 +223,7 @@ LEVEL:
 		c.lagWriterIn[levelName] = writer // collect at this level
 
 		c.dropNotAReplica[levelName] = !blip.Bool(dom.Options[OPT_REPORT_NOT_A_REPLICA])
+		c.renameDefaultReplicationChannel[levelName] = !blip.Bool(dom.Options[OPT_RENAME_DEFAULT_REPLICATION_CHANNEL])
 		c.replCheck = sqlutil.CleanObjectName(dom.Options[OPT_REPL_CHECK]) // @todo sanitize better
 	}
 

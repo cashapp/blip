@@ -129,7 +129,5 @@ func TestCollectWithAllSources(t *testing.T) {
 		}
 		metrics, _ := c.Collect(context.TODO(), "kpi")
 		assert.Equal(t, 0, len(metrics))
-		//assert.Equal(t, metrics[0].Name, "current")
-		//assert.Equal(t, metrics[0].Value, float64(-1))
 	}
 }

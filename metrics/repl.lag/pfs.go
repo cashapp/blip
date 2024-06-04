@@ -115,10 +115,12 @@ func (c *Lag) collectPFSv2(ctx context.Context, levelName string) ([]blip.Metric
 	rows.Close()
 
 	var lagMetrics []blip.MetricValue
-	var backlog, workerUsage float64
-
 	// collect lag per channel
 	for channel, workers := range channels {
+		// MySQL use "" as the default channel name, blip provides a way to rename it to 'default' if the user wants
+		if channel == "" && c.renameDefaultReplicationChannel[levelName] {
+			channel = defaultChannelName
+		}
 		lag := lagFor(workers, lastQueued, lastProc)
 		lagMetrics = append(lagMetrics, blip.MetricValue{
 			Name:  "current",
@@ -126,23 +128,20 @@ func (c *Lag) collectPFSv2(ctx context.Context, levelName string) ([]blip.Metric
 			Group: map[string]string{"channel": channel},
 			Value: lag.current,
 		})
-		backlog = math.Max(backlog, float64(lag.backlog))
-		workerUsage = math.Max(lag.workerUsage, workerUsage)
-		blip.Debug("(repl.lag from PFS): channel: %s txID: %s Observed State: %s Num of applying workers: %d | backlog: %3d worker Usage: %3.2f%% lag=%d ms", channel, lag.trxId, lag.observed, lag.applying, lag.backlog, lag.workerUsage, int(lag.current))
-	}
-	if len(lagMetrics) > 0 {
 		lagMetrics = append(lagMetrics, blip.MetricValue{
 			Name:  "backlog",
 			Type:  blip.GAUGE,
-			Value: backlog,
+			Value: float64(lag.backlog),
+			Group: map[string]string{"channel": channel},
 		})
 		lagMetrics = append(lagMetrics, blip.MetricValue{
 			Name:  "worker_usage",
 			Type:  blip.GAUGE,
-			Value: backlog,
+			Value: lag.workerUsage,
+			Group: map[string]string{"channel": channel},
 		})
+		blip.Debug("(repl.lag from PFS): channel: %s txID: %s Observed State: %s Num of applying workers: %d | backlog: %3d worker Usage: %3.2f%% lag=%d ms", channel, lag.trxId, lag.observed, lag.applying, lag.backlog, lag.workerUsage, int(lag.current))
 	}
-
 	return lagMetrics, nil
 }
 
