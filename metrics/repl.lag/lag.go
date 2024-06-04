@@ -223,7 +223,7 @@ LEVEL:
 		c.lagWriterIn[levelName] = writer // collect at this level
 
 		c.dropNotAReplica[levelName] = !blip.Bool(dom.Options[OPT_REPORT_NOT_A_REPLICA])
-		c.renameDefaultReplicationChannel[levelName] = !blip.Bool(dom.Options[OPT_RENAME_DEFAULT_REPLICATION_CHANNEL])
+		c.renameDefaultReplicationChannel[levelName] = blip.Bool(dom.Options[OPT_RENAME_DEFAULT_REPLICATION_CHANNEL])
 		c.replCheck = sqlutil.CleanObjectName(dom.Options[OPT_REPL_CHECK]) // @todo sanitize better
 	}
 
