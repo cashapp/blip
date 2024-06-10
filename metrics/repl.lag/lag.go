@@ -65,6 +65,8 @@ type Lag struct {
 	dropNotAReplica                 map[string]bool
 	renameDefaultReplicationChannel map[string]bool
 	replCheck                       string
+	pfsLagLastQueued                map[string]string
+	pfsLagLastProc                  map[string]string
 }
 
 var _ blip.Collector = &Lag{}
@@ -76,6 +78,8 @@ func NewLag(db *sql.DB) *Lag {
 		dropNoHeartbeat:                 map[string]bool{},
 		dropNotAReplica:                 map[string]bool{},
 		renameDefaultReplicationChannel: map[string]bool{},
+		pfsLagLastQueued:                make(map[string]string),
+		pfsLagLastProc:                  make(map[string]string),
 	}
 }
 

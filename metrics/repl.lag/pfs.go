@@ -49,7 +49,7 @@ type worker struct {
 }
 
 // lag is computed from a []worker per channel.
-type lag struct {
+type pfsLag struct {
 	applying    uint    // how many workers are applying
 	observed    string  // O_ const (just for print, human observation)
 	current     float64 // microseconds
@@ -121,7 +121,7 @@ func (c *Lag) collectPFS(ctx context.Context, levelName string) ([]blip.MetricVa
 		if channel == "" && c.renameDefaultReplicationChannel[levelName] {
 			channel = defaultChannelName
 		}
-		lag := lagFor(workers, lastQueued, lastProc)
+		lag := lagFor(workers, c.pfsLagLastQueued, c.pfsLagLastProc)
 		lagMetrics = append(lagMetrics, blip.MetricValue{
 			Name:  "current",
 			Type:  blip.GAUGE,
@@ -140,14 +140,13 @@ func (c *Lag) collectPFS(ctx context.Context, levelName string) ([]blip.MetricVa
 			Value: lag.workerUsage,
 			Group: map[string]string{"channel": channel},
 		})
-		fmt.Printf("(repl.lag from PFS): channel: %s txID: %s Observed State: %s Num of applying workers: %d | backlog: %3d worker Usage: %3.2f%% lag=%d ms", channel, lag.trxId, lag.observed, lag.applying, lag.backlog, lag.workerUsage, int(lag.current))
 		blip.Debug("(repl.lag from PFS): channel: %s txID: %s Observed State: %s Num of applying workers: %d | backlog: %3d worker Usage: %3.2f%% lag=%d ms", channel, lag.trxId, lag.observed, lag.applying, lag.backlog, lag.workerUsage, int(lag.current))
 	}
 	return lagMetrics, nil
 }
 
-func lagFor(workers []worker, lastQueued, lastProc map[string]string) lag {
-	lag := lag{}                  // return value
+func lagFor(workers []worker, lastQueued, lastProc map[string]string) pfsLag {
+	lag := pfsLag{}               // return value
 	channel := workers[0].channel // for brevity
 	maxTrxNo := 0                 //  backlog = last queued trxNo - maxTrxNo
 	var (
