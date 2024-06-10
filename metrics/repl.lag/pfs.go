@@ -92,9 +92,6 @@ func (c *Lag) collectPFS(ctx context.Context, levelName string) ([]blip.MetricVa
 		return defaultLag, nil
 	}
 
-	lastQueued := map[string]string{} // by replica/to relay log
-	lastProc := map[string]string{}   // by coordinator/to workers
-
 	rows, err := c.db.QueryContext(context.Background(), mySQL8LagQuery)
 	if err != nil {
 		return nil, fmt.Errorf("could not check replication lag, check that the host is a MySQL 8.0 replica, and that performance_schema is enabled. Err: %s", err.Error())
