@@ -17,69 +17,43 @@ import (
 const (
 	DOMAIN = "repl.lag"
 
-	OPT_HEARTBEAT_SOURCE_ID                = "source-id"
-	OPT_HEARTBEAT_SOURCE_ROLE              = "source-role"
-	OPT_HEARTBEAT_TABLE                    = "table"
-	OPT_WRITER                             = "writer"
-	OPT_REPL_CHECK                         = "repl-check"
-	OPT_REPORT_NO_HEARTBEAT                = "report-no-heartbeat"
-	OPT_REPORT_NOT_A_REPLICA               = "report-not-a-replica"
-	OPT_RENAME_DEFAULT_REPLICATION_CHANNEL = "rename-default-replication-channel"
-	OPT_NETWORK_LATENCY                    = "network-latency"
+	OPT_HEARTBEAT_SOURCE_ID   = "source-id"
+	OPT_HEARTBEAT_SOURCE_ROLE = "source-role"
+	OPT_HEARTBEAT_TABLE       = "table"
+	OPT_WRITER                = "writer"
+	OPT_REPL_CHECK            = "repl-check"
+	OPT_REPORT_NO_HEARTBEAT   = "report-no-heartbeat"
+	OPT_REPORT_NOT_A_REPLICA  = "report-not-a-replica"
+	OPT_DEFAULT_CHANNEL_NAME  = "default-channel-name"
+	OPT_NETWORK_LATENCY       = "network-latency"
 
 	LAG_WRITER_BLIP = "blip"
 	LAG_WRITER_PFS  = "pfs"
-
-	// MySQL8LagQuery is the query to calculate approximate lag
-	// from replication worker stats in performance schema
-	// This is only available in MySQL 8 (and above) and when performance schema is enabled
-	MySQL8LagQuery = `WITH applier_latency AS (
- SELECT TIMESTAMPDIFF(MICROSECOND, LAST_APPLIED_TRANSACTION_ORIGINAL_COMMIT_TIMESTAMP, LAST_APPLIED_TRANSACTION_END_APPLY_TIMESTAMP)/1000 as applier_latency_ms
- FROM performance_schema.replication_applier_status_by_worker ORDER BY LAST_APPLIED_TRANSACTION_END_APPLY_TIMESTAMP DESC LIMIT 1
-), queue_latency AS (
- SELECT MIN(
- CASE
-  WHEN
-   LAST_QUEUED_TRANSACTION = 'ANONYMOUS' OR
-   LAST_APPLIED_TRANSACTION = 'ANONYMOUS' OR
-   GTID_SUBTRACT(LAST_QUEUED_TRANSACTION, LAST_APPLIED_TRANSACTION) = ''
-  THEN 0
-   ELSE
-   TIMESTAMPDIFF(MICROSECOND, LAST_APPLIED_TRANSACTION_IMMEDIATE_COMMIT_TIMESTAMP, NOW(3))/1000
- END
-) AS queue_latency_ms,
-IF(MIN(TIMESTAMPDIFF(MINUTE, LAST_QUEUED_TRANSACTION_ORIGINAL_COMMIT_TIMESTAMP, NOW()))>1,'IDLE','ACTIVE') as queue_status
-FROM performance_schema.replication_applier_status_by_worker w
-JOIN performance_schema.replication_connection_status s ON s.channel_name = w.channel_name
-)
-SELECT IF(queue_status='IDLE',0,GREATEST(applier_latency_ms, queue_latency_ms)) as lagMs FROM applier_latency, queue_latency;`
-
-	defaultChannelName = "default"
 )
 
 type Lag struct {
-	db                              *sql.DB
-	lagReader                       heartbeat.Reader
-	lagWriterIn                     map[string]string
-	dropNoHeartbeat                 map[string]bool
-	dropNotAReplica                 map[string]bool
-	renameDefaultReplicationChannel map[string]bool
-	replCheck                       string
-	pfsLagLastQueued                map[string]string
-	pfsLagLastProc                  map[string]string
+	db                          *sql.DB
+	lagReader                   heartbeat.Reader
+	lagWriterIn                 map[string]string
+	dropNoHeartbeat             map[string]bool
+	dropNotAReplica             map[string]bool
+	defaultChannelNameOverrides map[string]string
+	replCheck                   string
+	pfsLagLastQueued            map[string]string
+	pfsLagLastProc              map[string]string
 }
 
 var _ blip.Collector = &Lag{}
 
 func NewLag(db *sql.DB) *Lag {
 	return &Lag{
-		db:                              db,
-		lagWriterIn:                     map[string]string{},
-		dropNoHeartbeat:                 map[string]bool{},
-		dropNotAReplica:                 map[string]bool{},
-		renameDefaultReplicationChannel: map[string]bool{},
-		pfsLagLastQueued:                make(map[string]string),
-		pfsLagLastProc:                  make(map[string]string),
+		db:                          db,
+		lagWriterIn:                 map[string]string{},
+		dropNoHeartbeat:             map[string]bool{},
+		dropNotAReplica:             map[string]bool{},
+		defaultChannelNameOverrides: map[string]string{},
+		pfsLagLastQueued:            make(map[string]string),
+		pfsLagLastProc:              make(map[string]string),
 	}
 }
 
@@ -138,14 +112,9 @@ func (c *Lag) Help() blip.CollectorHelp {
 					"no":  "Disabled: drop repl.lag.current if not a replica",
 				},
 			},
-			OPT_RENAME_DEFAULT_REPLICATION_CHANNEL: {
-				Name:    OPT_RENAME_DEFAULT_REPLICATION_CHANNEL,
-				Desc:    "Rename default replication channel to 'default'",
-				Default: "no",
-				Values: map[string]string{
-					"yes": "Enabled: rename default replication channel to 'default'",
-					"no":  "Disabled: do not rename default replication channel",
-				},
+			OPT_DEFAULT_CHANNEL_NAME: {
+				Name: OPT_DEFAULT_CHANNEL_NAME,
+				Desc: "Renames the default replication channel name (\"\"), if specified the metrics from default channel will be tagged with this name",
 			},
 			OPT_NETWORK_LATENCY: {
 				Name:    OPT_NETWORK_LATENCY,
@@ -158,6 +127,16 @@ func (c *Lag) Help() blip.CollectorHelp {
 				Name: "current",
 				Type: blip.GAUGE,
 				Desc: "Current replication lag (milliseconds)",
+			},
+			{
+				Name: "backlog",
+				Type: blip.GAUGE,
+				Desc: "Replication backlog (number of transactions)",
+			},
+			{
+				Name: "worker_usage",
+				Type: blip.GAUGE,
+				Desc: "Replication worker usage (percentage)",
 			},
 		},
 	}
@@ -227,7 +206,7 @@ LEVEL:
 		c.lagWriterIn[levelName] = writer // collect at this level
 
 		c.dropNotAReplica[levelName] = !blip.Bool(dom.Options[OPT_REPORT_NOT_A_REPLICA])
-		c.renameDefaultReplicationChannel[levelName] = blip.Bool(dom.Options[OPT_RENAME_DEFAULT_REPLICATION_CHANNEL])
+		c.defaultChannelNameOverrides[levelName] = dom.Options[OPT_DEFAULT_CHANNEL_NAME]
 		c.replCheck = sqlutil.CleanObjectName(dom.Options[OPT_REPL_CHECK]) // @todo sanitize better
 	}
 

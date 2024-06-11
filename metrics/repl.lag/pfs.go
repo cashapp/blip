@@ -115,8 +115,8 @@ func (c *Lag) collectPFS(ctx context.Context, levelName string) ([]blip.MetricVa
 	// collect lag per channel
 	for channel, workers := range channels {
 		// MySQL use "" as the default channel name, blip provides a way to rename it to 'default' if the user wants
-		if channel == "" && c.renameDefaultReplicationChannel[levelName] {
-			channel = defaultChannelName
+		if channel == "" && c.defaultChannelNameOverrides[levelName] != "" {
+			channel = c.defaultChannelNameOverrides[levelName]
 		}
 		lag := lagFor(workers, c.pfsLagLastQueued, c.pfsLagLastProc)
 		lagMetrics = append(lagMetrics, blip.MetricValue{
