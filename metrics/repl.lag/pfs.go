@@ -14,7 +14,7 @@ import (
 )
 
 // This file calculates Replica Lag from Performance Schema
-// See lag() for how this is used.
+// See collectPFS() for how this is used.
 const mySQL8LagQuery = `SELECT
   r.CHANNEL_NAME,
   r.LAST_QUEUED_TRANSACTION,
@@ -48,11 +48,11 @@ type worker struct {
 	applyingTs     float64
 }
 
-// lag is computed from a []worker per channel.
+// pfsLag is computed from a []worker per channel.
 type pfsLag struct {
 	applying    uint    // how many workers are applying
 	observed    string  // O_ const (just for print, human observation)
-	current     float64 // microseconds
+	current     float64 // milliseconds
 	trxId       string  // max applied trx ID (just for print, human observation)
 	backlog     int     // last queued - last applied
 	workerUsage float64 // applying workers / total workers * 100
@@ -114,7 +114,7 @@ func (c *Lag) collectPFS(ctx context.Context, levelName string) ([]blip.MetricVa
 	var lagMetrics []blip.MetricValue
 	// collect lag per channel
 	for channel, workers := range channels {
-		// MySQL use "" as the default channel name, blip provides a way to rename it to 'default' if the user wants
+		// MySQL use "" as the default channel name, blip provides a way to override it
 		if channel == "" && c.defaultChannelNameOverrides[levelName] != "" {
 			channel = c.defaultChannelNameOverrides[levelName]
 		}
