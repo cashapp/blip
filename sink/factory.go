@@ -73,6 +73,7 @@ func init() {
 	Register("signalfx", f)
 	Register("log", f)
 	Register("noop", f)
+	Register("prom-pushgateway", f)
 }
 
 type repo struct {
@@ -160,6 +161,8 @@ func (f *factory) Make(args blip.SinkFactoryArgs) (blip.Sink, error) {
 		if err != nil {
 			return nil, err
 		}
+	case "prom-pushgateway":
+		retryArgs.Sink, err = NewPromPushgateway(args.MonitorId, args.Options, args.Tags)
 	default:
 		return nil, fmt.Errorf("sink %s not registered", args.SinkName)
 	}
