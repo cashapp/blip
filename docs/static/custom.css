@@ -1,0 +1,96 @@
+html {scroll-behavior: auto}
+
+div pre.highlight {
+	line-height: 1em;
+}
+
+h1, h2, h3, h4 {
+  margin: 0;
+  margin-top: 2rem;
+}
+
+.good-response {
+  border-radius: 2px;
+  padding: 10px;
+  background-color: rgba(0, 170, 19, 0.1);
+}
+
+.bad-response {
+  border-radius: 2px;
+  padding: 10px;
+  background-color: rgba(229, 57, 53, 0.1);
+}
+
+.logo {
+	float: right;
+	padding-left: 20px;
+}
+
+.main {
+	max-width: 1024px;
+	margin-left: 25%;
+}
+.main-content {
+	font-size:16px;
+	font-family:'Verdana';
+}
+.side-bar {
+	max-width:25%;
+}
+
+p.note, div.note {
+	border-left: 3px solid blue;
+	padding-left: 10px;
+	margin-left: 10px;
+}
+
+p.warn, div.warn {
+	border-left: 3px solid orange;
+	padding-left: 10px;
+	margin-left: 10px;
+	background: #FEE8C1;
+}
+
+.table-wrap {
+  margin: 0;
+	width: fit-content;
+}
+
+.src {
+	font-size: 10px;
+}
+
+.config-section-title {
+	color: greenyellow;
+	text-align: center;
+	background: black;
+	border-radius: 25px;
+}
+.dark {
+	color: green;
+}
+
+.blip-name {
+	font-family: 'Open Sans',Helvetica,sans-serif;
+	font-size: 3rem;
+  letter-spacing: 1rem;
+}
+.blip-tagline {
+	margin-top: 0px;
+	margin-bottom: 1em;
+	font-family: 'Open Sans',Helvetica,sans-serif;
+	font-style: italic;
+	color: darkgray;
+	font-weight: 275px;
+	font-size: 20px;
+	text-align: left;
+}
+
+span.ga {
+	font-weight: bold;
+	color: green;
+}
+
+.indent {
+	margin-left: 2em;
+}
