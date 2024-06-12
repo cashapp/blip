@@ -1,10 +1,11 @@
-// Copyright 2022 Block, Inc.
+// Copyright 2024 Block, Inc.
 
 package repllag
 
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"strconv"
 	"time"
 
@@ -16,32 +17,43 @@ import (
 const (
 	DOMAIN = "repl.lag"
 
-	OPT_SOURCE_ID            = "source-id"
-	OPT_SOURCE_ROLE          = "source-role"
-	OPT_TABLE                = "table"
-	OPT_WRITER               = "writer"
-	OPT_REPL_CHECK           = "repl-check"
-	OPT_REPORT_NO_HEARTBEAT  = "report-no-heartbeat"
-	OPT_REPORT_NOT_A_REPLICA = "report-not-a-replica"
-	OPT_NETWORK_LATENCY      = "network-latency"
+	OPT_HEARTBEAT_SOURCE_ID   = "source-id"
+	OPT_HEARTBEAT_SOURCE_ROLE = "source-role"
+	OPT_HEARTBEAT_TABLE       = "table"
+	OPT_WRITER                = "writer"
+	OPT_REPL_CHECK            = "repl-check"
+	OPT_REPORT_NO_HEARTBEAT   = "report-no-heartbeat"
+	OPT_REPORT_NOT_A_REPLICA  = "report-not-a-replica"
+	OPT_DEFAULT_CHANNEL_NAME  = "default-channel-name"
+	OPT_NETWORK_LATENCY       = "network-latency"
+
+	LAG_WRITER_BLIP = "blip"
+	LAG_WRITER_PFS  = "pfs"
 )
 
 type Lag struct {
-	db              *sql.DB
-	lagReader       heartbeat.Reader
-	atLevel         map[string]bool
-	dropNoHeartbeat map[string]bool
-	dropNotAReplica map[string]bool
+	db                          *sql.DB
+	lagReader                   heartbeat.Reader
+	lagWriterIn                 map[string]string
+	dropNoHeartbeat             map[string]bool
+	dropNotAReplica             map[string]bool
+	defaultChannelNameOverrides map[string]string
+	replCheck                   string
+	pfsLagLastQueued            map[string]string
+	pfsLagLastProc              map[string]string
 }
 
 var _ blip.Collector = &Lag{}
 
 func NewLag(db *sql.DB) *Lag {
 	return &Lag{
-		db:              db,
-		atLevel:         map[string]bool{},
-		dropNoHeartbeat: map[string]bool{},
-		dropNotAReplica: map[string]bool{},
+		db:                          db,
+		lagWriterIn:                 map[string]string{},
+		dropNoHeartbeat:             map[string]bool{},
+		dropNotAReplica:             map[string]bool{},
+		defaultChannelNameOverrides: map[string]string{},
+		pfsLagLastQueued:            make(map[string]string),
+		pfsLagLastProc:              make(map[string]string),
 	}
 }
 
@@ -56,26 +68,27 @@ func (c *Lag) Help() blip.CollectorHelp {
 		Options: map[string]blip.CollectorHelpOption{
 			OPT_WRITER: {
 				Name:    OPT_WRITER,
-				Desc:    "Type of heartbeat writer",
-				Default: "blip",
+				Desc:    "How to collect Lag",
+				Default: "auto",
 				Values: map[string]string{
-					"blip": "Native Blip replication lag",
-					//"pfs":    "MySQL Performance Schema",
+					"auto": "Auto-determine best lag writer",
+					"blip": "Native Blip heartbeat replication lag",
+					"pfs":  "Performance Schema",
 					///"legacy": "Second_Behind_Slave|Replica from SHOW SHOW|REPLICA STATUS",
 				},
 			},
-			OPT_TABLE: {
-				Name:    OPT_TABLE,
+			OPT_HEARTBEAT_TABLE: {
+				Name:    OPT_HEARTBEAT_TABLE,
 				Desc:    "Heartbeat table",
 				Default: blip.DEFAULT_HEARTBEAT_TABLE,
 			},
-			OPT_SOURCE_ID: {
-				Name: OPT_SOURCE_ID,
-				Desc: "Source ID as reported by heartbeat writer; mutually exclusive with " + OPT_SOURCE_ROLE,
+			OPT_HEARTBEAT_SOURCE_ID: {
+				Name: OPT_HEARTBEAT_SOURCE_ID,
+				Desc: "Source ID as reported by heartbeat writer; mutually exclusive with " + OPT_HEARTBEAT_SOURCE_ROLE,
 			},
-			OPT_SOURCE_ROLE: {
-				Name: OPT_SOURCE_ROLE,
-				Desc: "Source role as reported by heartbeat writer; mutually exclusive with " + OPT_SOURCE_ID,
+			OPT_HEARTBEAT_SOURCE_ROLE: {
+				Name: OPT_HEARTBEAT_SOURCE_ROLE,
+				Desc: "Source role as reported by heartbeat writer; mutually exclusive with " + OPT_HEARTBEAT_SOURCE_ID,
 			},
 			OPT_REPL_CHECK: {
 				Name: OPT_REPL_CHECK,
@@ -99,6 +112,10 @@ func (c *Lag) Help() blip.CollectorHelp {
 					"no":  "Disabled: drop repl.lag.current if not a replica",
 				},
 			},
+			OPT_DEFAULT_CHANNEL_NAME: {
+				Name: OPT_DEFAULT_CHANNEL_NAME,
+				Desc: "Renames the default replication channel name (\"\"), if specified the metrics from default channel will be tagged with this name",
+			},
 			OPT_NETWORK_LATENCY: {
 				Name:    OPT_NETWORK_LATENCY,
 				Desc:    "Network latency (milliseconds)",
@@ -111,74 +128,151 @@ func (c *Lag) Help() blip.CollectorHelp {
 				Type: blip.GAUGE,
 				Desc: "Current replication lag (milliseconds)",
 			},
+			{
+				Name: "backlog",
+				Type: blip.GAUGE,
+				Desc: "Replication backlog (number of transactions)",
+			},
+			{
+				Name: "worker_usage",
+				Type: blip.GAUGE,
+				Desc: "Replication worker usage (percentage)",
+			},
 		},
 	}
 }
 
+// Prepare prepares one lag collector for all levels in the plan. Lag can
+// (and probably will be) collected at multiple levels, but this domain can
+// be configured at only one level. For example, it's not possible to collect
+// lag from a Blip heartbeat and from Performance Schema. And since this
+// domain collects only one metric (repl.lag.current), there's no need to
+// collect different metrics at different frequencies.
 func (c *Lag) Prepare(ctx context.Context, plan blip.Plan) (func(), error) {
+	configured := ""   // set after first level to its writer value
+	var cleanup func() // Blip heartbeat reader func, else nil
+	var err error
+
 LEVEL:
-	for _, level := range plan.Levels {
+	for levelName, level := range plan.Levels {
 		dom, ok := level.Collect[DOMAIN]
 		if !ok {
 			continue LEVEL // not collected in this level
 		}
 
-		table := dom.Options[OPT_TABLE]
-		if table == "" {
-			table = blip.DEFAULT_HEARTBEAT_TABLE
+		writer := dom.Options[OPT_WRITER]
+
+		// Already configured? If yes and same writer, that's ok and expected
+		// (lag collected at multiple levels). But if writer is different, that's
+		// and error.
+		if configured != "" {
+			if configured != writer {
+				return nil, fmt.Errorf("different writer configuration: %s != %s", configured, writer)
+			}
+			c.lagWriterIn[levelName] = writer // collect at this level
+			continue LEVEL
 		}
 
-		c.dropNoHeartbeat[level.Name] = !blip.Bool(dom.Options[OPT_REPORT_NO_HEARTBEAT])
-		c.dropNotAReplica[level.Name] = !blip.Bool(dom.Options[OPT_REPORT_NOT_A_REPLICA])
-
-		netLatency := 50 * time.Millisecond
-		if s, ok := dom.Options[OPT_NETWORK_LATENCY]; ok {
-			n, err := strconv.Atoi(s)
+		blip.Debug("repl.lag: config from level %s", levelName)
+		switch writer {
+		case LAG_WRITER_PFS:
+			// Try collecting, discard metrics
+			if _, err = c.collectPFS(ctx, levelName); err != nil {
+				return nil, err
+			}
+		case LAG_WRITER_BLIP:
+			cleanup, err = c.prepareBlip(levelName, plan.MonitorId, plan.Name, dom.Options)
 			if err != nil {
-				blip.Debug("%s: invalid network-latency: %s: %s (ignoring; using default 50 ms)", plan.MonitorId, s, err)
+				return nil, err
+			}
+		case "auto", "": // default
+			// Try PFS first
+			if _, err = c.collectPFS(ctx, levelName); err == nil {
+				blip.Debug("repl.lag auto-detected PFS")
+				writer = LAG_WRITER_PFS
 			} else {
-				netLatency = time.Duration(n) * time.Millisecond
+				// then Blip HeartBeat
+				if cleanup, err = c.prepareBlip(levelName, plan.MonitorId, plan.Name, dom.Options); err == nil {
+					blip.Debug("repl.lag auto-detected Blip heartbeat")
+					writer = LAG_WRITER_BLIP
+				} else {
+					return nil, fmt.Errorf("failed to auto-detect source, set %s manually", OPT_WRITER)
+				}
 			}
+		default:
+			return nil, fmt.Errorf("invalid lag writer: %q; valid values: auto, pfs, blip", writer)
 		}
 
-		switch dom.Options[OPT_WRITER] {
-		case "", "blip": // "" == default == blip
-			if c.lagReader == nil {
-				// Only 1 reader per plan
-				c.lagReader = heartbeat.NewBlipReader(heartbeat.BlipReaderArgs{
-					MonitorId:  plan.MonitorId,
-					DB:         c.db,
-					Table:      table,
-					SourceId:   dom.Options[OPT_SOURCE_ID],
-					SourceRole: dom.Options[OPT_SOURCE_ROLE],
-					ReplCheck:  sqlutil.CleanObjectName(dom.Options[OPT_REPL_CHECK]), // @todo sanitize better
-					Waiter: heartbeat.SlowFastWaiter{
-						MonitorId:      plan.MonitorId,
-						NetworkLatency: netLatency,
-					},
-				})
-				go c.lagReader.Start()
-				blip.Debug("%s: started reader: %s/%s (network latency: %s)", plan.MonitorId, plan.Name, level.Name, netLatency)
-			}
-			c.atLevel[level.Name] = true
-		}
-	}
+		c.lagWriterIn[levelName] = writer // collect at this level
 
-	var cleanup func()
-	if c.lagReader != nil {
-		cleanup = func() {
-			blip.Debug("%s: stopping reader", plan.MonitorId)
-			c.lagReader.Stop()
-		}
+		c.dropNotAReplica[levelName] = !blip.Bool(dom.Options[OPT_REPORT_NOT_A_REPLICA])
+		c.defaultChannelNameOverrides[levelName] = dom.Options[OPT_DEFAULT_CHANNEL_NAME]
+		c.replCheck = sqlutil.CleanObjectName(dom.Options[OPT_REPL_CHECK]) // @todo sanitize better
 	}
 
 	return cleanup, nil
 }
 
 func (c *Lag) Collect(ctx context.Context, levelName string) ([]blip.MetricValue, error) {
-	if !c.atLevel[levelName] {
+	switch c.lagWriterIn[levelName] {
+	case LAG_WRITER_BLIP:
+		return c.collectBlip(ctx, levelName)
+	case LAG_WRITER_PFS:
+		return c.collectPFS(ctx, levelName)
+	}
+
+	panic(fmt.Sprintf("invalid lag writer in Collect %q in level %q. All levels: %v", c.lagWriterIn[levelName], levelName, c.lagWriterIn))
+}
+
+// //////////////////////////////////////////////////////////////////////////
+// Internal methods
+// //////////////////////////////////////////////////////////////////////////
+
+func (c *Lag) prepareBlip(levelName string, monitorID string, planName string, options map[string]string) (func(), error) {
+	if c.lagReader != nil {
 		return nil, nil
 	}
+
+	c.dropNoHeartbeat[levelName] = !blip.Bool(options[OPT_REPORT_NO_HEARTBEAT])
+
+	table := options[OPT_HEARTBEAT_TABLE]
+	if table == "" {
+		table = blip.DEFAULT_HEARTBEAT_TABLE
+	}
+	netLatency := 50 * time.Millisecond
+	if s, ok := options[OPT_NETWORK_LATENCY]; ok {
+		n, err := strconv.Atoi(s)
+		if err != nil {
+			blip.Debug("%s: invalid network-latency: %s: %s (ignoring; using default 50 ms)", monitorID, s, err)
+		} else {
+			netLatency = time.Duration(n) * time.Millisecond
+		}
+	}
+	// Only 1 reader per plan
+	c.lagReader = heartbeat.NewBlipReader(heartbeat.BlipReaderArgs{
+		MonitorId:  monitorID,
+		DB:         c.db,
+		Table:      table,
+		SourceId:   options[OPT_HEARTBEAT_SOURCE_ID],
+		SourceRole: options[OPT_HEARTBEAT_SOURCE_ROLE],
+		ReplCheck:  c.replCheck,
+		Waiter: heartbeat.SlowFastWaiter{
+			MonitorId:      monitorID,
+			NetworkLatency: netLatency,
+		},
+	})
+	go c.lagReader.Start()
+	blip.Debug("%s: started reader: %s/%s (network latency: %s)", monitorID, planName, levelName, netLatency)
+	c.lagWriterIn[levelName] = LAG_WRITER_BLIP
+	var cleanup func()
+	cleanup = func() {
+		blip.Debug("%s: stopping reader", monitorID)
+		c.lagReader.Stop()
+	}
+	return cleanup, nil
+}
+
+func (c *Lag) collectBlip(ctx context.Context, levelName string) ([]blip.MetricValue, error) {
 	lag, err := c.lagReader.Lag(ctx)
 	if err != nil {
 		return nil, err
