@@ -1,2 +1,2 @@
 #!/bin/bash
-bundle exec jekyll serve --incremental
+hugo serve --baseURL="http://127.1:1313/blip"
