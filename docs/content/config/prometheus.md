@@ -57,14 +57,15 @@ mysql_global_status_commands_total{command="alter_function"} 0
 
 ## Compatibile Domains
 
-Currently, Prometheus `mysqld_exporter` emulation collects and returns metrics from the following domains:
+Prometheus `mysqld_exporter` emulation and the [`prom-pushgateway`]({{< ref "sinks/prom-pushgateway" >}}) sink are compatible with these Blip domains:
 
-* [`innodb`]({{< ref "metrics/domains#innodb" >}})
-* [`status.global`]({{< ref "metrics/domains#statusglobal" >}})
-* [`var.global`]({{< ref "metrics/domains#varglobal" >}})
+* [`innodb`]({{< ref "metrics/domains/innodb/" >}})
+* [`status.global`]({{< ref "metrics/domains/status.global/" >}})
+* [`var.global`]({{< ref "metrics/domains/var.global/" >}})
 
+Compatibility requires a [Prometheus domain translator]({{< ref "/develop/domain-translator#prometheus-translator" >}}) .
 Additional domains can be enabled if there is demand for this feature.
-[File an issue](https://github.com/cashapp/blip/issues) to discuss this.
+[File an issue](https://github.com/cashapp/blip/issues) to request and discuss, or submit a PR.
 
 ## Plan
 
