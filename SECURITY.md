@@ -13,4 +13,5 @@ User-submitted PRs for older versions are welcomed if they security-specific fix
 
 | Version | Supported          |
 | ------- | ------------------ |
-| 1.0.x   | :white_check_mark: |
+| 1.1.x   | Yes |
+| 1.0.x   | No  |
