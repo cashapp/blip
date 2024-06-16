@@ -23,7 +23,7 @@ It has many features and capabilities, but what really matters is that it [solve
 |------|------|
 |**MySQL**|MySQL 5.7 and newer, any distribution, any location|
 |**OS**|Linux|
-|**Go**|Go 1.18 and newer|
+|**Go**|Go 1.19 and newer|
 |**Metrics**|&bull; Built-in: Datadog, SignalFx (Splunk), Chronosphere<br>&bull; Custom: any ([Sink plugin]({{< ref "develop/sinks" >}}))|
 
 ## GitHub Repo

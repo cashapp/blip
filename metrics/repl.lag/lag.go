@@ -114,7 +114,7 @@ func (c *Lag) Help() blip.CollectorHelp {
 			},
 			OPT_DEFAULT_CHANNEL_NAME: {
 				Name: OPT_DEFAULT_CHANNEL_NAME,
-				Desc: "Renames the default replication channel name (\"\"), if specified the metrics from default channel will be tagged with this name",
+				Desc: "Rename default replication channel name (MySQL is default an empty string)",
 			},
 			OPT_NETWORK_LATENCY: {
 				Name:    OPT_NETWORK_LATENCY,

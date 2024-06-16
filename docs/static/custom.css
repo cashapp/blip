@@ -94,3 +94,8 @@ span.ga {
 .indent {
 	margin-left: 2em;
 }
+
+.gdoc-markdown h3 > code,
+.gdoc-markdown h4 > code {
+  border: 0;
+}
