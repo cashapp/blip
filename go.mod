@@ -17,7 +17,7 @@ require (
 	github.com/go-ini/ini v1.64.0
 	github.com/go-mysql/errors v0.0.0-20180603193453-03314bea68e0
 	github.com/go-mysql/hotswap-dsn-driver v1.0.1
-	github.com/go-sql-driver/mysql v1.7.1
+	github.com/go-sql-driver/mysql v1.8.1
 	github.com/go-test/deep v1.0.8
 	github.com/golang/snappy v0.0.4
 	github.com/hashicorp/go-version v1.3.0
@@ -30,6 +30,7 @@ require (
 )
 
 require (
+	filippo.io/edwards25519 v1.1.0 // indirect
 	github.com/DataDog/zstd v1.5.0 // indirect
 	github.com/Microsoft/go-winio v0.5.0 // indirect
 	github.com/alexflint/go-scalar v1.0.0 // indirect
