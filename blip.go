@@ -232,9 +232,9 @@ var FormatTime func(time.Time) string = func(t time.Time) string {
 }
 
 // TimeLimit returns d minus p percentage (0.1 = 10%) of time up to max.
-// For example, (0.1, 5s, 1s) returns 4.5s: 5000ms - 10% = 45000ms.
+// For example, (0.1, 5s, 1s) returns 4.5s: 5000ms - 10% = 4500ms.
 // But (0.1, 20s, 1s) returns 29s because 10% of 30s = 3s > 1s max, so the
-// buffer is redused to max. This is used to calculate engine max runtime (EMR)
+// buffer is reduced to max. This is used to calculate engine max runtime (EMR)
 // and collector max runtime (CMR).
 func TimeLimit(p float64, d, max time.Duration) time.Duration {
 	ns := float64(d)
