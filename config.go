@@ -1063,7 +1063,7 @@ func (c ConfigTLS) Set() bool {
 	return !True(c.Disable) && c.MySQLMode != "DISABLED" && (c.CA != "" || c.Cert != "" || c.Key != "")
 }
 
-// Create tls.Config from the Blip TLS config settings. Returns
+// Create tls.Config from the Blip TLS config settings.
 func (c ConfigTLS) LoadTLS(server string) (*tls.Config, error) {
 	//  WARNING: ConfigTLS.Valid must be called first!
 	Debug("TLS for %s: %+v", server, c)
@@ -1099,7 +1099,6 @@ func (c ConfigTLS) LoadTLS(server string) (*tls.Config, error) {
 		}
 
 		tlsConfig.Certificates = []tls.Certificate{cert}
-		//tlsConfig.BuildNameToCertificate()
 	}
 
 	return tlsConfig, nil
