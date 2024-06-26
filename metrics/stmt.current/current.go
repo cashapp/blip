@@ -18,8 +18,6 @@ const (
 		WHERE END_EVENT_ID IS NULL 
 		AND EVENT_NAME NOT LIKE ('statement/com/Binlog%')`
 	OPT_THRESHOLD = "slow-threshold"
-	// Minimum accepted value for slow-threshold in microseconds
-	min_threshold = 1
 )
 
 type currentMetrics struct {
@@ -108,11 +106,11 @@ LEVEL:
 		if err != nil {
 			return nil, fmt.Errorf("invalid %s value '%s': %v", OPT_THRESHOLD, threshold, err)
 		}
-		t := d.Microseconds()
-		if t < min_threshold {
-			return nil, fmt.Errorf("invalid %s value '%s': must be greater than or equal to 1us", OPT_THRESHOLD, threshold)
+		t := float64(d.Microseconds())
+		if t < 1.0 {
+			return nil, fmt.Errorf("invalid %s value '%s': must be greater than or equal to 1.0μs", OPT_THRESHOLD, threshold)
 		}
-		m.threshold = float64(t)
+		m.threshold = t
 
 		c.atLevel[level.Name] = m
 	}
@@ -138,11 +136,7 @@ func (c *Current) Collect(ctx context.Context, levelName string) ([]blip.MetricV
 		if err := rows.Scan(&time); err != nil {
 			return nil, fmt.Errorf("%s failed: %s", query, err)
 		}
-
-		// Convert from picoseconds to microseconds
-		time /= 1e6
-
-		times = append(times, time)
+		times = append(times, time/1e6) // picoseconds to microseconds
 	}
 
 	sort.Float64s(times)

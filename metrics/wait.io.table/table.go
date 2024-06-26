@@ -1,4 +1,4 @@
-// Copyright 2022 Block, Inc.
+// Copyright 2024 Block, Inc.
 
 package waitiotable
 
@@ -32,6 +32,7 @@ const (
 
 var (
 	columnNames = []string{
+		"count_star",
 		"sum_timer_wait",
 		"min_timer_wait",
 		"avg_timer_wait",
