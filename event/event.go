@@ -32,30 +32,31 @@ type Receiver interface {
 	Recv(Event)
 }
 
+// receiver is the internal Receiver used by public functions of this package.
+// It must be initialized to a non-nil value else tests will panic. This is
+// easier than remember to call SetReceiver in tests, but it requires special
+// handle as commented in SetReceiver below.
+var receiver Receiver = Log{internal: true}
+
 // SetReceiver sets the receiver used by Blip to handle events. The default
 // receiver is Log. To override the default, call this function to set a new
-// receiver before calling Server.Boot.
-func SetReceiver(r Receiver, override bool) {
-	// Is r the default Log receiver set below (outside this func)?
-	// Yes if r type = Log and that Log.internal = true. If Log.internal = false,
-	// then it's the Log set in Server.Boot because that pkg can't see/set the
-	// private Log.internal field.
+// receiver before calling Server.Boot. The receiver can be set only once,
+// so subsequent calls to this function have no effect.
+func SetReceiver(r Receiver) {
+	// Check if receiver is the default set above: Log{internal: true}.
+	// (See its code comment above.) If yes, then allow setting receiver,
+	// i.e. always allow Server.Boot or user to override the default.
 	defaultLog := false
 	if lr, ok := receiver.(Log); ok && lr.internal {
 		defaultLog = true
 	}
 
-	if override || receiver == nil || defaultLog {
+	if receiver == nil || defaultLog {
 		receiver = r
 	}
 
 	return
 }
-
-// receiver is the private package Receiver that the public packages below use.
-// It defaults to a Log type receiver (set in Server.Boot), but users can call
-// SetReceiver (before Server.Boot) to override.
-var receiver Receiver = Log{internal: true}
 
 var subscribers = []Receiver{}
 var submux = &sync.Mutex{}

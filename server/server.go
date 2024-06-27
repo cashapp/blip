@@ -117,8 +117,8 @@ func (s *Server) Boot(env blip.Env, plugins blip.Plugins, factories blip.Factori
 	// ----------------------------------------------------------------------
 
 	startTs := time.Now()
-	event.SetReceiver(event.Log{All: s.cmdline.Options.Log}, false) // false = don't override user's if set
-	event.Sendf(event.BOOT_START, "blip %s", blip.VERSION)          // very first event
+	event.SetReceiver(event.Log{All: s.cmdline.Options.Log}) // false = don't override user's if set
+	event.Sendf(event.BOOT_START, "blip %s", blip.VERSION)   // very first event
 
 	status.Blip("started", blip.FormatTime(startTs))
 	status.Blip("version", blip.VERSION)

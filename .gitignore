@@ -19,4 +19,5 @@ bin/blip/*
 !bin/blip/main.go
 
 examples/integrate/integrate
-examples/custom-sink/custom-sink 
+examples/custom-sink/custom-sink
+examples/custom-receiver/custom-receiver
