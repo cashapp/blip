@@ -19,7 +19,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 )
 
-const VERSION = "1.1.0"
+const VERSION = "1.2.0"
 
 var SHA = ""
 
@@ -129,9 +129,12 @@ type Plugins struct {
 	StartMonitor func(ConfigMonitor) bool
 
 	// TransformMetrics transforms metrics before they are sent to sinks.
-	// This is called for all monitors, metrics, and sinks. Use Metrics.MonitorId
-	// to determine the source of the metrics.
-	TransformMetrics func([]*Metrics)
+	// If it returns an error, all metrics are dropped (not sent). The function
+	// is shared and called concurrently by all monitors. Use Metrics.MonitorId
+	// to determine the source of the metrics. Metrics are ordered by Metrics.Interval
+	// should not be reordered if delta counters are used (doing so will result
+	// in negative or incorrect values). Otherwise, the slice of metrics can be modified.
+	TransformMetrics func([]*Metrics) error
 }
 
 // Factories are interfaces that override certain object creation of Blip.
@@ -165,7 +168,7 @@ type HTTPClientFactory interface {
 	MakeForSink(sinkName, monitorId string, opts, tags map[string]string) (*http.Client, error)
 }
 
-// Monitor states used for plan changing: https://cashapp.github.io/blip/v1.0/plans/changing
+// Monitor states used for plan changing: https://cashapp.github.io/blip/plans/changing/
 const (
 	STATE_NONE      = ""
 	STATE_OFFLINE   = "offline"

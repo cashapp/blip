@@ -1,4 +1,4 @@
-// Copyright 2022 Block, Inc.
+// Copyright 2024 Block, Inc.
 
 // Package prom provides Prometheus emulation and translation.
 package prom
@@ -28,7 +28,6 @@ type API struct {
 }
 
 func NewAPI(cfg blip.ConfigExporter, monitorId string, exp Exporter) *API {
-
 	return &API{
 		cfg:       cfg,
 		monitorId: monitorId,

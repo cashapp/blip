@@ -1,4 +1,4 @@
-package plugin
+package blip_plugin
 
 import (
 	"testing"
@@ -40,7 +40,7 @@ func TestCopy(t *testing.T) {
 		},
 	}
 
-	err := CopyMeta(m)
+	err := CopyMeta([]*blip.Metrics{m})
 	if err != nil {
 		t.Fatal(err)
 	}
