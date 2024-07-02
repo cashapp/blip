@@ -17,12 +17,12 @@ As per the [Blip versioning guidelines](https://github.com/cashapp/blip/blob/mai
 
 |# |Component|v1.0|v1.1|
 |--|---------|----|----|
-|1 |`blip.Plugins`|`TransformMetrics func(*Metrics) error`|`TransformMetrics func([]*Metrics) error`|
+|1 |`blip.Plugins`|`TransformMetrics func(*Metrics)`|`TransformMetrics func([]*Metrics) error`|
 |2 |Events|See below|See below|
 
 How to upgrade (by number in the table above):
 
-1. The first argument changed from one `*blip.Metrics` to a slice of metrics.
+1. The first argument changed from one `*blip.Metrics` to a slice of metrics, and it returns an error.
 Update your `TransformMetrics` plugin function to match, and you'll most likely wrap its original logic in a `for` loop, like:
 
 ```go
@@ -31,7 +31,7 @@ func(metrics []*blip.Metrics) error {
     for _, m := range metrics {
         /* Original logic */
     }
-
+    return nil
 }
 ```
 
