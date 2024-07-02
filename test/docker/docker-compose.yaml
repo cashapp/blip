@@ -2,7 +2,9 @@ version: '3.1'
 name: blip
 services:
     mysql57:
-        image: mysql:5.7.34
+        # "MySQL 5.7.44 is the final release of the MySQL 5.7 series."
+        # https://dev.mysql.com/doc/relnotes/mysql/5.7/en/news-5-7-44.html
+        image: mysql:5.7.44
         platform: linux/amd64
         command: --default-authentication-plugin=mysql_native_password
         restart: always
@@ -19,13 +21,3 @@ services:
             - "MYSQL_ROOT_PASSWORD=test"
         ports:
             - "33800:3306"
-    percona57:
-        image: percona/percona-server:5.7.35
-        platform: linux/amd64
-        command: --default-authentication-plugin=mysql_native_password
-        restart: always
-        environment:
-            - "MYSQL_ROOT_PASSWORD=test"
-        ports:
-            - "33900:3306"
-

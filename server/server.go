@@ -117,12 +117,12 @@ func (s *Server) Boot(env blip.Env, plugins blip.Plugins, factories blip.Factori
 	// ----------------------------------------------------------------------
 
 	startTs := time.Now()
+	event.SetReceiver(event.Log{All: s.cmdline.Options.Log})
+	event.Sendf(event.BOOT_START, "blip %s", blip.VERSION) // very first event
+
 	status.Blip("started", blip.FormatTime(startTs))
 	status.Blip("version", blip.VERSION)
 	status.Blip(status.SERVER, "booting")
-
-	event.SetReceiver(event.Log{All: s.cmdline.Options.Log})
-	event.Sendf(event.BOOT_START, "blip %s", blip.VERSION) // very first event
 
 	// ----------------------------------------------------------------------
 	// Load config

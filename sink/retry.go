@@ -1,4 +1,4 @@
-// Copyright 2022 Block, Inc.
+// Copyright 2024 Block, Inc.
 
 package sink
 
@@ -57,6 +57,10 @@ func NewRetry(args RetryArgs) *Retry {
 	}
 	if args.Sink == nil {
 		panic("RetryArgs.Sink is nil; value required")
+	}
+
+	if _, ok := args.Sink.(*Delta); ok {
+		panic("RetryArgs.Sink cannot be a Delta sink.")
 	}
 
 	// Set defaults

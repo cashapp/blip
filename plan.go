@@ -1,4 +1,4 @@
-// Copyright 2022 Block, Inc.
+// Copyright 2024 Block, Inc.
 
 package blip
 
@@ -88,6 +88,26 @@ func (p Plan) Validate() error {
 	}
 
 	return nil
+}
+
+func (p Plan) Freq() (time.Duration, map[string]time.Duration) {
+	var min time.Duration
+	domain := map[string]time.Duration{}
+	for _, level := range p.Levels {
+		freqL, _ := time.ParseDuration(level.Freq) // already validated
+		if freqL < min || min == 0 {
+			min = freqL
+		}
+		for name := range level.Collect {
+			freqD, ok := domain[name]
+			if !ok {
+				domain[name] = freqL
+			} else if freqL < freqD || freqD == 0 {
+				domain[name] = freqL
+			}
+		}
+	}
+	return min, domain
 }
 
 func (p *Plan) InterpolateEnvVars() {

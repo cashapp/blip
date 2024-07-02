@@ -1,4 +1,4 @@
-// Copyright 2023 Block, Inc.
+// Copyright 2024 Block, Inc.
 
 package monitor
 
@@ -49,10 +49,13 @@ type lco struct {
 	cfg              blip.ConfigMonitor
 	planLoader       *plan.Loader
 	sinks            []blip.Sink
-	transformMetrics func(*blip.Metrics) error
+	transformMetrics func([]*blip.Metrics)
 	// --
-	monitorId string
-	engine    *Engine
+	monitorId   string
+	engine      *Engine
+	emr         time.Duration        // engine max runtime = levels[0].Freq
+	metricsChan chan []*blip.Metrics // sorted ascending by Interval
+	event       event.MonitorReceiver
 
 	stateMux *sync.Mutex
 	state    string
@@ -64,8 +67,6 @@ type lco struct {
 	changePlanCancelFunc context.CancelFunc
 	changePlanDoneChan   chan struct{}
 	stopped              bool
-
-	event event.MonitorReceiver
 }
 
 type LevelCollectorArgs struct {
@@ -73,7 +74,7 @@ type LevelCollectorArgs struct {
 	DB               *sql.DB
 	PlanLoader       *plan.Loader
 	Sinks            []blip.Sink
-	TransformMetrics func(*blip.Metrics) error
+	TransformMetrics func([]*blip.Metrics)
 }
 
 func NewLevelCollector(args LevelCollectorArgs) *lco {
@@ -83,63 +84,131 @@ func NewLevelCollector(args LevelCollectorArgs) *lco {
 		sinks:            args.Sinks,
 		transformMetrics: args.TransformMetrics,
 		// --
-		monitorId: args.Config.MonitorId,
-		engine:    NewEngine(args.Config, args.DB),
-		stateMux:  &sync.Mutex{},
-		paused:    true,
-		changeMux: &sync.Mutex{},
-		event:     event.MonitorReceiver{MonitorId: args.Config.MonitorId},
+		monitorId:   args.Config.MonitorId,
+		engine:      NewEngine(args.Config, args.DB),
+		stateMux:    &sync.Mutex{},
+		paused:      true,
+		changeMux:   &sync.Mutex{},
+		event:       event.MonitorReceiver{MonitorId: args.Config.MonitorId},
+		metricsChan: make(chan []*blip.Metrics, 10),
 	}
 }
 
 // TickerDuration sets the internal ticker duration for testing. This is only
 // called for testing; do not called outside testing.
-func TickerDuration(d time.Duration) {
+func TickerDuration(d, e time.Duration) {
+	tickerMux.Lock() // make go test -race happy
 	tickerDuration = d
+	timeElapsed = e
+	tickerMux.Unlock()
 }
 
+// Normally Blip runs 1s to 1s: tick every 1s (duration) = 1s elapsed. But for
+// testing we speed up both. For example, 10ms/1s makes Run tick every 10 ms but
+// act like 1s has elapsed. This is for test plans with realistic whole-second
+// durations. The RBB tests use 100ms/100ms because that test plan is design for
+// 100ms intervals, so it can run through 5 intervals in about 500ms.
+var tickerMux = &sync.Mutex{}        // make go test -race happy
 var tickerDuration = 1 * time.Second // used for testing
+var timeElapsed = 1 * time.Second    // used for testing
 
-// maxCollectors is the maximum number of parallel collect() goroutines.
-// Code comment block just below for variable sem.
-const maxCollectors = 2
+// recvMetrics receives metrics on metricsChan and send them to all the sinks.
+// This is a goroutine run by keepRecvMetrics and restarted by keepRecvMetrics
+// if a sink (or the transformMetrics) panics. It stops when stopSinksChan is
+// closed in Run, and it closes doneChan when stopped.
+func (c *lco) recvMetrics(stopSinksChan, doneChan chan struct{}) {
+	defer func() {
+		close(doneChan)
+		if r := recover(); r != nil {
+			b := make([]byte, 4096)
+			n := runtime.Stack(b, false)
+			perr := fmt.Errorf("PANIC: sinks: %s: %v\n%s", c.monitorId, r, string(b[0:n]))
+			c.event.Errorf(event.LCO_RECEIVER_PANIC, perr.Error())
+		}
+	}()
+	for {
+		status.Monitor(c.monitorId, status.LEVEL_SINKS, "idle")
+		select {
+		case <-stopSinksChan:
+			return
+		case metrics := <-c.metricsChan:
+			if c.transformMetrics != nil {
+				blip.Debug("%s: transform metrics", c.monitorId)
+				status.Monitor(c.monitorId, status.LEVEL_SINKS, "TransformMetrics")
+				c.transformMetrics(metrics)
+			}
+			for _, m := range metrics {
+				coId := fmt.Sprintf("%s/%s/%d", m.Plan, m.Level, m.Interval)
+				for _, sink := range c.sinks {
+					sinkName := sink.Name()
+					status.Monitor(c.monitorId, status.LEVEL_SINKS, coId+": sending to "+sinkName)
+					err := sink.Send(context.Background(), m) // @todo ctx with timeout
+					if err != nil {
+						c.event.Errorf(event.SINK_SEND_ERROR, "%s :%s", sinkName, err) // log by default
+						status.Monitor(c.monitorId, "error:"+sinkName, err.Error())
+					} else {
+						status.RemoveComponent(c.monitorId, "error:"+sinkName)
+					}
+				}
+			}
+		}
+	}
+}
+
+// keepRecvMetrics keeps a recvMetrics goroutine running. If a sink or the
+// transformMetrics plugin panic, it must be restarted to keep metrics flowing.
+func (c *lco) keepRecvMetrics(stopSinksChan chan struct{}) {
+	for {
+		doneChan := make(chan struct{})
+		go c.recvMetrics(stopSinksChan, doneChan)
+		select {
+		case <-stopSinksChan:
+			return
+		case <-doneChan:
+			// recvMetrics goroutine stopped but why? Did it return because
+			// stopSinksChan, or because of a panic?
+			select {
+			case <-stopSinksChan:
+				return // stopSinksChan closed
+			default:
+				// Probably a sink panic
+			}
+		}
+	}
+}
 
 func (c *lco) Run(stopChan, doneChan chan struct{}) error {
 	defer close(doneChan)
 
-	// Metrics are collected async so that this main loop does not block.
-	// Normally, collecting metrics should be synchronous: every 1s, take
-	// about 100-300 milliseconds get metrics and done--plenty of time
-	// before the next whole second tick. But in the real world, there are
-	// always blips (yes, that's partly where Blip gets its name from):
-	// MySQL takes 1 or 2 seconds--or longer--to return metrics, especially
-	// for "big" domains like size.table that might need to iterator over
-	// hundreds or thousands of tables. Consequently, we collect metrics
-	// asynchronously in multiple goroutines. By default, 2 goroutines
-	// (maxCollectors) should be more than sufficient. If not, there's probably
-	// an underlyiny problem that needs to be fixed.
-	sem := make(chan bool, maxCollectors)
-	for i := 0; i < maxCollectors; i++ {
-		sem <- true
-	}
+	// Keep receiving metrics for as long as the LCO is running
+	stopSinksChan := make(chan struct{})
+	go c.keepRecvMetrics(stopSinksChan)
+	defer close(stopSinksChan)
 
 	// -----------------------------------------------------------------------
-	// LCO main loop: collect metrics on whole second ticks
+	// LCO main loop: collect metrics every configured minimum level interval
 
 	status.Monitor(c.monitorId, status.LEVEL_COLLECTOR, "started at %s (paused until plan change)", blip.FormatTime(time.Now()))
-
-	s := -1 // number of whole second ticks
-	ticker := time.NewTicker(tickerDuration)
+	tickerMux.Lock() // make go test -race happy
+	td, te := tickerDuration, timeElapsed
+	tickerMux.Unlock()
+	s := -1 * te // -1 so first tick=0 and all levels collected
+	interval := uint(0)
+	ticker := time.NewTicker(td)
 	defer ticker.Stop()
-	for range ticker.C {
-		s = s + 1 // count seconds
+	for startTime := range ticker.C {
+		s = s + te
 
-		// Was Stop called?
+		// Was monitor stopped?
 		select {
-		case <-stopChan: // yes, return immediately
+		case _, ok := <-stopChan: // yes, return immediately
 			// Stop changePlan goroutine (if any) and prevent new ones in the
 			// pathological case that the LCH calls ChangePlan while the LCO
 			// is terminating
+			if ok {
+				break
+			}
+			blip.Debug("stopChan closed at %s s=%d interval=%d", startTime, s, interval)
 			c.changeMux.Lock()
 			defer c.changeMux.Unlock()
 			c.stopped = true // make ChangePlan do nothing
@@ -149,16 +218,16 @@ func (c *lco) Run(stopChan, doneChan chan struct{}) error {
 				<-c.changePlanDoneChan   // wait for changePlan goroutine
 			default:
 			}
-
-			// Stop the engine and clean up metrics
-			c.engine.Stop()
+			c.engine.Stop() // stop all collectors and run their cleanup func
 			return nil
 		default: // no
 		}
 
+		// Paused because no plan is set or it's being changed?
 		c.stateMux.Lock() // -- LOCK --
 		if c.paused {
-			s = -1              // reset count on pause
+			s = -1 * timeElapsed
+			interval = 0
 			c.stateMux.Unlock() // -- Unlock
 			continue
 		}
@@ -176,87 +245,48 @@ func (c *lco) Run(stopChan, doneChan chan struct{}) error {
 		}
 
 		// Collect metrics at this level
-		select {
-		case <-sem:
-			go func(levelName string) {
-				defer func() {
-					sem <- true
-					if err := recover(); err != nil { // catch panic in collectors, TransformMetrics, and sinks
-						b := make([]byte, 4096)
-						n := runtime.Stack(b, false)
-						c.event.Sendf(event.LPC_PANIC, "PANIC: %s: %s\n%s", c.monitorId, err, string(b[0:n]))
-					}
-				}()
-				c.collect(levelName)
-			}(c.levels[level].Name)
-			status.Monitor(c.monitorId, status.LEVEL_COLLECTOR, "idle; started collecting %s/%s at %s", c.plan.Name, c.levels[level].Name, blip.FormatTime(time.Now()))
-		default:
-			// all collectors blocked
-			errMsg := fmt.Errorf("cannot callect %s/%s: %d of %d collectors still running",
-				c.plan.Name, c.levels[level].Name, maxCollectors, maxCollectors)
-			c.event.Sendf(event.LPC_BLOCKED, errMsg.Error())
-			status.Monitor(c.monitorId, status.LEVEL_COLLECTOR, "blocked: %s", errMsg)
-		}
+		interval += 1
+		c.collect(interval, c.levels[level].Name, startTime)
 
 		c.stateMux.Unlock() // -- UNLOCK --
 	}
 	return nil
 }
 
-func (c *lco) collect(levelName string) {
-	collectNo := status.MonitorMulti(c.monitorId, status.LEVEL_COLLECT, "%s/%s: collecting", c.plan.Name, levelName)
-	defer status.RemoveComponent(c.monitorId, collectNo)
-
-	t0 := time.Now()
+func (c *lco) collect(interval uint, levelName string, startTime time.Time) {
+	status.Monitor(c.monitorId, status.LEVEL_COLLECT, "%s/%s: collecting", c.plan.Name, levelName)
+	defer func() {
+		if err := recover(); err != nil { // catch panic in engine and TransformMetrics
+			b := make([]byte, 4096)
+			n := runtime.Stack(b, false)
+			c.event.Errorf(event.LCO_COLLECT_PANIC, "PANIC: %s: %s\n%s", c.monitorId, err, string(b[0:n]))
+		}
+		status.Monitor(c.monitorId, status.LEVEL_COLLECT, "%s/%s/%d: collected in %s", c.plan.Name, levelName, interval, time.Now().Sub(startTime))
+	}()
 
 	// **************************************************************
 	// COLLECT METRICS
 	//
 	// Collect all metrics at this level. This is where metrics
 	// collection begins. Then Engine.Collect does the real work.
-	metrics, err := c.engine.Collect(context.Background(), levelName)
-	// **************************************************************
+	emrCtx, emrCancel := context.WithDeadline(context.Background(), startTime.Add(c.emr))
+	defer emrCancel()
+	metrics, err := c.engine.Collect(emrCtx, interval, levelName, startTime)
+	blip.Debug("%s: level %s: done in %s", c.monitorId, levelName, metrics[0].End.Sub(metrics[0].Begin))
+
 	if err != nil {
-		status.Monitor(c.monitorId, "error:"+collectNo, err.Error())
+		status.Monitor(c.monitorId, "error:collect", err.Error())
 		c.event.Errorf(event.ENGINE_COLLECT_ERROR, err.Error())
 	} else {
-		status.RemoveComponent(c.monitorId, "error:"+collectNo)
+		status.RemoveComponent(c.monitorId, "error:collect")
 	}
 
-	// Return early unless there are metrics
-	if metrics == nil {
-		status.Monitor(c.monitorId, status.LEVEL_COLLECT, "last collected %s/%s at %s in %s, but engine returned no metrics", c.plan.Name, levelName, blip.FormatTime(t0), time.Since(t0))
-		blip.Debug("%s: level %s: nil metrics", c.monitorId, levelName)
-		return
+	status.Monitor(c.monitorId, status.LEVEL_COLLECT, "%s/%s: sending", c.plan.Name, levelName)
+	select {
+	case c.metricsChan <- metrics:
+	default:
+		c.event.Errorf(event.LCO_METRICS_FAULT, "metrics channel blocked (check for sink errors), dropping metrics: %s", metrics)
 	}
-
-	// Call user-defined TransformMetrics plugin, if set
-	if c.transformMetrics != nil {
-		blip.Debug("%s: level %s: transform metrics", c.monitorId, levelName)
-		status.Monitor(c.monitorId, collectNo, "%s/%s: TransformMetrics", c.plan.Name, levelName)
-		c.transformMetrics(metrics)
-	}
-
-	// Send metrics to all sinks configured for this monitor. This is done
-	// sync because sinks are supposed to be fast or async _and_ have their
-	// timeout, which is why we pass context.Background() here. Also, this
-	// func runs in parallel (up to maxCollectors), so if a sink is slow,
-	// that might be ok.
-	blip.Debug("%s: level %s: sending metrics", c.monitorId, levelName)
-	for i := range c.sinks {
-		sinkName := c.sinks[i].Name()
-		status.Monitor(c.monitorId, collectNo, "%s/%s: sending to %s", c.plan.Name, levelName, sinkName)
-		err := c.sinks[i].Send(context.Background(), metrics)
-		if err != nil {
-			c.event.Errorf(event.SINK_SEND_ERROR, "%s :%s", sinkName, err) // log by default
-			status.Monitor(c.monitorId, "error:"+sinkName, err.Error())
-		} else {
-			status.RemoveComponent(c.monitorId, "error:"+sinkName)
-		}
-	}
-
-	status.Monitor(c.monitorId, status.LEVEL_COLLECT, "last collected and sent metrics for %s/%s at %s in %s", c.plan.Name, levelName, blip.FormatTime(t0), time.Since(t0))
-	blip.Debug("%s: level %s: done in %s", c.monitorId, levelName, time.Since(t0))
 }
 
 // ChangePlan changes the metrics collect plan based on database state.
@@ -387,12 +417,14 @@ func (c *lco) changePlan(ctx context.Context, doneChan chan struct{}, newState, 
 		c.state = newState
 		c.plan = newPlan
 		c.levels = levels
+		c.emr = blip.TimeLimit(0.1, levels[0].Freq, time.Second) // interval minus 10% (max 1s)
 
 		// Changing state/plan always resumes (if paused); in fact, it's the
 		// only way to resume after Pause is called
 		c.paused = false
 		status.Monitor(c.monitorId, status.LEVEL_STATE, newState)
 		status.Monitor(c.monitorId, status.LEVEL_PLAN, newPlan.Name)
+		status.Monitor(c.monitorId, status.LEVEL_COLLECTOR, "running since %s", blip.FormatTime(time.Now()))
 		blip.Debug("%s: resume", c.monitorId)
 
 		c.stateMux.Unlock() // -- X unlock --
@@ -438,6 +470,6 @@ func (c *lco) Pause() {
 	c.stateMux.Lock()
 	c.paused = true
 	status.Monitor(c.monitorId, status.LEVEL_COLLECTOR, "paused at %s", blip.FormatTime(time.Now()))
-	c.event.Send(event.LPC_PAUSED)
+	c.event.Send(event.LCO_PAUSED)
 	c.stateMux.Unlock()
 }

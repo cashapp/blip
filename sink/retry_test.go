@@ -196,3 +196,28 @@ func TestRetryPopMiddle(t *testing.T) {
 	expect = []string{"2", "3", "", ""}
 	assert.Equal(t, expect, got)
 }
+
+func TestRetry_NoDeltaSink(t *testing.T) {
+	mockSink := mock.Sink{
+		SendFunc: func(ctx context.Context, m *blip.Metrics) error {
+			return nil
+		},
+	}
+
+	deltaSink := NewDelta(mockSink)
+
+	func() {
+		defer func() {
+			if err := recover(); err == nil {
+				t.Error("Expected an error but didn't get one")
+			}
+		}()
+
+		// Create the Retry sink with a Delta sink, which isn't allowed.
+		NewRetry(RetryArgs{
+			MonitorId:  "m1",
+			Sink:       deltaSink,
+			BufferSize: 4,
+		})
+	}()
+}

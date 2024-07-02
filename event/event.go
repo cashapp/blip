@@ -1,4 +1,4 @@
-// Copyright 2022 Block, Inc.
+// Copyright 2024 Block, Inc.
 
 // Package event provides a simple event stream in lieu of standard logging.
 package event
@@ -32,34 +32,58 @@ type Receiver interface {
 	Recv(Event)
 }
 
-var once sync.Once
+// receiver is the internal Receiver used by public functions of this package.
+// It must be initialized to a non-nil value else tests will panic. This is
+// easier than remember to call SetReceiver in tests, but it requires special
+// handle as commented in SetReceiver below.
+var receiver Receiver = Log{internal: true}
 
 // SetReceiver sets the receiver used by Blip to handle events. The default
 // receiver is Log. To override the default, call this function to set a new
-// receiver before calling Server.Boot.
+// receiver before calling Server.Boot. The receiver can be set only once,
+// so subsequent calls to this function have no effect.
 func SetReceiver(r Receiver) {
-	// Don't override becuase it's set only once. If user calls before
-	// Server.Start, then we keep their receiver. Else, Server.Start calls
-	// to set a built-in Log receiver.
-	once.Do(func() { receiver = r })
+	// Check if receiver is the default set above: Log{internal: true}.
+	// (See its code comment above.) If yes, then allow setting receiver,
+	// i.e. always allow Server.Boot or user to override the default.
+	defaultLog := false
+	if lr, ok := receiver.(Log); ok && lr.internal {
+		defaultLog = true
+	}
+
+	if receiver == nil || defaultLog {
+		receiver = r
+	}
+
+	return
 }
 
-// receiver is the private package Receiver that the public packages below use.
-// It defaults to a Log type receiver (set by Server.Start), but users can call
-// SetReceiver (before Server.Start) to override.
-var receiver Receiver = Log{}
+var subscribers = []Receiver{}
+var submux = &sync.Mutex{}
+
+func Subscribe(r Receiver) {
+	submux.Lock()
+	subscribers = append(subscribers, r)
+	submux.Unlock()
+}
+
+func RemoveSubscribers() {
+	submux.Lock()
+	subscribers = []Receiver{}
+	submux.Unlock()
+}
 
 // Send sends an event with no additional message.
 // This is a convenience function for Sendf.
 // Non-monitor parts of Blip use this function.
 func Send(eventName string) {
-	receiver.Recv(Event{Ts: time.Now(), Event: eventName})
+	send(Event{Ts: time.Now(), Event: eventName})
 }
 
 // Sendf sends an event and formatted message.
 // Non-monitor parts of Blip use this function.
 func Sendf(eventName string, msg string, args ...interface{}) {
-	receiver.Recv(Event{
+	send(Event{
 		Ts:      time.Now(),
 		Event:   eventName,
 		Message: fmt.Sprintf(msg, args...),
@@ -68,12 +92,21 @@ func Sendf(eventName string, msg string, args ...interface{}) {
 
 // Errorf sends an event flagged as an error with a formatted message.
 func Errorf(eventName string, msg string, args ...interface{}) {
-	receiver.Recv(Event{
+	send(Event{
 		Ts:      time.Now(),
 		Event:   eventName,
 		Message: fmt.Sprintf(msg, args...),
 		Error:   true,
 	})
+}
+
+func send(e Event) {
+	receiver.Recv(e)
+	submux.Lock()
+	for _, s := range subscribers {
+		s.Recv(e)
+	}
+	submux.Unlock()
 }
 
 // --------------------------------------------------------------------------
@@ -87,18 +120,18 @@ type MonitorReceiver struct {
 var _ Receiver = MonitorReceiver{}
 
 func (s MonitorReceiver) Recv(e Event) {
-	receiver.Recv(e)
+	send(e)
 }
 
 // Send sends an event with no additional message from the monitor.
 // This is a convenience function for Sendf.
 func (s MonitorReceiver) Send(eventName string) {
-	receiver.Recv(Event{Ts: time.Now(), Event: eventName, MonitorId: s.MonitorId})
+	send(Event{Ts: time.Now(), Event: eventName, MonitorId: s.MonitorId})
 }
 
 // Sendf sends an event and formatted message from the monitor.
 func (s MonitorReceiver) Sendf(eventName string, msg string, args ...interface{}) {
-	receiver.Recv(Event{
+	send(Event{
 		Ts:        time.Now(),
 		Event:     eventName,
 		Message:   fmt.Sprintf(msg, args...),
@@ -107,7 +140,7 @@ func (s MonitorReceiver) Sendf(eventName string, msg string, args ...interface{}
 }
 
 func (s MonitorReceiver) Errorf(eventName string, msg string, args ...interface{}) {
-	receiver.Recv(Event{
+	send(Event{
 		Ts:        time.Now(),
 		Event:     eventName,
 		Message:   fmt.Sprintf(msg, args...),
@@ -125,7 +158,8 @@ var stderr = log.New(os.Stderr, "", log.LstdFlags|log.Lmicroseconds)
 // certain events to STDOUT and error events to STDERR. Call SetReceiver to
 // override this default.
 type Log struct {
-	All bool
+	All      bool
+	internal bool
 }
 
 func (s Log) Recv(e Event) {
@@ -155,10 +189,9 @@ func (s Log) Recv(e Event) {
 // Then it copies the event to Tee.Out, if Out is not nil.  To "pipe fit"
 // multiple Tee together, use another Tee for Out.
 //
-//   event --> Tee.Recv --> Tee.Out.Recv // second
-//			   |
-//             +-> Tee.Receiver.Recv // first
-//
+//	  event --> Tee.Recv --> Tee.Out.Recv // second
+//				   |
+//	            +-> Tee.Receiver.Recv // first
 type Tee struct {
 	Receiver Receiver
 	Out      Receiver

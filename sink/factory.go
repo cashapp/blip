@@ -1,4 +1,4 @@
-// Copyright 2022 Block, Inc.
+// Copyright 2024 Block, Inc.
 
 package sink
 
@@ -97,7 +97,7 @@ func InitFactory(factories blip.Factories) {
 }
 
 func (f *factory) Make(args blip.SinkFactoryArgs) (blip.Sink, error) {
-	// Built-in log sink is special (simple), so return early if that
+	// Return early for sinks with no options
 	if args.SinkName == "log" {
 		return NewLogSink(args.MonitorId)
 	}
@@ -106,10 +106,10 @@ func (f *factory) Make(args blip.SinkFactoryArgs) (blip.Sink, error) {
 	}
 
 	// ----------------------------------------------------------------------
-	// Built-in sinks use Retry to serialize access and retry on Send
-	// error. First build the specific sink, then return it wrapped in Retry.
+	// Built-in sinks use Retry to serialize access and retry on Send error.
+	// First build the specific sink, then return it wrapped in Retry.
 
-	// Parse config.metrics.sink.*.send-timeout, which  is a Retry option
+	// Parse retry options
 	retryArgs := RetryArgs{
 		MonitorId: args.MonitorId,
 	}
@@ -170,6 +170,13 @@ func (f *factory) Make(args blip.SinkFactoryArgs) (blip.Sink, error) {
 		return nil, err
 	}
 
-	// Return built-in sink as Retry, which implements blip.Sink
-	return NewRetry(retryArgs), nil
+	// Wrap the sink as needed. All sinks should be wrapped with the
+	// built-in Retry sink, but some need to calculate delta
+	// versions for counters, which should wrap the Retry sink
+	switch args.SinkName {
+	case "datadog":
+		return NewDelta(NewRetry(retryArgs)), nil
+	default:
+		return NewRetry(retryArgs), nil
+	}
 }

@@ -1,0 +1,19 @@
+---
+level_1:
+  freq: 100ms
+  collect:
+    red:
+      metrics:
+      options: {}  # Needed so tests don't get a nil map
+level_2:
+  freq: 200ms
+  collect:
+    green:
+      metrics:
+      options: {}
+level_3:
+  freq: 400ms
+  collect:
+    blue:
+      metrics:
+      options: {}
