@@ -124,3 +124,30 @@ level:
       metrics:
         - whatever
 ```
+
+## Long-running
+
+As of Blip v1.2.0, long-running collectors are possible using one of two approaches:
+
+1. Background thread
+2. `ErrMore`
+
+But first, it's important to know that when `Collect` is called, it's passed a context (`ctx`) called the _collector max runtime (CMR)_.
+The CMR duration is set to the configured level frequency (as set be the user in the plan).
+A collector _must_ stop running when the CMR context is cancelled.
+
+### Background Thread
+
+A collector can run background threads (goroutine) to do anything between and during calls to `Collect`.
+Then, when `Collect` is called, the collector quickly returns the latest value(s).
+
+Using this method, the collector should return a cleanup function (callback) from `Prepare`.
+Blip calls collector cleanup functions if/when a monitor is stopped or restarted.
+
+### ErrMore
+
+If `Collect` returns `ErrMore` (with or without values), Blip keeps calling `Collect` until the collector stops returning `ErrMore` or its CMR expires.
+A collector can run for awhile (within its CMR) by returning `ErrMore` to signal that it has more values to report.
+
+When used, the second and subsequent calls to `Collect` have zero value arguments: `nil` context and empty string for level name.
+A collector should expect this since it happens only if the collector previously returned `ErrMore`.

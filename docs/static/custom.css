@@ -99,3 +99,8 @@ span.ga {
 .gdoc-markdown h4 > code {
   border: 0;
 }
+
+.gdoc-markdown hr:has(+ div, + h2) {
+  margin: 2rem 0;
+  border: 3px solid black;
+}

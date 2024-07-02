@@ -662,7 +662,7 @@ func TestLevelCollector_RGB_SlowBlue(t *testing.T) {
 	// TransformMetrics plugin
 	reported := [][]string{}
 	collectionTimes := [][]int64{}
-	xf := func(metrics []*blip.Metrics) {
+	xf := func(metrics []*blip.Metrics) error {
 		set := []string{}
 		times := []int64{}
 		for _, m := range metrics {
@@ -675,6 +675,7 @@ func TestLevelCollector_RGB_SlowBlue(t *testing.T) {
 		reported = append(reported, set)
 		collectionTimes = append(collectionTimes, times)
 		mux.Unlock()
+		return nil
 	}
 
 	// Load red-green-blue plan file which uses a 100ms intervals
@@ -826,7 +827,7 @@ func TestLevelCollector_RGB_ProgressiveBlue(t *testing.T) {
 
 	// TransformMetrics plugin
 	reported := [][]string{}
-	xf := func(metrics []*blip.Metrics) {
+	xf := func(metrics []*blip.Metrics) error {
 		set := []string{}
 		for _, m := range metrics {
 			for domain := range m.Values {
@@ -836,6 +837,7 @@ func TestLevelCollector_RGB_ProgressiveBlue(t *testing.T) {
 		mux.Lock()
 		reported = append(reported, set)
 		mux.Unlock()
+		return nil
 	}
 
 	// Load red-green-blue plan file which uses a 100ms intervals
@@ -973,7 +975,7 @@ func TestLevelCollector_RGB_Fault(t *testing.T) {
 
 	// TransformMetrics plugin
 	reported := [][]string{}
-	xf := func(metrics []*blip.Metrics) {
+	xf := func(metrics []*blip.Metrics) error {
 		set := []string{}
 		for _, m := range metrics {
 			for domain := range m.Values {
@@ -983,6 +985,7 @@ func TestLevelCollector_RGB_Fault(t *testing.T) {
 		mux.Lock()
 		reported = append(reported, set)
 		mux.Unlock()
+		return nil
 	}
 
 	// Load red-green-blue plan file which uses a 100ms intervals

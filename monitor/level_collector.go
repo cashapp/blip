@@ -49,7 +49,7 @@ type lco struct {
 	cfg              blip.ConfigMonitor
 	planLoader       *plan.Loader
 	sinks            []blip.Sink
-	transformMetrics func([]*blip.Metrics)
+	transformMetrics func([]*blip.Metrics) error
 	// --
 	monitorId   string
 	engine      *Engine
@@ -74,7 +74,7 @@ type LevelCollectorArgs struct {
 	DB               *sql.DB
 	PlanLoader       *plan.Loader
 	Sinks            []blip.Sink
-	TransformMetrics func([]*blip.Metrics)
+	TransformMetrics func([]*blip.Metrics) error
 }
 
 func NewLevelCollector(args LevelCollectorArgs) *lco {
@@ -126,6 +126,7 @@ func (c *lco) recvMetrics(stopSinksChan, doneChan chan struct{}) {
 			c.event.Errorf(event.LCO_RECEIVER_PANIC, perr.Error())
 		}
 	}()
+RECV:
 	for {
 		status.Monitor(c.monitorId, status.LEVEL_SINKS, "idle")
 		select {
@@ -135,7 +136,10 @@ func (c *lco) recvMetrics(stopSinksChan, doneChan chan struct{}) {
 			if c.transformMetrics != nil {
 				blip.Debug("%s: transform metrics", c.monitorId)
 				status.Monitor(c.monitorId, status.LEVEL_SINKS, "TransformMetrics")
-				c.transformMetrics(metrics)
+				if err := c.transformMetrics(metrics); err != nil {
+					blip.Debug("%s: transform metrics error, dropping metrics: %v", c.monitorId, err)
+					continue RECV
+				}
 			}
 			for _, m := range metrics {
 				coId := fmt.Sprintf("%s/%s/%d", m.Plan, m.Level, m.Interval)

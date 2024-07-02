@@ -1,11 +1,12 @@
-// Copyright 2022, Block, Inc.
+// Copyright 2024 Block, Inc.
 
 package repllag
 
 import (
 	"context"
-	"github.com/stretchr/testify/assert"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 
 	"github.com/cashapp/blip/test"
 )

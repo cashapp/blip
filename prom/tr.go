@@ -1,4 +1,4 @@
-// Copyright 2022 Block, Inc.
+// Copyright 2024 Block, Inc.
 
 package prom
 
@@ -17,20 +17,20 @@ type DomainTranslator interface {
 	Names() (prefix, domain, shortDomin string)
 }
 
+var mu = &sync.Mutex{}
+
 func Register(blipDomain string, tr DomainTranslator) error {
-	trMux.Lock()
-	defer trMux.Unlock()
+	mu.Lock()
+	defer mu.Unlock()
 	trRepo[blipDomain] = tr
 	return nil
 }
 
 func Translator(domain string) DomainTranslator {
-	trMux.Lock()
-	defer trMux.Unlock()
+	mu.Lock()
+	defer mu.Unlock()
 	return trRepo[domain]
 }
-
-var trMux = &sync.Mutex{}
 
 var trRepo = map[string]DomainTranslator{
 	"status.global": tr.StatusGlobal{Domain: "global_status", ShortDomain: "status"},

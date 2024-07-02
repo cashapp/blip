@@ -21,3 +21,4 @@ bin/blip/*
 examples/integrate/integrate
 examples/custom-sink/custom-sink
 examples/custom-receiver/custom-receiver
+examples/*/main
