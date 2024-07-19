@@ -421,7 +421,9 @@ func (c *lco) changePlan(ctx context.Context, doneChan chan struct{}, newState, 
 		c.state = newState
 		c.plan = newPlan
 		c.levels = levels
-		c.emr = blip.TimeLimit(0.1, levels[0].Freq, time.Second) // interval minus 10% (max 1s)
+		if len(levels) > 0 { // there can be 0 levels, e.g. plan/default.None
+			c.emr = blip.TimeLimit(0.1, levels[0].Freq, time.Second) // interval minus 10% (max 1s)
+		}
 
 		// Changing state/plan always resumes (if paused); in fact, it's the
 		// only way to resume after Pause is called
