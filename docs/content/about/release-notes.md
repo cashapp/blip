@@ -37,6 +37,11 @@ func(metrics []*blip.Metrics) error {
 
 2. If using an integration that works with Blip events, see [event/list.go](https://github.com/cashapp/blip/blob/main/event/list.go) for the new event names.
 
+### v1.2.1 (19 Jul 2024)
+
+* Fixed bug (panic) in `monitor/level_collector` when plan has no levels.
+* Added `plan/default.None`.
+
 ### v1.2.0 (2 Jul 2024)
 
 * Rewrote monitor.Engine ("engine v2") and some of level collector (LCO)

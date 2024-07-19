@@ -12,6 +12,7 @@ import (
 
 	"github.com/cashapp/blip"
 	"github.com/cashapp/blip/plan"
+	defaultPlan "github.com/cashapp/blip/plan/default"
 )
 
 // --------------------------------------------------------------------------
@@ -469,5 +470,16 @@ func TestSortComplex(t *testing.T) {
 	assert.Equal(t, expectLevels, gotLevels)
 	if diff := deep.Equal(p, expectPlan); diff != nil {
 		t.Error(diff)
+	}
+}
+
+func TestSortDefault_None(t *testing.T) {
+	p := defaultPlan.None()
+	gotLevels := plan.Sort(&p)
+	if gotLevels == nil {
+		t.Errorf("got nil sorted levels, execpted non-nil return value")
+	}
+	if len(gotLevels) != 0 {
+		t.Errorf("got %d levels from default.None plan, expected 0", len(gotLevels))
 	}
 }
