@@ -263,7 +263,7 @@ func (s *Server) Run(stopChan, doneChan chan struct{}) error {
 	status.Blip(status.SERVER, "running since %s", blip.FormatTime(time.Now()))
 	signalChan := make(chan os.Signal)
 	defer close(signalChan)
-	signal.Notify(signalChan, os.Interrupt, syscall.SIGTERM, syscall.SIGINFO)
+	signal.Notify(signalChan, os.Interrupt, syscall.SIGTERM, syscall.SIGUSR1)
 	for {
 		select {
 		case <-stopChan:
@@ -274,9 +274,9 @@ func (s *Server) Run(stopChan, doneChan chan struct{}) error {
 			case os.Interrupt, syscall.SIGTERM:
 				stopReason = "caught signal"
 				return nil
-			case syscall.SIGINFO:
+			case syscall.SIGUSR1:
 				blip.Debugging = !blip.Debugging
-				fmt.Fprintf(os.Stderr, "SIGINFO has set blip.Debugging to %t\n", blip.Debugging)
+				fmt.Fprintf(os.Stderr, "SIGUSR1 has set blip.Debugging to %t\n", blip.Debugging)
 			}
 		}
 	}
