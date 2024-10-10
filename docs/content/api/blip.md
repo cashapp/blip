@@ -60,4 +60,14 @@ Returns the Blip version (same as [`--version`]({{< ref "/config/blip#--version"
 "v1.0.75"
 ```
 
-Response encoding is text (string).
+## GET /debug
+
+Toggles debug logging.
+
+*Response*
+
+```json
+{"debugging":true}
+```
+
+

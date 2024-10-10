@@ -7,6 +7,7 @@ Start `blip` with the [`--log`]({{< ref "blip#--log" >}}) option to print info e
 
 <p class="note">
 <a href="blip#--debug">Debug</a> info is printed to <code>STDERR</code>.
+You can also toggle debug logging by sending a request to the `/debug` [API endpoint]({{< ref "/api" >}}) or by sending the `SIGUSR1` signal to the Blip process.
 </p>
 
 This is _pseudo-logging_ because there is no traditional log printing, only events that are printed by default.
