@@ -50,6 +50,8 @@ func NewAPI(cfg blip.Config, ml *monitor.Loader) *API {
 	mux.HandleFunc("/status", api.status)
 	mux.HandleFunc("/status/monitors", api.statusMonitors)
 
+	mux.HandleFunc("/debug", api.debug)
+
 	api.httpServer = &http.Server{
 		Addr:    cfg.API.Bind,
 		Handler: mux,
@@ -124,6 +126,12 @@ func (api *API) registered(w http.ResponseWriter, r *http.Request) {
 func (api *API) version(w http.ResponseWriter, r *http.Request) {
 	blip.Debug("%v", r)
 	w.Write([]byte(blip.VERSION))
+}
+
+func (api *API) debug(w http.ResponseWriter, r *http.Request) {
+	blip.Debug("%v", r)
+	blip.Debugging = !blip.Debugging
+	w.Write([]byte(fmt.Sprintf("Debugging: %t", blip.Debugging)))
 }
 
 // --------------------------------------------------------------------------
