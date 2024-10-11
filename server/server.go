@@ -261,7 +261,7 @@ func (s *Server) Run(stopChan, doneChan chan struct{}) error {
 
 	// Run until caller closes stopChan or blip process catches a signal
 	status.Blip(status.SERVER, "running since %s", blip.FormatTime(time.Now()))
-	signalChan := make(chan os.Signal)
+	signalChan := make(chan os.Signal, 1)
 	defer close(signalChan)
 	signal.Notify(signalChan, os.Interrupt, syscall.SIGTERM, syscall.SIGUSR1)
 	for {
