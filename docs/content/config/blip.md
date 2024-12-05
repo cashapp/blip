@@ -55,6 +55,8 @@ In this case, Blip tries to auto-detect a local MySQL instance, which is useful 
 
 Print debug to STDERR.
 
+You can also toggle debug logging by sending a request to the `/debug` [API endpoint]({{< ref "/api" >}}) or by sending the `SIGUSR1` signal to the Blip process.
+
 ### `--help`
 
 Print help and exit.
