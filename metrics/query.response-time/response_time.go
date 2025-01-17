@@ -175,7 +175,7 @@ LEVEL:
 		for i := range p {
 			config.percentiles[i] = percentile{
 				formatted: p[i].Name,
-				query:     BASE_QUERY + fmt.Sprintf(" WHERE bucket_quantile >= %f ORDER BY bucket_quantile LIMIT 1", p[i].Value),
+				query:     BASE_QUERY + fmt.Sprintf(" WHERE bucket_quantile >= %f ORDER BY bucket_number LIMIT 1", p[i].Value),
 			}
 		}
 
