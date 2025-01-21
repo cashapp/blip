@@ -30,7 +30,7 @@ func Connection(distroVersion string) (string, *sql.DB, error) {
 		return "", nil, fmt.Errorf("invalid distro-version: %s (see dockerPorts in test/mysql.go)", distroVersion)
 	}
 	dsn := fmt.Sprintf(
-		"%s:%s@tcp(%s:%s)/?parseTime=true",
+		"%s:%s@tcp(%s:%s)/?parseTime=true&interpolateParams=true",
 		"root",
 		"test",
 		"127.0.0.1",

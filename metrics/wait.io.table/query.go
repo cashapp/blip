@@ -7,17 +7,18 @@ import (
 	"strings"
 )
 
-func TableIoWaitQuery(set map[string]string, metrics []string) string {
+func TableIoWaitQuery(set map[string]string, metrics []string) (string, []interface{}) {
 	columns := setColumns(set, metrics)
 
 	query := fmt.Sprintf("SELECT %s FROM performance_schema.table_io_waits_summary_by_table", strings.Join(columns, ", "))
 	var where string
+	var params []interface{}
 	if include := set[OPT_INCLUDE]; include != "" {
-		where = setWhere(strings.Split(set[OPT_INCLUDE], ","), true)
+		where, params = setWhere(strings.Split(set[OPT_INCLUDE], ","), true)
 	} else {
-		where = setWhere(strings.Split(set[OPT_EXCLUDE], ","), false)
+		where, params = setWhere(strings.Split(set[OPT_EXCLUDE], ","), false)
 	}
-	return query + where
+	return query + where, params
 }
 
 func setColumns(set map[string]string, metrics []string) []string {
@@ -41,23 +42,28 @@ func setColumns(set map[string]string, metrics []string) []string {
 	return columns
 }
 
-func setWhere(tables []string, isInclude bool) string {
+func setWhere(tables []string, isInclude bool) (string, []interface{}) {
 	where := " WHERE "
 	if !isInclude {
 		where = where + "NOT "
 	}
+	var params []interface{} = make([]interface{}, 0)
+
 	for i, excludeTable := range tables {
 		if strings.Contains(excludeTable, ".") {
 			dbAndTable := strings.Split(excludeTable, ".")
 			db := dbAndTable[0]
 			table := dbAndTable[1]
 			if table == "*" {
-				where = where + fmt.Sprintf("(OBJECT_SCHEMA = '%s')", db)
+				params = append(params, db)
+				where = where + "(OBJECT_SCHEMA = ?)"
 			} else {
-				where = where + fmt.Sprintf("(OBJECT_SCHEMA = '%s' AND OBJECT_NAME = '%s')", db, table)
+				params = append(params, db, table)
+				where = where + "(OBJECT_SCHEMA = ? AND OBJECT_NAME = ?)"
 			}
 		} else {
-			where = where + fmt.Sprintf("(OBJECT_NAME = '%s')", excludeTable)
+			params = append(params, excludeTable)
+			where = where + "(OBJECT_NAME = ?)"
 		}
 		if i != (len(tables) - 1) {
 			if isInclude {
@@ -67,5 +73,5 @@ func setWhere(tables []string, isInclude bool) string {
 			}
 		}
 	}
-	return where
+	return where, params
 }

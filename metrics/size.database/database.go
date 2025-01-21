@@ -24,17 +24,19 @@ const (
 type Database struct {
 	db *sql.DB
 	// --
-	query map[string]string // keyed on level
-	total map[string]bool   // keyed on level
+	query  map[string]string // keyed on level
+	params map[string][]interface{}
+	total  map[string]bool // keyed on level
 }
 
 var _ blip.Collector = &Database{}
 
 func NewDatabase(db *sql.DB) *Database {
 	return &Database{
-		db:    db,
-		query: map[string]string{},
-		total: map[string]bool{},
+		db:     db,
+		query:  map[string]string{},
+		params: map[string][]interface{}{},
+		total:  map[string]bool{},
 	}
 }
 
@@ -97,11 +99,12 @@ LEVEL:
 		if !ok {
 			continue LEVEL // not collected in this level
 		}
-		q, err := DataSizeQuery(dom.Options, c.Help())
+		q, p, err := DataSizeQuery(dom.Options, c.Help())
 		if err != nil {
 			return nil, err
 		}
 		c.query[level.Name] = q
+		c.params[level.Name] = p
 
 		if dom.Options[OPT_TOTAL] == "yes" {
 			c.total[level.Name] = true
@@ -116,7 +119,7 @@ func (c *Database) Collect(ctx context.Context, levelName string) ([]blip.Metric
 		return nil, nil // not collected in this level
 	}
 
-	rows, err := c.db.QueryContext(ctx, q)
+	rows, err := c.db.QueryContext(ctx, q, c.params[levelName]...)
 	if err != nil {
 		return nil, err
 	}

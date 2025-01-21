@@ -56,6 +56,7 @@ type BlipReader struct {
 	isRepl   bool
 	event    event.MonitorReceiver
 	query    string
+	params   []interface{}
 }
 
 type BlipReaderArgs struct {
@@ -91,13 +92,16 @@ func NewBlipReader(args BlipReaderArgs) *BlipReader {
 	var where string
 	if r.srcId != "" {
 		blip.Debug("%s: heartbeat from source %s", r.monitorId, r.srcId)
-		where = "WHERE src_id='" + r.srcId + "'" // default
+		where = "WHERE src_id=?" // default
+		r.params = []interface{}{r.srcId}
 	} else if r.srcRole != "" {
 		blip.Debug("%s: heartbeat from role %s", r.monitorId, r.srcRole)
-		where = "WHERE src_role='" + r.srcRole + "' ORDER BY ts DESC LIMIT 1"
+		where = "WHERE src_role=? ORDER BY ts DESC LIMIT 1"
+		r.params = []interface{}{r.srcRole}
 	} else {
 		blip.Debug("%s: heartbeat from latest (max ts)", r.monitorId)
-		where = "WHERE src_id != '" + args.MonitorId + "' ORDER BY ts DESC LIMIT 1"
+		where = "WHERE src_id != ? ORDER BY ts DESC LIMIT 1"
+		r.params = []interface{}{args.MonitorId}
 	}
 	if r.replCheck != "" {
 		cols[4] = "@@" + r.replCheck
@@ -136,7 +140,7 @@ func (r *BlipReader) run() {
 		}
 
 		ctx, cancel = context.WithTimeout(context.Background(), ReadTimeout)
-		err = r.db.QueryRowContext(ctx, r.query).Scan(&now, &last, &freq, &srcId, &isRepl)
+		err = r.db.QueryRowContext(ctx, r.query, r.params...).Scan(&now, &last, &freq, &srcId, &isRepl)
 		cancel()
 		if err != nil {
 			blip.Debug("%s: %v", r.monitorId, err)

@@ -27,3 +27,13 @@ func TestFloat64(t *testing.T) {
 		}
 	}
 }
+
+func TestInList(t *testing.T) {
+	values := []string{"bleh;", "`something`"}
+	result := INList(values, "'")
+	expected := "'bleh','something'"
+
+	if expected != result {
+		t.Errorf("INList(%v, \"'\"): got %s, expected %s", values, result, expected)
+	}
+}

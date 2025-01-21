@@ -54,7 +54,7 @@ func TestConnect(t *testing.T) {
 	defer db.Close()
 
 	// Make returns a print-safe DSN: password ("test") replaced with "..."
-	expectDSN := fmt.Sprintf("%s:...@tcp(%s)/?parseTime=true", cfg.Username, cfg.Hostname)
+	expectDSN := fmt.Sprintf("%s:...@tcp(%s)/?interpolateParams=true&parseTime=true", cfg.Username, cfg.Hostname)
 	if dsn != expectDSN {
 		t.Errorf("got DSN '%s', expected '%s'", dsn, expectDSN)
 	}

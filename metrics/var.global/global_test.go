@@ -6,6 +6,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/go-test/deep"
 	"github.com/stretchr/testify/assert"
 
 	"github.com/cashapp/blip/test"
@@ -56,8 +57,15 @@ func TestPrepareWithAllSources(t *testing.T) {
 	queries := map[string]string{
 		"auto":   "SELECT CONCAT_WS(',', @@GLOBAL.read_only) v",
 		"select": "SELECT CONCAT_WS(',', @@GLOBAL.read_only) v",
-		"pfs":    "SELECT variable_name, variable_value from performance_schema.global_variables WHERE variable_name in ('read_only')",
-		"show":   "SHOW GLOBAL VARIABLES WHERE variable_name in ('read_only')",
+		"pfs":    "SELECT variable_name, variable_value from performance_schema.global_variables WHERE variable_name in (?)",
+		"show":   "SHOW GLOBAL VARIABLES WHERE variable_name in (?)",
+	}
+
+	params := map[string][]interface{}{
+		"auto":   []interface{}{},
+		"select": []interface{}{},
+		"pfs":    []interface{}{"read_only"},
+		"show":   []interface{}{"read_only"},
 	}
 
 	for src, query := range queries {
@@ -72,6 +80,9 @@ func TestPrepareWithAllSources(t *testing.T) {
 			query,
 			c.queryIn["kpi"],
 		)
+		if diff := deep.Equal(params[src], c.paramsIn["kpi"]); diff != nil {
+			t.Error(diff)
+		}
 	}
 }
 
@@ -113,10 +124,21 @@ func TestPrepareWithInvalidMetricName(t *testing.T) {
 	plan := test.ReadPlan(t, "")
 	dom := plan.Levels["kpi"].Collect[DOMAIN]
 	dom.Metrics = []string{"max_connections'); DROP TABLE students;--,", "max_prepared_stmt_count"}
+	dom.Options[OPT_SOURCE] = "select"
 	plan.Levels["kpi"].Collect[DOMAIN] = dom
 
 	_, err = c.Prepare(context.Background(), plan)
 	assert.Error(t, err)
+
+	// The PFS and SHOW sources use interpolated queries and will not have a syntax error
+	// due to a bad metric name as a result.
+	dom.Options[OPT_SOURCE] = "pfs"
+	_, err = c.Prepare(context.Background(), plan)
+	assert.Nil(t, err)
+
+	dom.Options[OPT_SOURCE] = "show"
+	_, err = c.Prepare(context.Background(), plan)
+	assert.Nil(t, err)
 }
 
 // Metrics collected in test/plans/var_global.yaml
