@@ -5,7 +5,8 @@ package sizedatabase_test
 import (
 	"testing"
 
-	"github.com/cashapp/blip/metrics/size.database"
+	sizedatabase "github.com/cashapp/blip/metrics/size.database"
+	"github.com/go-test/deep"
 )
 
 func TestDataSizeQuery(t *testing.T) {
@@ -13,21 +14,26 @@ func TestDataSizeQuery(t *testing.T) {
 
 	// All defaults
 	opts := map[string]string{}
-	got, err := sizedatabase.DataSizeQuery(opts, dataSize.Help())
-	expect := "SELECT table_schema AS db, SUM(data_length+index_length) AS bytes FROM information_schema.tables WHERE table_schema NOT IN ('mysql','information_schema','performance_schema','sys') GROUP BY 1"
+	got, params, err := sizedatabase.DataSizeQuery(opts, dataSize.Help())
+	expect := "SELECT table_schema AS db, SUM(data_length+index_length) AS bytes FROM information_schema.tables WHERE table_schema NOT IN (?, ?, ?, ?) GROUP BY 1"
 	if err != nil {
 		t.Error(err)
 	}
 	if got != expect {
 		t.Errorf("got:\n%s\nexpect:\n%s\n", got, expect)
+	}
+
+	expectedParams := []interface{}{"mysql", "information_schema", "performance_schema", "sys"}
+	if diff := deep.Equal(params, expectedParams); diff != nil {
+		t.Error(diff)
 	}
 
 	// Exclude specific databases
 	opts = map[string]string{
 		sizedatabase.OPT_EXCLUDE: "a,b,c",
 	}
-	got, err = sizedatabase.DataSizeQuery(opts, dataSize.Help())
-	expect = "SELECT table_schema AS db, SUM(data_length+index_length) AS bytes FROM information_schema.tables WHERE table_schema NOT IN ('a','b','c') GROUP BY 1"
+	got, params, err = sizedatabase.DataSizeQuery(opts, dataSize.Help())
+	expect = "SELECT table_schema AS db, SUM(data_length+index_length) AS bytes FROM information_schema.tables WHERE table_schema NOT IN (?, ?, ?) GROUP BY 1"
 	if err != nil {
 		t.Error(err)
 	}
@@ -35,17 +41,27 @@ func TestDataSizeQuery(t *testing.T) {
 		t.Errorf("got:\n%s\nexpect:\n%s\n", got, expect)
 	}
 
+	expectedParams = []interface{}{"a", "b", "c"}
+	if diff := deep.Equal(params, expectedParams); diff != nil {
+		t.Error(diff)
+	}
+
 	// Include specific databases
 	opts = map[string]string{
 		sizedatabase.OPT_INCLUDE: "foo,bar",
 	}
-	got, err = sizedatabase.DataSizeQuery(opts, dataSize.Help())
-	expect = "SELECT table_schema AS db, SUM(data_length+index_length) AS bytes FROM information_schema.tables WHERE table_schema IN ('foo','bar') GROUP BY 1"
+	got, params, err = sizedatabase.DataSizeQuery(opts, dataSize.Help())
+	expect = "SELECT table_schema AS db, SUM(data_length+index_length) AS bytes FROM information_schema.tables WHERE table_schema IN (?, ?) GROUP BY 1"
 	if err != nil {
 		t.Error(err)
 	}
 	if got != expect {
 		t.Errorf("got:\n%s\nexpect:\n%s\n", got, expect)
+	}
+
+	expectedParams = []interface{}{"foo", "bar"}
+	if diff := deep.Equal(params, expectedParams); diff != nil {
+		t.Error(diff)
 	}
 
 	// Include overrides exclude
@@ -53,13 +69,18 @@ func TestDataSizeQuery(t *testing.T) {
 		sizedatabase.OPT_INCLUDE: "foo,bar",
 		sizedatabase.OPT_EXCLUDE: "a,b,c", // ignored
 	}
-	got, err = sizedatabase.DataSizeQuery(opts, dataSize.Help())
-	expect = "SELECT table_schema AS db, SUM(data_length+index_length) AS bytes FROM information_schema.tables WHERE table_schema IN ('foo','bar') GROUP BY 1"
+	got, params, err = sizedatabase.DataSizeQuery(opts, dataSize.Help())
+	expect = "SELECT table_schema AS db, SUM(data_length+index_length) AS bytes FROM information_schema.tables WHERE table_schema IN (?, ?) GROUP BY 1"
 	if err != nil {
 		t.Error(err)
 	}
 	if got != expect {
 		t.Errorf("got:\n%s\nexpect:\n%s\n", got, expect)
+	}
+
+	expectedParams = []interface{}{"foo", "bar"}
+	if diff := deep.Equal(params, expectedParams); diff != nil {
+		t.Error(diff)
 	}
 
 	// LIKE include
@@ -67,13 +88,18 @@ func TestDataSizeQuery(t *testing.T) {
 		sizedatabase.OPT_LIKE:    "yes",
 		sizedatabase.OPT_INCLUDE: "foo,bar",
 	}
-	got, err = sizedatabase.DataSizeQuery(opts, dataSize.Help())
-	expect = "SELECT table_schema AS db, SUM(data_length+index_length) AS bytes FROM information_schema.tables WHERE table_schema LIKE 'foo' OR table_schema LIKE 'bar' GROUP BY 1"
+	got, params, err = sizedatabase.DataSizeQuery(opts, dataSize.Help())
+	expect = "SELECT table_schema AS db, SUM(data_length+index_length) AS bytes FROM information_schema.tables WHERE table_schema LIKE ? OR table_schema LIKE ? GROUP BY 1"
 	if err != nil {
 		t.Error(err)
 	}
 	if got != expect {
 		t.Errorf("got:\n%s\nexpect:\n%s\n", got, expect)
+	}
+
+	expectedParams = []interface{}{"foo", "bar"}
+	if diff := deep.Equal(params, expectedParams); diff != nil {
+		t.Error(diff)
 	}
 
 	// LIKE exclude
@@ -81,8 +107,8 @@ func TestDataSizeQuery(t *testing.T) {
 		sizedatabase.OPT_LIKE:    "yes",
 		sizedatabase.OPT_EXCLUDE: "x,y,z",
 	}
-	got, err = sizedatabase.DataSizeQuery(opts, dataSize.Help())
-	expect = "SELECT table_schema AS db, SUM(data_length+index_length) AS bytes FROM information_schema.tables WHERE table_schema NOT LIKE 'x' AND table_schema NOT LIKE 'y' AND table_schema NOT LIKE 'z' GROUP BY 1"
+	got, params, err = sizedatabase.DataSizeQuery(opts, dataSize.Help())
+	expect = "SELECT table_schema AS db, SUM(data_length+index_length) AS bytes FROM information_schema.tables WHERE table_schema NOT LIKE ? AND table_schema NOT LIKE ? AND table_schema NOT LIKE ? GROUP BY 1"
 	if err != nil {
 		t.Error(err)
 	}
@@ -90,16 +116,26 @@ func TestDataSizeQuery(t *testing.T) {
 		t.Errorf("got:\n%s\nexpect:\n%s\n", got, expect)
 	}
 
+	expectedParams = []interface{}{"x", "y", "z"}
+	if diff := deep.Equal(params, expectedParams); diff != nil {
+		t.Error(diff)
+	}
+
 	// Total only (with default exclude)
 	opts = map[string]string{
 		sizedatabase.OPT_TOTAL: "only",
 	}
-	got, err = sizedatabase.DataSizeQuery(opts, dataSize.Help())
-	expect = "SELECT \"\" AS db, SUM(data_length+index_length) AS bytes FROM information_schema.tables WHERE table_schema NOT IN ('mysql','information_schema','performance_schema','sys')"
+	got, params, err = sizedatabase.DataSizeQuery(opts, dataSize.Help())
+	expect = "SELECT \"\" AS db, SUM(data_length+index_length) AS bytes FROM information_schema.tables WHERE table_schema NOT IN (?, ?, ?, ?)"
 	if err != nil {
 		t.Error(err)
 	}
 	if got != expect {
 		t.Errorf("got:\n%s\nexpect:\n%s\n", got, expect)
+	}
+
+	expectedParams = []interface{}{"mysql", "information_schema", "performance_schema", "sys"}
+	if diff := deep.Equal(params, expectedParams); diff != nil {
+		t.Error(diff)
 	}
 }

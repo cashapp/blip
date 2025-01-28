@@ -11,7 +11,6 @@ import (
 
 	"github.com/cashapp/blip"
 	"github.com/cashapp/blip/heartbeat"
-	"github.com/cashapp/blip/sqlutil"
 )
 
 const (
@@ -207,10 +206,26 @@ LEVEL:
 
 		c.dropNotAReplica[levelName] = !blip.Bool(dom.Options[OPT_REPORT_NOT_A_REPLICA])
 		c.defaultChannelNameOverrides[levelName] = dom.Options[OPT_DEFAULT_CHANNEL_NAME]
-		c.replCheck = sqlutil.CleanObjectName(dom.Options[OPT_REPL_CHECK]) // @todo sanitize better
+		if err := c.verifyReplCheck(ctx, dom.Options[OPT_REPL_CHECK]); err != nil {
+			return cleanup, err
+		}
+		c.replCheck = dom.Options[OPT_REPL_CHECK]
 	}
 
 	return cleanup, nil
+}
+
+func (c *Lag) verifyReplCheck(ctx context.Context, variable string) error {
+	if variable == "" {
+		return nil
+	}
+
+	row := c.db.QueryRowContext(ctx, "SHOW GLOBAL VARIABLES LIKE ?", variable)
+	var value string
+	if err := row.Scan(&value, &value); err != nil {
+		return fmt.Errorf("failed to verify replication check variable %s: %s", variable, err)
+	}
+	return nil
 }
 
 func (c *Lag) Collect(ctx context.Context, levelName string) ([]blip.MetricValue, error) {

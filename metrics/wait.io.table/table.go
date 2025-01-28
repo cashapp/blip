@@ -81,6 +81,7 @@ func init() {
 
 type tableOptions struct {
 	query             string
+	params            []interface{}
 	truncate          bool
 	truncateTimeout   time.Duration
 	stop              bool
@@ -182,7 +183,7 @@ LEVEL:
 			dom.Options[OPT_EXCLUDE] = OPT_EXCLUDE_DEFAULT
 		}
 
-		o.query = TableIoWaitQuery(dom.Options, dom.Metrics)
+		o.query, o.params = TableIoWaitQuery(dom.Options, dom.Metrics)
 
 		if truncate, ok := dom.Options[OPT_TRUNCATE_TABLE]; ok && truncate == "no" {
 			o.truncate = false
@@ -233,7 +234,7 @@ func (t *Table) Collect(ctx context.Context, levelName string) ([]blip.MetricVal
 		return nil, nil
 	}
 
-	rows, err := t.db.QueryContext(ctx, o.query)
+	rows, err := t.db.QueryContext(ctx, o.query, o.params...)
 	if err != nil {
 		return nil, err
 	}

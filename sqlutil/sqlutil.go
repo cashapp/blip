@@ -43,12 +43,15 @@ func Float64(s string) (float64, bool) {
 	return 0, false // failed
 }
 
+// DEPRECATED: Use interpolated queries instead
 func CleanObjectName(o string) string {
 	o = strings.ReplaceAll(o, ";", "")
 	o = strings.ReplaceAll(o, "`", "")
 	return strings.TrimSpace(o) // must be last in case Replace make space
 }
 
+// DEPRECATED: Use strings.Split instead in conjunction with
+// interpolated queries.
 func ObjectList(csv string, quoteChar string) []string {
 	objs := strings.Split(csv, ",")
 	for i := range objs {
@@ -57,13 +60,37 @@ func ObjectList(csv string, quoteChar string) []string {
 	return objs
 }
 
+// PlaceholderList returns a string of ? placeholders separated by commas.
+func PlaceholderList(count int) string {
+	if count <= 0 {
+		return ""
+	}
+
+	return fmt.Sprintf("?%s", strings.Repeat(", ?", count-1))
+}
+
+// ToInterfaceArray converts a list of any type to a list of interface{}.
+func ToInterfaceArray[T any](list []T) []interface{} {
+	if len(list) == 0 {
+		return []interface{}{}
+	}
+
+	result := make([]interface{}, 0, len(list))
+	for _, value := range list {
+		result = append(result, value)
+	}
+
+	return result
+}
+
+// DEPRECATED: Use interpolated queries instead
 func INList(objs []string, quoteChar string) string {
 	if len(objs) == 0 {
 		return ""
 	}
 	in := quoteChar + CleanObjectName(objs[0]) + quoteChar
 	for i := range objs[1:] {
-		in += "," + quoteChar + CleanObjectName(objs[i]) + quoteChar
+		in += "," + quoteChar + CleanObjectName(objs[i+1]) + quoteChar
 	}
 	return in
 }

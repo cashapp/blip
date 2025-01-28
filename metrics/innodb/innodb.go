@@ -42,16 +42,18 @@ const (
 // InnoDB collects metrics for the innodb domain. The source is
 // information_schema.innodb_metrics.
 type InnoDB struct {
-	db    *sql.DB
-	query map[string]string
+	db     *sql.DB
+	query  map[string]string
+	params map[string][]interface{}
 }
 
 var _ blip.Collector = &InnoDB{}
 
 func NewInnoDB(db *sql.DB) *InnoDB {
 	return &InnoDB{
-		db:    db,
-		query: map[string]string{},
+		db:     db,
+		query:  map[string]string{},
+		params: map[string][]interface{}{},
 	}
 }
 
@@ -95,10 +97,13 @@ LEVEL:
 		switch all {
 		case "all":
 			c.query[level.Name] = baseQuery
+			c.params[level.Name] = []interface{}{}
 		case "enabled":
 			c.query[level.Name] = baseQuery + " WHERE status='enabled'"
+			c.params[level.Name] = []interface{}{}
 		default:
-			c.query[level.Name] = baseQuery + " WHERE name IN (" + sqlutil.INList(dom.Metrics, "'") + ")"
+			c.query[level.Name] = baseQuery + " WHERE name IN (" + sqlutil.PlaceholderList(len(dom.Metrics)) + ")"
+			c.params[level.Name] = sqlutil.ToInterfaceArray(dom.Metrics)
 		}
 		blip.Debug("%s: innodb metrics at %s: %s", plan.MonitorId, level.Name, c.query[level.Name])
 	}
@@ -106,7 +111,7 @@ LEVEL:
 }
 
 func (c *InnoDB) Collect(ctx context.Context, levelName string) ([]blip.MetricValue, error) {
-	rows, err := c.db.QueryContext(ctx, c.query[levelName])
+	rows, err := c.db.QueryContext(ctx, c.query[levelName], c.params[levelName]...)
 	if err != nil {
 		return nil, err
 	}

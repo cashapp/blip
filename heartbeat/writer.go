@@ -84,18 +84,19 @@ func (w *Writer) Write(stopChan, doneChan chan struct{}) error {
 	// This must be done else the simpler UPDATE statements below, which is the
 	// real heartbeat, will fail because there's no match row.
 	var ping string
+	var params []interface{}
 	if w.srcRole != "" {
-		ping = fmt.Sprintf("INSERT INTO %s (src_id, src_role, ts, freq) VALUES ('%s', '%s', NOW(3), %d) ON DUPLICATE KEY UPDATE ts=NOW(3), freq=%d, src_role='%s'",
-			w.table, w.srcId, w.srcRole, w.freq.Milliseconds(), w.freq.Milliseconds(), w.srcRole)
+		ping = fmt.Sprintf("INSERT INTO %s (src_id, src_role, ts, freq) VALUES (?, ?, NOW(3), ?) ON DUPLICATE KEY UPDATE ts=NOW(3), freq=?, src_role=?", w.table)
+		params = []interface{}{w.srcId, w.srcRole, w.freq.Milliseconds(), w.freq.Milliseconds(), w.srcRole}
 	} else {
-		ping = fmt.Sprintf("INSERT INTO %s (src_id, src_role, ts, freq) VALUES ('%s', NULL, NOW(3), %d) ON DUPLICATE KEY UPDATE ts=NOW(3), freq=%d, src_role=NULL",
-			w.table, w.monitorId, w.freq.Milliseconds(), w.freq.Milliseconds())
+		ping = fmt.Sprintf("INSERT INTO %s (src_id, src_role, ts, freq) VALUES (?, NULL, NOW(3), ?) ON DUPLICATE KEY UPDATE ts=NOW(3), freq=?, src_role=NULL", w.table)
+		params = []interface{}{w.monitorId, w.freq.Milliseconds(), w.freq.Milliseconds()}
 	}
 	blip.Debug("%s: first heartbeat: %s", w.monitorId, ping)
 	for {
 		status.Monitor(w.monitorId, status.HEARTBEAT_WRITER, "first insert")
 		ctx, cancel = context.WithTimeout(context.Background(), WriteTimeout)
-		_, err = w.db.ExecContext(ctx, ping)
+		_, err = w.db.ExecContext(ctx, ping, params...)
 		cancel()
 		if err == nil { // success
 			status.Monitor(w.monitorId, status.HEARTBEAT_WRITER, "sleep")
@@ -127,14 +128,14 @@ func (w *Writer) Write(stopChan, doneChan chan struct{}) error {
 	// to void 2 wasted round trips: prep (waste), exec, close (waste).
 	// This risk of SQL injection is miniscule because both table and monitorId
 	// are sanitized, and Blip should only have write privs on its heartbeat table.
-	ping = fmt.Sprintf("UPDATE %s SET ts=NOW(3) WHERE src_id='%s'", w.table, w.srcId)
+	ping = fmt.Sprintf("UPDATE %s SET ts=NOW(3) WHERE src_id=?", w.table)
 	blip.Debug("%s: heartbeat: %s", w.monitorId, ping)
 	for {
 		time.Sleep(w.freq)
 
 		status.Monitor(w.monitorId, status.HEARTBEAT_WRITER, "write")
 		ctx, cancel = context.WithTimeout(context.Background(), WriteTimeout)
-		_, err = w.db.ExecContext(ctx, ping)
+		_, err = w.db.ExecContext(ctx, ping, w.srcId)
 		cancel()
 		if err != nil {
 			blip.Debug("%s: %s", w.monitorId, err.Error())

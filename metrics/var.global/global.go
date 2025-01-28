@@ -27,9 +27,10 @@ const (
 type Global struct {
 	db *sql.DB
 	// --
-	metrics  map[string][]string // keyed on level
-	queryIn  map[string]string   // keyed on level
-	sourceIn map[string]string   // keyed on level
+	metrics  map[string][]string      // keyed on level
+	queryIn  map[string]string        // keyed on level
+	paramsIn map[string][]interface{} // keyed on level
+	sourceIn map[string]string        // keyed on level
 }
 
 var _ blip.Collector = &Global{}
@@ -39,6 +40,7 @@ func NewGlobal(db *sql.DB) *Global {
 		db:       db,
 		metrics:  map[string][]string{},
 		queryIn:  make(map[string]string),
+		paramsIn: make(map[string][]interface{}),
 		sourceIn: make(map[string]string),
 	}
 }
@@ -152,15 +154,12 @@ func (c *Global) prepareLevel(levelName string, metrics []string, options map[st
 	if err = c.prepareSELECT(levelName); err == nil {
 		return nil
 	}
-
 	if err = c.preparePFS(levelName); err == nil {
 		return nil
 	}
-
 	if err = c.prepareSHOW(levelName, false); err == nil {
 		return nil
 	}
-
 	return fmt.Errorf("auto source failed, last error: %s", err)
 }
 
@@ -174,6 +173,7 @@ func (c *Global) prepareSELECT(levelName string) error {
 
 	c.queryIn[levelName] = fmt.Sprintf("SELECT CONCAT_WS(',', %s) v", globalMetricString)
 	c.sourceIn[levelName] = SOURCE_SELECT
+	c.paramsIn[levelName] = []interface{}{}
 
 	// Try collecting, discard metrics
 	_, err := c.collectSELECT(context.TODO(), levelName)
@@ -181,14 +181,12 @@ func (c *Global) prepareSELECT(levelName string) error {
 }
 
 func (c *Global) preparePFS(levelName string) error {
-	var metricString string
-	metricString = strings.Join(c.metrics[levelName], "', '")
-
-	query := fmt.Sprintf("SELECT variable_name, variable_value from performance_schema.global_variables WHERE variable_name in ('%s')",
-		metricString,
+	query := fmt.Sprintf("SELECT variable_name, variable_value from performance_schema.global_variables WHERE variable_name in (%s)",
+		sqlutil.PlaceholderList(len(c.metrics[levelName])),
 	)
 	c.queryIn[levelName] = query
 	c.sourceIn[levelName] = SOURCE_PFS
+	c.paramsIn[levelName] = sqlutil.ToInterfaceArray(c.metrics[levelName])
 
 	// Try collecting, discard metrics
 	_, err := c.collectRows(context.TODO(), levelName)
@@ -197,15 +195,18 @@ func (c *Global) preparePFS(levelName string) error {
 
 func (c *Global) prepareSHOW(levelName string, all bool) error {
 	var query string
+	var params []interface{}
 	if all {
+		params = []interface{}{}
 		query = "SHOW GLOBAL VARIABLES"
 	} else {
-		metricString := strings.Join(c.metrics[levelName], "', '")
-		query = fmt.Sprintf("SHOW GLOBAL VARIABLES WHERE variable_name in ('%s')", metricString)
+		params = sqlutil.ToInterfaceArray(c.metrics[levelName])
+		query = fmt.Sprintf("SHOW GLOBAL VARIABLES WHERE variable_name in (%s)", sqlutil.PlaceholderList(len(c.metrics[levelName])))
 	}
 
 	c.queryIn[levelName] = query
 	c.sourceIn[levelName] = SOURCE_SHOW
+	c.paramsIn[levelName] = params
 
 	// Try collecting, discard metrics
 	_, err := c.collectRows(context.TODO(), levelName)
@@ -215,7 +216,7 @@ func (c *Global) prepareSHOW(levelName string, all bool) error {
 // --------------------------------------------------------------------------
 
 func (c *Global) collectSELECT(ctx context.Context, levelName string) ([]blip.MetricValue, error) {
-	rows, err := c.db.QueryContext(ctx, c.queryIn[levelName])
+	rows, err := c.db.QueryContext(ctx, c.queryIn[levelName], c.paramsIn[levelName]...)
 	if err != nil {
 		return nil, err
 	}
@@ -250,7 +251,7 @@ func (c *Global) collectSELECT(ctx context.Context, levelName string) ([]blip.Me
 // Since both `show` and `pfs` queries return results in same format (ie; 2 columns, name and value)
 // use the same logic for querying and retrieving metrics from the results
 func (c *Global) collectRows(ctx context.Context, levelName string) ([]blip.MetricValue, error) {
-	rows, err := c.db.QueryContext(ctx, c.queryIn[levelName])
+	rows, err := c.db.QueryContext(ctx, c.queryIn[levelName], c.paramsIn[levelName]...)
 	if err != nil {
 		return nil, err
 	}

@@ -116,7 +116,7 @@ func (f factory) Make(cfg blip.ConfigMonitor) (*sql.DB, string, error) {
 	// ----------------------------------------------------------------------
 	// Load TLS
 
-	params := []string{"parseTime=true"}
+	params := []string{"parseTime=true", "interpolateParams=true"}
 
 	// Go says "either ServerName or InsecureSkipVerify must be specified".
 	// This is a pathological case: socket and TLS but no hostname to verify

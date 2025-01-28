@@ -22,8 +22,9 @@ const (
 type Table struct {
 	db *sql.DB
 	// --
-	query map[string]string
-	total map[string]bool
+	query  map[string]string
+	params map[string][]interface{}
+	total  map[string]bool
 }
 
 // Verify collector implements blip.Collector interface.
@@ -32,9 +33,10 @@ var _ blip.Collector = &Table{}
 // NewTable makes a new Table collector,
 func NewTable(db *sql.DB) *Table {
 	return &Table{
-		db:    db,
-		query: map[string]string{},
-		total: map[string]bool{},
+		db:     db,
+		query:  map[string]string{},
+		params: map[string][]interface{}{},
+		total:  map[string]bool{},
 	}
 }
 
@@ -97,11 +99,12 @@ LEVEL:
 			dom.Options[OPT_EXCLUDE] = "mysql.*,information_schema.*,performance_schema.*,sys.*"
 		}
 
-		q, err := TableSizeQuery(dom.Options)
+		q, params, err := TableSizeQuery(dom.Options)
 		if err != nil {
 			return nil, err
 		}
 		t.query[level.Name] = q
+		t.params[level.Name] = params
 
 		if dom.Options[opt_total] == "yes" {
 			t.total[level.Name] = true
@@ -116,7 +119,7 @@ func (t *Table) Collect(ctx context.Context, levelName string) ([]blip.MetricVal
 		return nil, nil
 	}
 
-	rows, err := t.db.QueryContext(ctx, q)
+	rows, err := t.db.QueryContext(ctx, q, t.params[levelName]...)
 	if err != nil {
 		return nil, err
 	}
