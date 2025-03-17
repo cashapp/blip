@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"fmt"
 	"math"
+	"strings"
 	"time"
 
 	myerr "github.com/go-mysql/errors"
@@ -228,8 +229,10 @@ func (c *ResponseTime) Collect(ctx context.Context, levelName string) ([]blip.Me
 
 	// If debugging is turned on dump the raw values from performance_schema.events_statements_histogram_global
 	if blip.Debugging {
-		blip.Debug("Bucket Number|Bucket Timer Low|Bucket Timer High|Count Bucket|Count Bucket and Lower|Bucket Quantile")
-		rows, err := c.db.QueryContext(ctx, "SELECT * FROM performance_schema.events_statements_histogram_global")
+		var sb strings.Builder
+
+		sb.WriteString("Bucket Number|Bucket Timer Low|Bucket Timer High|Count Bucket|Count Bucket and Lower|Bucket Quantile\n")
+		rows, err := c.db.QueryContext(ctx, "SELECT * FROM performance_schema.events_statements_histogram_global ORDER BY bucket_quantile")
 		if err == nil {
 			defer rows.Close()
 
@@ -239,10 +242,12 @@ func (c *ResponseTime) Collect(ctx context.Context, levelName string) ([]blip.Me
 				var quantile float64
 
 				if err := rows.Scan(&bNum, &btLow, &btHigh, &cb, &cbL, &quantile); err == nil {
-					blip.Debug("%v|%v|%v|%v|%v|%v", bNum, btLow, btHigh, cb, cbL, quantile)
+					sb.WriteString(fmt.Sprintf("%v|%v|%v|%v|%v|%v\n", bNum, btLow, btHigh, cb, cbL, quantile))
 				}
 			}
 		}
+
+		blip.Debug(sb.String())
 	}
 
 	if c.atLevel[levelName].truncate {
