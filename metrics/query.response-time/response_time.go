@@ -222,6 +222,27 @@ func (c *ResponseTime) Collect(ctx context.Context, levelName string) ([]blip.Me
 			}
 		}
 		metrics = append(metrics, m)
+
+		blip.Debug("[%s]: Formated percentile value: %s=%f", DOMAIN, percentile.formatted, us)
+	}
+
+	// If debugging is turned on dump the raw values from performance_schema.events_statements_histogram_global
+	if blip.Debugging {
+		blip.Debug("Bucket Number|Bucket Timer Low|Bucket Timer High|Count Bucket|Count Bucket and Lower|Bucket Quantile")
+		rows, err := c.db.QueryContext(ctx, "SELECT * FROM performance_schema.events_statements_histogram_global")
+		if err == nil {
+			defer rows.Close()
+
+			for rows.Next() {
+				var bNum int
+				var btLow, btHigh, cb, cbL int64
+				var quantile float64
+
+				if err := rows.Scan(&bNum, &btLow, &btHigh, &cb, &cbL, &quantile); err == nil {
+					blip.Debug("%v|%v|%v|%v|%v|%v", bNum, btLow, btHigh, cb, cbL, quantile)
+				}
+			}
+		}
 	}
 
 	if c.atLevel[levelName].truncate {
