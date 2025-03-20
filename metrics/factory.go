@@ -8,21 +8,22 @@ import (
 	"sync"
 
 	"github.com/cashapp/blip"
-	"github.com/cashapp/blip/metrics/aws.rds"
+	awsrds "github.com/cashapp/blip/metrics/aws.rds"
 	"github.com/cashapp/blip/metrics/innodb"
+	innodbbufferpool "github.com/cashapp/blip/metrics/innodb.buffer-pool"
 	"github.com/cashapp/blip/metrics/percona"
-	"github.com/cashapp/blip/metrics/query.response-time"
+	queryresponsetime "github.com/cashapp/blip/metrics/query.response-time"
 	"github.com/cashapp/blip/metrics/repl"
-	"github.com/cashapp/blip/metrics/repl.lag"
-	"github.com/cashapp/blip/metrics/size.binlog"
-	"github.com/cashapp/blip/metrics/size.database"
-	"github.com/cashapp/blip/metrics/size.table"
-	"github.com/cashapp/blip/metrics/status.global"
+	repllag "github.com/cashapp/blip/metrics/repl.lag"
+	sizebinlog "github.com/cashapp/blip/metrics/size.binlog"
+	sizedatabase "github.com/cashapp/blip/metrics/size.database"
+	sizetable "github.com/cashapp/blip/metrics/size.table"
+	statusglobal "github.com/cashapp/blip/metrics/status.global"
 	"github.com/cashapp/blip/metrics/stmt.current"
 	"github.com/cashapp/blip/metrics/tls"
 	"github.com/cashapp/blip/metrics/trx"
-	"github.com/cashapp/blip/metrics/var.global"
-	"github.com/cashapp/blip/metrics/wait.io.table"
+	varglobal "github.com/cashapp/blip/metrics/var.global"
+	waitiotable "github.com/cashapp/blip/metrics/wait.io.table"
 )
 
 // Register registers a factory that makes one or more collector by domain name.
@@ -260,6 +261,8 @@ func (f *factory) Make(domain string, args blip.CollectorFactoryArgs) (blip.Coll
 		return awsrds.NewRDS(awsrds.NewCloudWatchClient(awsConfig)), nil
 	case "innodb":
 		return innodb.NewInnoDB(args.DB), nil
+	case "innodb.buffer-pool":
+		return innodbbufferpool.NewBufferPoolStats(args.DB), nil
 	case "percona.response-time":
 		return percona.NewQRT(args.DB), nil
 	case "query.response-time":
@@ -295,6 +298,7 @@ func (f *factory) Make(domain string, args blip.CollectorFactoryArgs) (blip.Coll
 var builtinCollectors = []string{
 	"aws.rds",
 	"innodb",
+	"innodb.buffer-pool",
 	"percona.response-time",
 	"query.response-time",
 	"repl",
