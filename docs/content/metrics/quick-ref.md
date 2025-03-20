@@ -29,6 +29,7 @@ The rest are reserved for future use.
 |gr|MySQL Group Replication||
 |host|Host (client)||
 |[`innodb`](domains#innodb)|InnoDB metrics [`INFORMATION_SCHEMA.INNODB_METRICS`](https://dev.mysql.com/doc/refman/en/information-schema-innodb-metrics-table.html)|v1.0.0|
+|[`innodb.buffer-pool`](domains#innodbbuffer-pool)|InnoDB buffer pool metrics [`INFORMATION_SCHEMA.INNODB_BUFFER_POOL_STAT`](https://dev.mysql.com/doc/refman/8.4/en/information-schema-innodb-buffer-pool-stats-table.html)|TBD|
 |innodb.mutex|InnoDB mutexes `SHOW ENGINE INNODB MUTEX`||
 |mariadb|MariaDB enhancements||
 |ndb|MySQL NDB Cluster||

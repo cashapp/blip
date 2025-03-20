@@ -196,3 +196,51 @@ func RowToMap(ctx context.Context, db *sql.DB, query string) (map[string]string,
 
 	return m, nil
 }
+
+// RowToTypedMap converts a single row from query (or the last row) to a map of
+// type T values keyed on column name. All row values are converted to type T.
+// This is used for one-row command outputs which return values of the same type.
+func RowToTypedMap[T comparable](ctx context.Context, db *sql.DB, query string) (map[string]T, error) {
+	rows, err := db.QueryContext(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	// Get list of columns returned by query
+	columns, err := rows.Columns()
+	if err != nil {
+		return nil, err
+	}
+
+	// Scan() takes pointers, so scanArgs is a list of pointers to values
+	scanArgs := make([]interface{}, len(columns))
+	values := make([]T, len(columns))
+	for i := range values {
+		scanArgs[i] = &values[i]
+	}
+
+	// Count rows while scanning, not because there should be only 1, but because
+	// MySQL sends the columns ^ even if 0 rows, which makes "for i, col := range columns"
+	// below always run, creating a map with cols but empty values. To prevent that,
+	// we return a truly empty map if MySQL returns zero rows.
+	n := 0
+	for rows.Next() {
+		err = rows.Scan(scanArgs...)
+		if err != nil {
+			return nil, err
+		}
+		n++
+	}
+	if n == 0 {
+		return nil, nil
+	}
+
+	// Map column => value
+	m := map[string]T{}
+	for i, col := range columns {
+		m[col] = values[i]
+	}
+
+	return m, nil
+}
