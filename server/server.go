@@ -264,6 +264,7 @@ func (s *Server) Run(stopChan, doneChan chan struct{}) error {
 	signalChan := make(chan os.Signal, 1)
 	defer close(signalChan)
 	signal.Notify(signalChan, os.Interrupt, syscall.SIGTERM, syscall.SIGUSR1)
+	defer signal.Stop(signalChan)
 	for {
 		select {
 		case <-stopChan:
