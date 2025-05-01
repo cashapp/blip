@@ -54,7 +54,7 @@ func (c *Database) Help() blip.CollectorHelp {
 				Desc:    "Return total size of all databases",
 				Default: "no",
 				Values: map[string]string{
-					"only": "Only total database size)",
+					"only": "Only total database size",
 					"yes":  "Total and per-database sizes",
 					"no":   "Only per-database sizes",
 				},
