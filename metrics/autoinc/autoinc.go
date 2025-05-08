@@ -1,6 +1,6 @@
 // Copyright 2024 Block, Inc.
 
-package autoincrement
+package autoinc
 
 import (
 	"context"
@@ -16,9 +16,9 @@ const (
 	OPT_INCLUDE = "include"
 )
 
-// AutoIncrement collects auto-increment utilization for the autoinc domain.
+// AutoInc collects auto-increment utilization for the autoinc domain.
 // https://dev.mysql.com/doc/refman/8.0/en/sys-schema-auto-increment-columns.html
-type AutoIncrement struct {
+type AutoInc struct {
 	db *sql.DB
 	// --
 	query  map[string]string
@@ -26,11 +26,11 @@ type AutoIncrement struct {
 }
 
 // Verify collector implements blip.Collector interface.
-var _ blip.Collector = &AutoIncrement{}
+var _ blip.Collector = &AutoInc{}
 
 // NewAutoIncrement makes a new AutoIncrement collector,
-func NewAutoIncrement(db *sql.DB) *AutoIncrement {
-	return &AutoIncrement{
+func NewAutoInc(db *sql.DB) *AutoInc {
+	return &AutoInc{
 		db:     db,
 		query:  map[string]string{},
 		params: map[string][]interface{}{},
@@ -38,12 +38,12 @@ func NewAutoIncrement(db *sql.DB) *AutoIncrement {
 }
 
 // Domain returns the Blip metric domain name (DOMAIN const).
-func (t *AutoIncrement) Domain() string {
+func (t *AutoInc) Domain() string {
 	return DOMAIN
 }
 
 // Help returns the output for blip --print-domains.
-func (t *AutoIncrement) Help() blip.CollectorHelp {
+func (t *AutoInc) Help() blip.CollectorHelp {
 	return blip.CollectorHelp{
 		Domain:      DOMAIN,
 		Description: "Auto Increment Utilization",
@@ -66,7 +66,7 @@ func (t *AutoIncrement) Help() blip.CollectorHelp {
 		},
 		Metrics: []blip.CollectorMetric{
 			{
-				Name: "percent_used",
+				Name: "usage",
 				Type: blip.GAUGE,
 				Desc: "The percentage of the auto increment range used",
 			},
@@ -75,7 +75,7 @@ func (t *AutoIncrement) Help() blip.CollectorHelp {
 }
 
 // Prepare prepares the collector for the given plan.
-func (t *AutoIncrement) Prepare(ctx context.Context, plan blip.Plan) (func(), error) {
+func (t *AutoInc) Prepare(ctx context.Context, plan blip.Plan) (func(), error) {
 LEVEL:
 	for _, level := range plan.Levels {
 		dom, ok := level.Collect[DOMAIN]
@@ -99,7 +99,7 @@ LEVEL:
 	return nil, nil
 }
 
-func (t *AutoIncrement) Collect(ctx context.Context, levelName string) ([]blip.MetricValue, error) {
+func (t *AutoInc) Collect(ctx context.Context, levelName string) ([]blip.MetricValue, error) {
 	q, ok := t.query[levelName]
 	if !ok {
 		return nil, nil

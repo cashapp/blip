@@ -1,6 +1,6 @@
 // Copyright 2024 Block, Inc.
 
-package autoincrement
+package autoinc
 
 import (
 	"strings"
