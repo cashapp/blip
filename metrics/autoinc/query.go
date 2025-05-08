@@ -6,8 +6,18 @@ import (
 	"strings"
 )
 
+const (
+	base = `SELECT C.TABLE_SCHEMA, C.TABLE_NAME, C.COLUMN_NAME, C.DATA_TYPE, (locate('unsigned', C.COLUMN_TYPE) > 0) AS is_unsigned, T.AUTO_INCREMENT
+	FROM information_schema.COLUMNS C
+	JOIN information_schema.TABLES T
+		ON C.TABLE_SCHEMA = T.TABLE_SCHEMA
+		AND C.TABLE_NAME = T.TABLE_NAME
+	WHERE T.TABLE_TYPE = 'BASE TABLE'
+	AND C.EXTRA = 'auto_increment'
+	AND T.AUTO_INCREMENT IS NOT NULL`
+)
+
 func AutoIncrementQuery(set map[string]string) (string, []interface{}, error) {
-	query := "SELECT table_schema, table_name, column_name, data_type, auto_increment_ratio, is_unsigned FROM sys.schema_auto_increment_columns WHERE auto_increment_ratio IS NOT NULL"
 	var where string
 	var params []interface{}
 	if include := set[OPT_INCLUDE]; include != "" {
@@ -15,7 +25,7 @@ func AutoIncrementQuery(set map[string]string) (string, []interface{}, error) {
 	} else {
 		where, params = setWhere(strings.Split(set[OPT_EXCLUDE], ","), false)
 	}
-	return query + where, params, nil
+	return base + where, params, nil
 }
 
 func setWhere(tables []string, isInclude bool) (string, []interface{}) {
@@ -30,14 +40,14 @@ func setWhere(tables []string, isInclude bool) (string, []interface{}) {
 			db := dbAndTable[0]
 			table := dbAndTable[1]
 			if table == "*" {
-				where = where + "(table_schema = ?)"
+				where = where + "(C.TABLE_SCHEMA = ?)"
 				params = append(params, db)
 			} else {
-				where = where + "(table_schema = ? AND table_name = ?)"
+				where = where + "(C.TABLE_SCHEMA = ? AND C.TABLE_NAME = ?)"
 				params = append(params, db, table)
 			}
 		} else {
-			where = where + "(table_name = ?)"
+			where = where + "(C.TABLE_NAME = ?)"
 			params = append(params, excludeTable)
 		}
 		if i != (len(tables) - 1) {

@@ -1,21 +1,20 @@
 // Copyright 2024 Block, Inc.
 
-package autoinc_test
+package autoinc
 
 import (
 	"testing"
 
-	"github.com/cashapp/blip/metrics/autoinc"
 	"github.com/go-test/deep"
 )
 
 func TestAutoIncrementQuery(t *testing.T) {
 	// All defaults
 	opts := map[string]string{
-		autoinc.OPT_EXCLUDE: "mysql.*,information_schema.*,performance_schema.*,sys.*",
+		OPT_EXCLUDE: "mysql.*,information_schema.*,performance_schema.*,sys.*",
 	}
-	got, params, err := autoinc.AutoIncrementQuery(opts)
-	expect := "SELECT table_schema, table_name, column_name, data_type, auto_increment_ratio, is_unsigned FROM sys.schema_auto_increment_columns WHERE auto_increment_ratio IS NOT NULL AND (NOT (table_schema = ?) AND NOT (table_schema = ?) AND NOT (table_schema = ?) AND NOT (table_schema = ?))"
+	got, params, err := AutoIncrementQuery(opts)
+	expect := base + " AND (NOT (C.TABLE_SCHEMA = ?) AND NOT (C.TABLE_SCHEMA = ?) AND NOT (C.TABLE_SCHEMA = ?) AND NOT (C.TABLE_SCHEMA = ?))"
 	if err != nil {
 		t.Error(err)
 	}
@@ -30,10 +29,10 @@ func TestAutoIncrementQuery(t *testing.T) {
 
 	// Exclude schemas, mysql, and sys
 	opts = map[string]string{
-		autoinc.OPT_INCLUDE: "test_table,sys.*,information_schema.XTRADB_ZIP_DICT",
+		OPT_INCLUDE: "test_table,sys.*,information_schema.XTRADB_ZIP_DICT",
 	}
-	got, params, err = autoinc.AutoIncrementQuery(opts)
-	expect = "SELECT table_schema, table_name, column_name, data_type, auto_increment_ratio, is_unsigned FROM sys.schema_auto_increment_columns WHERE auto_increment_ratio IS NOT NULL AND ((table_name = ?) OR (table_schema = ?) OR (table_schema = ? AND table_name = ?))"
+	got, params, err = AutoIncrementQuery(opts)
+	expect = base + " AND ((C.TABLE_NAME = ?) OR (C.TABLE_SCHEMA = ?) OR (C.TABLE_SCHEMA = ? AND C.TABLE_NAME = ?))"
 	if err != nil {
 		t.Error(err)
 	}

@@ -5,6 +5,7 @@ package autoinc
 import (
 	"context"
 	"database/sql"
+	"strings"
 
 	"github.com/cashapp/blip"
 )
@@ -118,23 +119,43 @@ func (t *AutoInc) Collect(ctx context.Context, levelName string) ([]blip.MetricV
 		colName    string
 		colType    string
 		isUnsigned bool
-		ratio      float64
+		autoincVal int64
 	)
 
 	for rows.Next() {
-		if err = rows.Scan(&dbName, &tblName, &colName, &colType, &ratio, &isUnsigned); err != nil {
+		if err = rows.Scan(&dbName, &tblName, &colName, &colType, &isUnsigned, &autoincVal); err != nil {
 			return nil, err
 		}
 
-		if isUnsigned {
-			colType = "unsigned " + colType
+		var maxSize uint64
+		colType = strings.ToLower(colType)
+		switch colType {
+		case "tinyint":
+			maxSize = 255
+		case "smallint":
+			maxSize = 65535
+		case "mediumint":
+			maxSize = 16777215
+		case "int":
+			maxSize = 4294967295
+		case "bigint":
+			maxSize = 18446744073709551615
+		default:
+			// unknown type, skip
+			continue
+		}
+
+		if !isUnsigned {
+			maxSize = maxSize >> 1
+		} else {
+			colType = colType + " unsigned"
 		}
 
 		m := blip.MetricValue{
-			Name:  "percent_used",
+			Name:  "usage",
 			Type:  blip.GAUGE,
 			Group: map[string]string{"db": dbName, "tbl": tblName, "col": colName, "data_type": colType},
-			Value: ratio,
+			Value: float64(autoincVal) / float64(maxSize),
 		}
 		metrics = append(metrics, m)
 	}
