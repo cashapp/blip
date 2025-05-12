@@ -11,35 +11,12 @@ import (
 	"github.com/cashapp/blip/test"
 )
 
-func TestPrepareForSingleLevelAndNoSourceOnMySQL57(t *testing.T) {
-	// default source on MySQL 5.7 should be `blip`
-	_, db, err := test.Connection("mysql57")
-	if err != nil {
-		if test.Build {
-			t.Skip("mysql57 not running")
-		} else {
-			t.Fatal(err)
-		}
-	}
-	defer db.Close()
-
-	c := NewLag(db)
-
-	defaultPlan := test.ReadPlan(t, "")
-	_, err = c.Prepare(context.Background(), defaultPlan)
-	if err != nil {
-		t.Error(err)
-	}
-
-	assert.Equal(t, "blip", c.lagWriterIn["kpi"])
-}
-
 func TestPrepareForSingleLevelAndNoSourceOnMySQL80(t *testing.T) {
 	// default source on MySQL 8.0 should be `pfs`
 	_, db, err := test.Connection("mysql80")
 	if err != nil {
 		if test.Build {
-			t.Skip("mysql57 not running")
+			t.Skip("mysql80 not running")
 		} else {
 			t.Fatal(err)
 		}
@@ -61,7 +38,7 @@ func TestPrepareWithInvalidSource(t *testing.T) {
 	_, db, err := test.Connection("mysql80")
 	if err != nil {
 		if test.Build {
-			t.Skip("mysql57 not running")
+			t.Skip("mysql80 not running")
 		} else {
 			t.Fatal(err)
 		}
@@ -81,7 +58,7 @@ func TestCollectWithNoSource(t *testing.T) {
 	_, db, err := test.Connection("mysql80")
 	if err != nil {
 		if test.Build {
-			t.Skip("mysql57 not running")
+			t.Skip("mysql80 not running")
 		} else {
 			t.Fatal(err)
 		}
@@ -107,7 +84,7 @@ func TestCollectWithAllSources(t *testing.T) {
 	_, db, err := test.Connection("mysql80")
 	if err != nil {
 		if test.Build {
-			t.Skip("mysql57 not running")
+			t.Skip("mysql80 not running")
 		} else {
 			t.Fatal(err)
 		}
