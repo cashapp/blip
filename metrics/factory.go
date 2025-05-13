@@ -8,6 +8,7 @@ import (
 	"sync"
 
 	"github.com/cashapp/blip"
+	"github.com/cashapp/blip/metrics/autoinc"
 	awsrds "github.com/cashapp/blip/metrics/aws.rds"
 	"github.com/cashapp/blip/metrics/innodb"
 	innodbbufferpool "github.com/cashapp/blip/metrics/innodb.buffer-pool"
@@ -246,6 +247,8 @@ func InitFactory(factories blip.Factories) {
 // that makes the built-in collectors: status.global, var.global, and so on.
 func (f *factory) Make(domain string, args blip.CollectorFactoryArgs) (blip.Collector, error) {
 	switch domain {
+	case "autoinc":
+		return autoinc.NewAutoInc(args.DB), nil
 	case "aws.rds":
 		if args.Validate {
 			return awsrds.NewRDS(nil), nil
@@ -296,6 +299,7 @@ func (f *factory) Make(domain string, args blip.CollectorFactoryArgs) (blip.Coll
 // List of built-in collectors. To add one, add its domain name here, and add
 // the same domain in the switch statement above (in factory.Make).
 var builtinCollectors = []string{
+	"autoinc",
 	"aws.rds",
 	"innodb",
 	"innodb.buffer-pool",
