@@ -69,6 +69,21 @@ func PlaceholderList(count int) string {
 	return fmt.Sprintf("?%s", strings.Repeat(", ?", count-1))
 }
 
+func MultiPlaceholderList(count int, tupleLength int) string {
+	if tupleLength == 1 {
+		return PlaceholderList(count)
+	}
+
+	if count <= 0 {
+		return ""
+	} else if tupleLength <= 0 {
+		return ""
+	}
+
+	tuple := fmt.Sprintf("(?%s)", strings.Repeat(", ?", tupleLength-1))
+	return fmt.Sprintf("%s%s", tuple, strings.Repeat(", "+tuple, count-1))
+}
+
 // ToInterfaceArray converts a list of any type to a list of interface{}.
 func ToInterfaceArray[T any](list []T) []interface{} {
 	if len(list) == 0 {

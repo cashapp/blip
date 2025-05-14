@@ -19,7 +19,11 @@ The rest are reserved for future use.
 |azure|Microsoft Azure||
 |error|MySQL, client, and query errors||
 |error.client|Client errors||
-|error.global|Global error counts and rates||
+|[error.account](domains#error.account)|Error counts and rates by account [`Error Summary Tables`](https://dev.mysql.com/doc/refman/8.4/en/performance-schema-error-summary-tables.html)|TBD|
+|[error.global](domains#error.global)|Global error counts and rates [`Error Summary Tables`](https://dev.mysql.com/doc/refman/8.4/en/performance-schema-error-summary-tables.html)|TBD|
+|[error.host](domains#error.host)|Error counts and rates by host [`Error Summary Tables`](https://dev.mysql.com/doc/refman/8.4/en/performance-schema-error-summary-tables.html)|TBD|
+|[error.thread](domains#error.thread)|Error counts and rates by thread [`Error Summary Tables`](https://dev.mysql.com/doc/refman/8.4/en/performance-schema-error-summary-tables.html)|TBD|
+|[error.user](domains#error.user)|Error counts and rates by user [`Error Summary Tables`](https://dev.mysql.com/doc/refman/8.4/en/performance-schema-error-summary-tables.html)|TBD|
 |error.query|Query errors||
 |error.repl|Replication errors||
 |event|[MySQL Event Scheduler](https://dev.mysql.com/doc/refman/8.0/en/event-scheduler.html)||
