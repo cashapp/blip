@@ -10,6 +10,7 @@ import (
 	"github.com/cashapp/blip"
 	"github.com/cashapp/blip/metrics/autoinc"
 	awsrds "github.com/cashapp/blip/metrics/aws.rds"
+	errordomain "github.com/cashapp/blip/metrics/error"
 	"github.com/cashapp/blip/metrics/innodb"
 	innodbbufferpool "github.com/cashapp/blip/metrics/innodb.buffer-pool"
 	"github.com/cashapp/blip/metrics/percona"
@@ -262,6 +263,16 @@ func (f *factory) Make(domain string, args blip.CollectorFactoryArgs) (blip.Coll
 			return nil, err
 		}
 		return awsrds.NewRDS(awsrds.NewCloudWatchClient(awsConfig)), nil
+	case "error.account":
+		return errordomain.NewErrorAccount(args.DB), nil
+	case "error.global":
+		return errordomain.NewErrorGlobal(args.DB), nil
+	case "error.host":
+		return errordomain.NewErrorHost(args.DB), nil
+	case "error.thread":
+		return errordomain.NewErrorThread(args.DB), nil
+	case "error.user":
+		return errordomain.NewErrorUser(args.DB), nil
 	case "innodb":
 		return innodb.NewInnoDB(args.DB), nil
 	case "innodb.buffer-pool":
@@ -301,6 +312,11 @@ func (f *factory) Make(domain string, args blip.CollectorFactoryArgs) (blip.Coll
 var builtinCollectors = []string{
 	"autoinc",
 	"aws.rds",
+	"error.account",
+	"error.global",
+	"error.host",
+	"error.thread",
+	"error.user",
 	"innodb",
 	"innodb.buffer-pool",
 	"percona.response-time",
