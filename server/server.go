@@ -108,7 +108,7 @@ func (s *Server) Boot(env blip.Env, plugins blip.Plugins, factories blip.Factori
 		os.Exit(0)
 	}
 	if s.cmdline.Options.PrintDomains {
-		fmt.Fprintf(os.Stdout, metrics.PrintDomains())
+		fmt.Fprintf(os.Stdout, "%s", metrics.PrintDomains())
 		os.Exit(0)
 	}
 
@@ -120,9 +120,9 @@ func (s *Server) Boot(env blip.Env, plugins blip.Plugins, factories blip.Factori
 	event.SetReceiver(event.Log{All: s.cmdline.Options.Log})
 	event.Sendf(event.BOOT_START, "blip %s", blip.VERSION) // very first event
 
-	status.Blip("started", blip.FormatTime(startTs))
-	status.Blip("version", blip.VERSION)
-	status.Blip(status.SERVER, "booting")
+	status.Blip("started", "%s", blip.FormatTime(startTs))
+	status.Blip("version", "%s", blip.VERSION)
+	status.Blip(status.SERVER, "%s", "booting")
 
 	// ----------------------------------------------------------------------
 	// Load config
@@ -153,13 +153,13 @@ func (s *Server) Boot(env blip.Env, plugins blip.Plugins, factories blip.Factori
 		s.cfg.ApplyDefaults(blip.DefaultConfig())
 	}
 	if err != nil {
-		event.Sendf(event.BOOT_ERROR, err.Error())
+		event.Sendf(event.BOOT_ERROR, "%s", err.Error()) //nolint:vet
 		return err
 	}
 	s.cfg.InterpolateEnvVars()
 	blip.Debug("config: %#v", s.cfg)
 	if err := s.cfg.Validate(); err != nil {
-		event.Errorf(event.BOOT_CONFIG_INVALID, err.Error())
+		event.Errorf(event.BOOT_CONFIG_INVALID, "%s", err.Error())
 		return err
 	}
 	event.Send(event.BOOT_CONFIG_LOADED)
@@ -194,7 +194,7 @@ func (s *Server) Boot(env blip.Env, plugins blip.Plugins, factories blip.Factori
 	s.planLoader = plan.NewLoader(plugins.LoadPlans)
 
 	if err := s.planLoader.LoadShared(s.cfg.Plans, factories.DbConn); err != nil {
-		event.Sendf(event.BOOT_ERROR, err.Error())
+		event.Sendf(event.BOOT_ERROR, "%s", err.Error())
 		return err
 	}
 
@@ -215,7 +215,7 @@ func (s *Server) Boot(env blip.Env, plugins blip.Plugins, factories blip.Factori
 		RDSLoader:  aws.RDSLoader{ClientFactory: aws.NewRDSClientFactory(factories.AWSConfig)},
 	})
 	if err := s.monitorLoader.Load(context.Background()); err != nil {
-		event.Sendf(event.BOOT_ERROR, err.Error())
+		event.Sendf(event.BOOT_ERROR, "%s", err.Error())
 		return err
 	}
 
@@ -246,7 +246,7 @@ func (s *Server) Run(stopChan, doneChan chan struct{}) error {
 
 	stopReason := "unknown"
 	defer func() {
-		event.Errorf(event.SERVER_STOPPED, stopReason)
+		event.Errorf(event.SERVER_STOPPED, "%s", stopReason)
 	}()
 
 	// Start all monitors. Then if config.monitor-load.freq is specified, start

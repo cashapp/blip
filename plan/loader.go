@@ -171,7 +171,7 @@ func (pl *Loader) LoadShared(cfg blip.ConfigPlans, dbMaker blip.DbFactory) error
 
 // LoadMonitor loads monitor plans: config.monitors.*.Plans.
 func (pl *Loader) LoadMonitor(mon blip.ConfigMonitor, dbMaker blip.DbFactory) error {
-	event.Sendf(event.PLANS_LOAD_MONITOR, mon.MonitorId)
+	event.Sendf(event.PLANS_LOAD_MONITOR, "%s", mon.MonitorId)
 
 	if mon.Plans.Table == "" && len(mon.Plans.Files) == 0 {
 		blip.Debug("monitor %s uses only shared plans", mon.MonitorId)

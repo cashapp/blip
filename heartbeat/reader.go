@@ -33,10 +33,12 @@ type Lag struct {
 	Replica      bool
 }
 
-var ReadTimeout = 2 * time.Second
-var ReadErrorWait = 1 * time.Second
-var NoHeartbeatWait = 3 * time.Second
-var ReplCheckWait = 3 * time.Second
+var (
+	ReadTimeout     = 2 * time.Second
+	ReadErrorWait   = 1 * time.Second
+	NoHeartbeatWait = 3 * time.Second
+	ReplCheckWait   = 3 * time.Second
+)
 
 // BlipReader reads heartbeats from BlipWriter.
 type BlipReader struct {
@@ -165,7 +167,7 @@ func (r *BlipReader) run() {
 			r.Unlock()
 			msg := fmt.Sprintf("not a replica: %s=%d (retry in %s)", r.replCheck, isRepl, ReplCheckWait)
 			blip.Debug("%s: %s", r.monitorId, msg)
-			status.Monitor(r.monitorId, status.HEARTBEAT_READER, msg)
+			status.Monitor(r.monitorId, status.HEARTBEAT_READER, "%s", msg)
 			time.Sleep(ReplCheckWait)
 			continue
 		}

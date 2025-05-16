@@ -93,16 +93,16 @@ func (e *Engine) DB() *sql.DB {
 // calls. Serialization is handled by the only caller: LevelCollector.ChangePlan().
 func (e *Engine) Prepare(ctx context.Context, plan blip.Plan, before, after func()) error {
 	blip.Debug("%s: prepare %s (%s)", e.monitorId, plan.Name, plan.Source)
-	e.event.Sendf(event.ENGINE_PREPARE, plan.Name)
-	status.Monitor(e.monitorId, status.ENGINE_PREPARE, plan.Name)
+	e.event.Sendf(event.ENGINE_PREPARE, "%s", plan.Name)
+	status.Monitor(e.monitorId, status.ENGINE_PREPARE, "%s", plan.Name)
 	defer status.RemoveComponent(e.monitorId, status.ENGINE_PREPARE)
 
 	// Report last error, if any
 	var lerr error
 	defer func() {
 		if lerr != nil {
-			e.event.Errorf(event.ENGINE_PREPARE_ERROR, lerr.Error())
-			status.Monitor(e.monitorId, "error:"+status.ENGINE_PREPARE, lerr.Error())
+			e.event.Error(event.ENGINE_PREPARE_ERROR, lerr.Error())
+			status.Monitor(e.monitorId, "error:"+status.ENGINE_PREPARE, "%s", lerr.Error())
 		} else {
 			// success
 			status.RemoveComponent(e.monitorId, "error:"+status.ENGINE_PREPARE)
@@ -233,8 +233,8 @@ func (e *Engine) Prepare(ctx context.Context, plan blip.Plan, before, after func
 
 	e.Unlock() // UNLOCK plan ---------------------------------------
 
-	status.Monitor(e.monitorId, status.ENGINE_PLAN, plan.Name)
-	e.event.Sendf(event.ENGINE_PREPARE_SUCCESS, plan.Name)
+	status.Monitor(e.monitorId, status.ENGINE_PLAN, "%s", plan.Name)
+	e.event.Sendf(event.ENGINE_PREPARE_SUCCESS, "%s", plan.Name)
 
 	status.Monitor(e.monitorId, status.ENGINE_PREPARE, "%s: level-collector after callback", plan.Name)
 	after() // notify caller (lco.changePlan) that we have swapped the plan
@@ -271,10 +271,10 @@ func (e *Engine) Collect(emrCtx context.Context, interval uint, levelName string
 	}
 	if domains == nil {
 		blip.Debug("Engine.Stop was called, dropping interval %d level %s", interval, levelName)
-		return []*blip.Metrics{&blip.Metrics{Values: map[string][]blip.MetricValue{}}}, nil // see return guarantee in Collect comment
+		return []*blip.Metrics{{Values: map[string][]blip.MetricValue{}}}, nil // see return guarantee in Collect comment
 	}
 	blip.Debug("%s: %s: collect", e.monitorId, coId)
-	status.Monitor(e.monitorId, status.ENGINE_COLLECT, coId+": collecting")
+	status.Monitor(e.monitorId, status.ENGINE_COLLECT, "%s", coId+": collecting")
 
 	// Collect metrics for each domain in parallel (limit: CollectParallel)
 	sem := make(chan bool, CollectParallel) // semaphore for CollectParallel
@@ -362,7 +362,7 @@ SWEEP:
 	metrics[0].End = time.Now()
 
 	// Log collector errors and update collector status
-	status.Monitor(e.monitorId, status.ENGINE_COLLECT, coId+": logging errors")
+	status.Monitor(e.monitorId, status.ENGINE_COLLECT, "%s", coId+": logging errors")
 	errCount := 0
 	for domain, err := range errs {
 		switch err {
@@ -376,7 +376,7 @@ SWEEP:
 			errCount += 1
 			errMsg := fmt.Sprintf("%s/%s: %s", coId, domain, err)
 			status.Monitor(e.monitorId, "error:"+domain, "at %s: %s", metrics[0].Begin, errMsg)
-			e.event.Errorf(event.COLLECTOR_ERROR, errMsg) // log by default
+			e.event.Error(event.COLLECTOR_ERROR, errMsg) // log by default
 		}
 	}
 
@@ -493,7 +493,7 @@ func (cl *clutch) collect(m blip.Metrics, sem chan bool) {
 
 	if cl.running {
 		// Collector fault: it didn't terminate itself at CMR
-		cl.event.Errorf(event.COLLECTOR_FAULT, fmt.Sprintf("%s: metrics from interval %d will be dropped if the collector recovers: %+v", cl.domain, cl.m.Interval, cl))
+		cl.event.Errorf(event.COLLECTOR_FAULT, "%s: metrics from interval %d will be dropped if the collector recovers: %+v", cl.domain, cl.m.Interval, cl)
 		cl.fence = m.Interval
 		if cl.cancel != nil {
 			cl.cancel()
@@ -546,7 +546,7 @@ func (cl *clutch) collect(m blip.Metrics, sem chan bool) {
 			b := make([]byte, 4096)
 			n := runtime.Stack(b, false)
 			perr := fmt.Errorf("PANIC: monitor ID %s: %s: %v\n%s", cl.m.MonitorId, cl.domain, r, string(b[0:n]))
-			cl.event.Errorf(event.COLLECTOR_PANIC, perr.Error())
+			cl.event.Error(event.COLLECTOR_PANIC, perr.Error())
 		}
 		cancel() // local cancel, not cl.cancel, in case goroutine is behind the fence
 		cl.Lock()
@@ -562,7 +562,6 @@ func (cl *clutch) collect(m blip.Metrics, sem chan bool) {
 				cl.domain, cl.stopTime.Sub(cl.startTime), cl.pending, cl.err)
 		}
 		cl.Unlock()
-
 	}()
 
 	// ----------------------------------------------------------------------

@@ -155,7 +155,7 @@ func (m *Monitor) Stop() error {
 		m.db.Close()
 	}
 
-	event.Sendf(event.MONITOR_STOPPED, m.monitorId)
+	event.Sendf(event.MONITOR_STOPPED, "%s", m.monitorId)
 	status.Monitor(m.monitorId, status.MONITOR, "stopped at %s", blip.FormatTime(time.Now()))
 	return nil
 }
@@ -259,7 +259,7 @@ func (m *Monitor) startup() error {
 			m.runMux.Lock()
 			m.db = db
 			m.dsn = dsnRedacted
-			status.Monitor(m.monitorId, status.MONITOR_DSN, dsnRedacted)
+			status.Monitor(m.monitorId, status.MONITOR_DSN, "%s", dsnRedacted)
 			m.runMux.Unlock()
 			break
 		}
@@ -377,7 +377,7 @@ func (m *Monitor) startup() error {
 		if m.cfg.Exporter.Mode == blip.EXPORTER_MODE_LEGACY {
 			blip.Debug("%s: legacy mode", m.monitorId)
 			status.Monitor(m.monitorId, status.MONITOR, "running in exporter legacy mode")
-			m.event.Sendf(event.MONITOR_STARTED, m.dsn)
+			m.event.Sendf(event.MONITOR_STARTED, "%s", m.dsn)
 			return nil
 		}
 	}
@@ -452,7 +452,7 @@ func (m *Monitor) startup() error {
 		m.lco.ChangePlan(blip.STATE_ACTIVE, m.cfg.Plan) // start LCO directly
 	}
 
-	m.event.Sendf(event.MONITOR_STARTED, m.dsn)
+	m.event.Sendf(event.MONITOR_STARTED, "%s", m.dsn)
 	return nil
 }
 
@@ -491,7 +491,7 @@ func (m *Monitor) stop(lock bool, caller string) {
 
 func (m *Monitor) setErr(err error, isPanic bool) {
 	if err != nil {
-		m.event.Errorf(event.MONITOR_ERROR, err.Error())
+		m.event.Error(event.MONITOR_ERROR, err.Error())
 		status.Monitor(m.monitorId, "error:"+status.MONITOR, "error: %s", err)
 	} else {
 		status.RemoveComponent(m.monitorId, "error:"+status.MONITOR)

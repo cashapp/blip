@@ -108,9 +108,11 @@ func TickerDuration(d, e time.Duration) {
 // act like 1s has elapsed. This is for test plans with realistic whole-second
 // durations. The RBB tests use 100ms/100ms because that test plan is design for
 // 100ms intervals, so it can run through 5 intervals in about 500ms.
-var tickerMux = &sync.Mutex{}        // make go test -race happy
-var tickerDuration = 1 * time.Second // used for testing
-var timeElapsed = 1 * time.Second    // used for testing
+var (
+	tickerMux      = &sync.Mutex{}   // make go test -race happy
+	tickerDuration = 1 * time.Second // used for testing
+	timeElapsed    = 1 * time.Second // used for testing
+)
 
 // recvMetrics receives metrics on metricsChan and send them to all the sinks.
 // This is a goroutine run by keepRecvMetrics and restarted by keepRecvMetrics
@@ -123,7 +125,7 @@ func (c *lco) recvMetrics(stopSinksChan, doneChan chan struct{}) {
 			b := make([]byte, 4096)
 			n := runtime.Stack(b, false)
 			perr := fmt.Errorf("PANIC: sinks: %s: %v\n%s", c.monitorId, r, string(b[0:n]))
-			c.event.Errorf(event.LCO_RECEIVER_PANIC, perr.Error())
+			c.event.Error(event.LCO_RECEIVER_PANIC, perr.Error())
 		}
 	}()
 RECV:
@@ -145,11 +147,11 @@ RECV:
 				coId := fmt.Sprintf("%s/%s/%d", m.Plan, m.Level, m.Interval)
 				for _, sink := range c.sinks {
 					sinkName := sink.Name()
-					status.Monitor(c.monitorId, status.LEVEL_SINKS, coId+": sending to "+sinkName)
+					status.Monitor(c.monitorId, status.LEVEL_SINKS, "%s", coId+": sending to "+sinkName)
 					err := sink.Send(context.Background(), m) // @todo ctx with timeout
 					if err != nil {
 						c.event.Errorf(event.SINK_SEND_ERROR, "%s :%s", sinkName, err) // log by default
-						status.Monitor(c.monitorId, "error:"+sinkName, err.Error())
+						status.Monitor(c.monitorId, "error:"+sinkName, "%s", err.Error())
 					} else {
 						status.RemoveComponent(c.monitorId, "error:"+sinkName)
 					}
@@ -279,8 +281,8 @@ func (c *lco) collect(interval uint, levelName string, startTime time.Time) {
 	blip.Debug("%s: level %s: done in %s", c.monitorId, levelName, metrics[0].End.Sub(metrics[0].Begin))
 
 	if err != nil {
-		status.Monitor(c.monitorId, "error:collect", err.Error())
-		c.event.Errorf(event.ENGINE_COLLECT_ERROR, err.Error())
+		status.Monitor(c.monitorId, "error:collect", "%s", err.Error())
+		c.event.Error(event.ENGINE_COLLECT_ERROR, err.Error())
 	} else {
 		status.RemoveComponent(c.monitorId, "error:collect")
 	}
@@ -368,7 +370,7 @@ func (c *lco) changePlan(ctx context.Context, doneChan chan struct{}, newState, 
 	oldPlanName := c.plan.Name
 	c.stateMux.Unlock()
 	change := fmt.Sprintf("state:%s plan:%s -> state:%s plan:%s", oldState, oldPlanName, newState, newPlanName)
-	c.event.Sendf(event.CHANGE_PLAN, change)
+	c.event.Sendf(event.CHANGE_PLAN, "%s", change)
 
 	// Load new plan from plan loader, which contains all plans. Try forever because
 	// that's what this func/gouroutine does: try forever (caller's expect that).
@@ -385,8 +387,8 @@ func (c *lco) changePlan(ctx context.Context, doneChan chan struct{}, newState, 
 		}
 
 		errMsg := fmt.Sprintf("%s: error loading new plan %s: %s (retrying)", change, newPlanName, err)
-		status.Monitor(c.monitorId, status.LEVEL_CHANGE_PLAN, errMsg)
-		c.event.Sendf(event.CHANGE_PLAN_ERROR, errMsg)
+		status.Monitor(c.monitorId, status.LEVEL_CHANGE_PLAN, "%s", errMsg)
+		c.event.Sendf(event.CHANGE_PLAN_ERROR, "%s", errMsg)
 		time.Sleep(2 * time.Second)
 	}
 
@@ -428,8 +430,8 @@ func (c *lco) changePlan(ctx context.Context, doneChan chan struct{}, newState, 
 		// Changing state/plan always resumes (if paused); in fact, it's the
 		// only way to resume after Pause is called
 		c.paused = false
-		status.Monitor(c.monitorId, status.LEVEL_STATE, newState)
-		status.Monitor(c.monitorId, status.LEVEL_PLAN, newPlan.Name)
+		status.Monitor(c.monitorId, status.LEVEL_STATE, "%s", newState)
+		status.Monitor(c.monitorId, status.LEVEL_PLAN, "%s", newPlan.Name)
 		status.Monitor(c.monitorId, status.LEVEL_COLLECTOR, "running since %s", blip.FormatTime(time.Now()))
 		blip.Debug("%s: resume", c.monitorId)
 
@@ -466,7 +468,7 @@ func (c *lco) changePlan(ctx context.Context, doneChan chan struct{}, newState, 
 	}
 
 	status.RemoveComponent(c.monitorId, status.LEVEL_CHANGE_PLAN)
-	c.event.Sendf(event.CHANGE_PLAN_SUCCESS, change)
+	c.event.Sendf(event.CHANGE_PLAN_SUCCESS, "%s", change)
 }
 
 // Pause pauses metrics collection until ChangePlan is called. Run still runs,

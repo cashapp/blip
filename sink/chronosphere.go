@@ -89,7 +89,7 @@ func (s *Chronosphere) Send(ctx context.Context, m *blip.Metrics) (lerr error) {
 		if lerr == nil {
 			status.Monitor(s.monitorId, "chronosphere", "last sent %d metrics at %s", n, time.Now())
 		} else {
-			s.event.Errorf(event.SINK_SEND_ERROR, lerr.Error())
+			s.event.Errorf(event.SINK_SEND_ERROR, "%s", lerr.Error())
 			status.Monitor(s.monitorId, "chronosphere", "error on last send at %s: %s", time.Now(), lerr)
 		}
 	}()
@@ -187,7 +187,7 @@ func (s *Chronosphere) Send(ctx context.Context, m *blip.Metrics) (lerr error) {
 
 			n++ // next metric: fam[n]
 		} // each metric in a Blip domain
-	} //each Blip domain
+	} // each Blip domain
 
 	// If config.sinks.chronosphere.debug=true, then just print via debug, don't send
 	if s.debug {

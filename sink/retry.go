@@ -142,7 +142,7 @@ func (rb *Retry) Send(ctx context.Context, m *blip.Metrics) error {
 
 		// Send next oldest metrics
 		if err := rb.sink.Send(ctx, next); err != nil {
-			rb.event.Errorf(event.SINK_SEND_ERROR, err.Error())
+			rb.event.Errorf(event.SINK_SEND_ERROR, "%s", err.Error())
 			next = nil // don't pop metrics; retry stack from top down
 		}
 	}

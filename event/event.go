@@ -58,8 +58,10 @@ func SetReceiver(r Receiver) {
 	return
 }
 
-var subscribers = []Receiver{}
-var submux = &sync.Mutex{}
+var (
+	subscribers = []Receiver{}
+	submux      = &sync.Mutex{}
+)
 
 func Subscribe(r Receiver) {
 	submux.Lock()
@@ -87,6 +89,15 @@ func Sendf(eventName string, msg string, args ...interface{}) {
 		Ts:      time.Now(),
 		Event:   eventName,
 		Message: fmt.Sprintf(msg, args...),
+	})
+}
+
+func Error(eventName string, msg string) {
+	send(Event{
+		Ts:      time.Now(),
+		Event:   eventName,
+		Message: msg,
+		Error:   true,
 	})
 }
 
@@ -139,6 +150,10 @@ func (s MonitorReceiver) Sendf(eventName string, msg string, args ...interface{}
 	})
 }
 
+func (s MonitorReceiver) Error(eventName string, msg string) {
+	s.Errorf(eventName, "%s", msg)
+}
+
 func (s MonitorReceiver) Errorf(eventName string, msg string, args ...interface{}) {
 	send(Event{
 		Ts:        time.Now(),
@@ -151,8 +166,10 @@ func (s MonitorReceiver) Errorf(eventName string, msg string, args ...interface{
 
 // --------------------------------------------------------------------------
 
-var stdout = log.New(os.Stdout, "", log.LstdFlags|log.Lmicroseconds)
-var stderr = log.New(os.Stderr, "", log.LstdFlags|log.Lmicroseconds)
+var (
+	stdout = log.New(os.Stdout, "", log.LstdFlags|log.Lmicroseconds)
+	stderr = log.New(os.Stderr, "", log.LstdFlags|log.Lmicroseconds)
+)
 
 // Log is the default Receiver that uses the Go built-in log package to print
 // certain events to STDOUT and error events to STDERR. Call SetReceiver to

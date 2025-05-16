@@ -115,7 +115,7 @@ func NewPlanChanger(args PlanChangerArgs) *planChanger {
 // setErr sets the last internal error reported by Status.
 func (pch *planChanger) setErr(err error) {
 	if err != nil {
-		status.Monitor(pch.monitorId, "error:"+status.PLAN_CHANGER, err.Error())
+		status.Monitor(pch.monitorId, "error:"+status.PLAN_CHANGER, "%s", err.Error())
 	} else {
 		status.RemoveComponent(pch.monitorId, "error:"+status.PLAN_CHANGER)
 	}
