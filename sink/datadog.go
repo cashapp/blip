@@ -342,7 +342,7 @@ func (s *Datadog) Send(ctx context.Context, m *blip.Metrics) error {
 	// This shouldn't happen: >0 Blip metrics in but =0 Datadog data points out
 	if n == 0 {
 		errMsg := fmt.Sprintf("zero data points created after processing Blip metrics: %s", m)
-		s.event.Errorf(event.SINK_INVALID_METRICS, errMsg)
+		s.event.Errorf(event.SINK_INVALID_METRICS, "%s", errMsg)
 		return nil // do not retry
 	}
 
@@ -408,7 +408,7 @@ func (s *Datadog) sendApi(ddCtx context.Context, dp []datadogV2.MetricSeries) er
 		// This probably means partial success, so keep sending but log the error.
 		if len(apiResponse.Errors) > 0 {
 			errMsg := fmt.Sprintf("Datadog returned success and %d errors: %s", len(apiResponse.Errors), strings.Join(apiResponse.Errors, ", "))
-			s.event.Errorf(event.SINK_SERVER_ERROR, errMsg)
+			s.event.Errorf(event.SINK_SERVER_ERROR, "%s", errMsg)
 		}
 
 		rangeStart = rangeEnd
