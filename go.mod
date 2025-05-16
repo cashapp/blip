@@ -2,8 +2,6 @@ module github.com/cashapp/blip
 
 go 1.24.0
 
-toolchain go1.24.2
-
 require (
 	github.com/DataDog/datadog-api-client-go/v2 v2.2.0
 	github.com/DataDog/datadog-go/v5 v5.1.1
