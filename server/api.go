@@ -89,7 +89,7 @@ func (api *API) Run() error {
 			blip.Debug("shutdown")
 			return nil
 		default:
-			event.Errorf(event.SERVER_API_ERROR, err.Error())
+			event.Errorf(event.SERVER_API_ERROR, "%s", err.Error())
 			time.Sleep(1 * time.Second) // between crashes
 		}
 	}

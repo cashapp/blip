@@ -168,8 +168,10 @@ func (ml *Loader) start(m *loadedMonitor) error {
 // [ 1, 10) = <1s startup
 // [10, 50] = ~1s
 // (50,inf) = >1s + 1s per 50 [e.g. 100=2s, 200=4s]
-const min_wait = 20
-const max_wait = 100
+const (
+	min_wait = 20
+	max_wait = 100
+)
 
 func wait(n int) int {
 	if n <= 1 {
@@ -243,7 +245,7 @@ func (ml *Loader) Load(ctx context.Context) error {
 			}
 		}
 		if errMsg != "" {
-			event.Errorf(event.MONITORS_STOPLOSS, errMsg)
+			event.Error(event.MONITORS_STOPLOSS, errMsg)
 			return ErrStopLoss
 		}
 	}
