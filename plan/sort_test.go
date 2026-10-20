@@ -483,3 +483,89 @@ func TestSortDefault_None(t *testing.T) {
 		t.Errorf("got %d levels from default.None plan, expected 0", len(gotLevels))
 	}
 }
+
+func TestSortInheritOptionsNilMaps(t *testing.T) {
+	// Faster level has options and errors for a domain. Slower level collects
+	// the same domain but has no options or errors (nil maps). Sort used to
+	// panic writing to the nil maps.
+	p := blip.Plan{
+		Name: "test-nil-maps",
+		Levels: map[string]blip.Level{
+			"fast": blip.Level{
+				Name: "fast",
+				Freq: "10s",
+				Collect: map[string]blip.Domain{
+					"D1": blip.Domain{
+						Name:    "D1",
+						Metrics: []string{"M1"},
+						Options: map[string]string{"foo": "bar"},
+						Errors:  map[string]string{"1234": "ignore"},
+					},
+				},
+			},
+			"slow": blip.Level{
+				Name: "slow",
+				Freq: "30s",
+				Collect: map[string]blip.Domain{
+					"D1": blip.Domain{
+						Name:    "D1",
+						Metrics: []string{"M2"},
+					},
+				},
+			},
+		},
+	}
+
+	var gotLevels []plan.SortedLevel
+	assert.NotPanics(t, func() { gotLevels = plan.Sort(&p) })
+	assert.Equal(t, []plan.SortedLevel{
+		{Freq: d10, Name: "fast"},
+		{Freq: d30, Name: "slow"},
+	}, gotLevels)
+
+	expectSlow := blip.Domain{
+		Name:    "D1",
+		Metrics: []string{"M2", "M1"},
+		Options: map[string]string{"foo": "bar"},
+		Errors:  map[string]string{"1234": "ignore"},
+	}
+	if diff := deep.Equal(p.Levels["slow"].Collect["D1"], expectSlow); diff != nil {
+		t.Error(diff)
+	}
+}
+
+func TestSortInheritNilCollect(t *testing.T) {
+	// Slower level has freq but no collect (nil map)
+	p := blip.Plan{
+		Name: "test-nil-collect",
+		Levels: map[string]blip.Level{
+			"fast": blip.Level{
+				Name: "fast",
+				Freq: "10s",
+				Collect: map[string]blip.Domain{
+					"D1": blip.Domain{
+						Name:    "D1",
+						Metrics: []string{"M1"},
+						Options: map[string]string{"foo": "bar"},
+					},
+				},
+			},
+			"slow": blip.Level{
+				Name: "slow",
+				Freq: "30s",
+			},
+		},
+	}
+
+	assert.NotPanics(t, func() { plan.Sort(&p) })
+
+	expectSlow := blip.Domain{
+		Name:    "D1",
+		Metrics: []string{"M1"},
+		Options: map[string]string{"foo": "bar"},
+		Errors:  map[string]string{},
+	}
+	if diff := deep.Equal(p.Levels["slow"].Collect["D1"], expectSlow); diff != nil {
+		t.Error(diff)
+	}
+}

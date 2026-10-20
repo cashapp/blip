@@ -85,15 +85,30 @@ func Sort(p *blip.Plan) []SortedLevel {
 					}
 				}
 				higherDomain.Metrics = append(higherDomain.Metrics, lower.Collect[domain].Metrics...)
+
+				// Domain in plan without options or errors has nil maps
+				if higherDomain.Options == nil && len(lower.Collect[domain].Options) > 0 {
+					higherDomain.Options = map[string]string{}
+				}
 				for k, v := range lower.Collect[domain].Options {
 					if _, ok := higherDomain.Options[k]; !ok {
 						higherDomain.Options[k] = v
 					}
 				}
+				if higherDomain.Errors == nil && len(lower.Collect[domain].Errors) > 0 {
+					higherDomain.Errors = map[string]string{}
+				}
 				for k, v := range lower.Collect[domain].Errors {
 					if _, ok := higherDomain.Errors[k]; !ok {
 						higherDomain.Errors[k] = v
 					}
+				}
+
+				// Level in plan without collect has nil map. higher is a copy,
+				// so save the new map back to the plan.
+				if higher.Collect == nil {
+					higher.Collect = map[string]blip.Domain{}
+					p.Levels[levels[hi].Name] = higher
 				}
 				higher.Collect[domain] = higherDomain
 			}
