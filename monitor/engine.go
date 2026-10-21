@@ -549,6 +549,7 @@ func (cl *clutch) collect(m blip.Metrics, sem chan bool) {
 	// and it must be check before changing any cl.* fields because the goroutine
 	// that detects the fault will write over the cl.* fields with the new interval.
 	interval := m.Interval
+	ctx := cl.ctx
 	cancel := cl.cancel
 
 	cl.Unlock() // ___unlock___
@@ -585,7 +586,7 @@ func (cl *clutch) collect(m blip.Metrics, sem chan bool) {
 	// ----------------------------------------------------------------------
 	// FAST PATH: foreground collect once, unblock next collector (sem), and
 	// flush metrics back to engine for reporting, the probably done
-	vals, err := cl.c.Collect(cl.ctx, cl.m.Level)
+	vals, err := cl.c.Collect(ctx, m.Level) // locals: a fault in the next interval overwrites cl.ctx and cl.m
 	sem <- true
 	cl.Lock()
 	if interval < cl.fence {
