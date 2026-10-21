@@ -5,10 +5,12 @@ package sink
 import (
 	"context"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/cashapp/blip/v2"
 	"github.com/cashapp/blip/v2/event"
+	"github.com/cashapp/blip/v2/status"
 )
 
 const (
@@ -26,6 +28,8 @@ const (
 // metrics and keeps the latest metrics, up to its buffer size, which is configurable.
 //
 // Retry sends SINK_SEND_ERROR events on Send error; the real sink should not.
+// It counts metrics pushed off the full buffer in monitor status counter
+// status.SINK_RETRY_DROPPED suffixed with ":" and the real sink name.
 type Retry struct {
 	sink blip.Sink
 
@@ -40,6 +44,7 @@ type Retry struct {
 	stack    []*retryItem // LIFO
 	max      int
 	top      int
+	dropped  *atomic.Uint64 // status.SINK_RETRY_DROPPED
 }
 
 // CheckpointSink can resume a partially acknowledged metrics batch. Retry
@@ -99,6 +104,7 @@ func NewRetry(args RetryArgs) *Retry {
 		stack:    make([]*retryItem, args.BufferSize),
 		max:      int(args.BufferSize) - 1,
 		top:      -1,
+		dropped:  status.Counter(args.MonitorId, status.SINK_RETRY_DROPPED+":"+args.Sink.Name()),
 	}
 	blip.Debug("buff %d, send timeout %s", rb.max+1, rb.sendTimeout)
 	return rb
@@ -176,6 +182,7 @@ func (rb *Retry) push(item *retryItem) {
 	} else {
 		// Push down stack (push off oldest metrics)
 		copy(rb.stack, rb.stack[1:])
+		rb.dropped.Add(1)
 	}
 	rb.stack[rb.top] = item
 }

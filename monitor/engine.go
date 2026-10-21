@@ -9,6 +9,7 @@ import (
 	"runtime"
 	"sort"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/cashapp/blip/v2"
@@ -59,6 +60,27 @@ type Engine struct {
 	checkAt        map[string][]*clutch // keyed on level
 	collectionChan chan collection
 	collectorWG    sync.WaitGroup
+	counters       *engineCounters
+}
+
+// engineCounters are the monitor status counters incremented by the engine and
+// its clutches. See status.Counter.
+type engineCounters struct {
+	domainsNotStarted  *atomic.Uint64
+	domainsNotReturned *atomic.Uint64
+	emrTimeouts        *atomic.Uint64
+	collectorFaults    *atomic.Uint64
+	flushDrops         *atomic.Uint64
+}
+
+func newEngineCounters(monitorId string) *engineCounters {
+	return &engineCounters{
+		domainsNotStarted:  status.Counter(monitorId, status.ENGINE_DOMAINS_NOT_STARTED),
+		domainsNotReturned: status.Counter(monitorId, status.ENGINE_DOMAINS_NOT_RETURNED),
+		emrTimeouts:        status.Counter(monitorId, status.ENGINE_EMR_TIMEOUTS),
+		collectorFaults:    status.Counter(monitorId, status.COLLECTOR_FAULTS),
+		flushDrops:         status.Counter(monitorId, status.COLLECTOR_FLUSH_DROPS),
+	}
 }
 
 func NewEngine(cfg blip.ConfigMonitor, db *sql.DB) *Engine {
@@ -78,6 +100,7 @@ func newEngineWithDBProvider(cfg blip.ConfigMonitor, db *sql.DB, dbProvider blip
 		collectAt:      map[string][]*clutch{},
 		checkAt:        map[string][]*clutch{},
 		collectionChan: make(chan collection, len(metrics.List())*2),
+		counters:       newEngineCounters(cfg.MonitorId),
 	}
 }
 
@@ -182,6 +205,7 @@ func (e *Engine) Prepare(ctx context.Context, plan blip.Plan, before, after func
 				cmr:            blip.TimeLimit(0.2, domainFreq[domain], 2*time.Second), // collector interval minus 20% (max 2s)
 				collectionChan: e.collectionChan,
 				event:          e.event,
+				counters:       e.counters,
 				Mutex:          &sync.Mutex{},
 			}
 		}
@@ -300,6 +324,7 @@ func (e *Engine) Collect(emrCtx context.Context, interval uint, levelName string
 		// Don't set Values yet because these fields are copied in cl.collect
 	}
 	running := map[string]bool{}
+	emrTimeout := false
 	for _, cl := range domains {
 		select {
 		case <-sem:
@@ -312,9 +337,11 @@ func (e *Engine) Collect(emrCtx context.Context, interval uint, levelName string
 		case <-emrCtx.Done():
 			blip.Debug("EMR timeout starting collectors")
 			// @todo skip pending and sweep, goto end?
+			emrTimeout = true
 			break
 		}
 	}
+	notStarted := len(domains) - len(running)
 
 	// Flush metrics from domains NOT started at this level
 	for _, cl := range e.checkAt[levelName] {
@@ -367,11 +394,22 @@ SWEEP:
 			// @todo if c.runtime > some config, drop and send event.DROP_METRICS_RUNTIME
 		case <-emrCtx.Done(): // engine runtime max
 			blip.Debug("EMR timeout receiving collections")
-			// @todo event so we can monitor is edge case
+			emrTimeout = true
 			break SWEEP
 		}
 	}
 	metrics[0].End = time.Now()
+
+	// Count EMR timeouts: domains not started or not returned before the EMR
+	// are missing from this interval. Not an error event because, when the
+	// host is CPU-starved, this can happen every interval for every monitor.
+	notReturned := len(running)
+	if emrTimeout {
+		e.counters.emrTimeouts.Add(1)
+		e.counters.domainsNotStarted.Add(uint64(notStarted))
+		e.counters.domainsNotReturned.Add(uint64(notReturned))
+		e.event.Sendf(event.ENGINE_EMR_TIMEOUT, "%s: %d domains not started, %d not returned", coId, notStarted, notReturned)
+	}
 
 	// Log collector errors and update collector status
 	status.Monitor(e.monitorId, status.ENGINE_COLLECT, "%s", coId+": logging errors")
@@ -487,6 +525,7 @@ type clutch struct {
 	cmr            time.Duration     // collector max runtime (CMR)
 	collectionChan chan<- collection // flush vals/err to
 	event          event.MonitorReceiver
+	counters       *engineCounters // optional: nil in some tests
 	*sync.Mutex
 
 	// When running:
@@ -512,6 +551,9 @@ func (cl *clutch) collect(m blip.Metrics, sem chan bool) {
 	if cl.running {
 		// Collector fault: it didn't terminate itself at CMR
 		cl.event.Errorf(event.COLLECTOR_FAULT, "%s: metrics from interval %d will be dropped if the collector recovers: %+v", cl.domain, cl.m.Interval, cl)
+		if cl.counters != nil {
+			cl.counters.collectorFaults.Add(1)
+		}
 		cl.fence = m.Interval
 		if cl.cancel != nil {
 			cl.cancel()
@@ -645,6 +687,9 @@ func (cl *clutch) flush(done bool) {
 	case cl.collectionChan <- c:
 	default:
 		cl.event.Errorf(event.DROP_METRICS_FLUSH, "%s: dropping metrics interval %d because channel blocked", cl.domain, c.Interval)
+		if cl.counters != nil {
+			cl.counters.flushDrops.Add(1)
+		}
 	}
 
 	cl.pending = false
