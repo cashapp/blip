@@ -39,6 +39,7 @@ Default sink HTTP clients now have a 10-second whole-request timeout plus bounde
 ### Unreleased
 
 * Applied `timeout-connect` (default `10s`) to MySQL connections. Previously it was ignored, so connecting to an unreachable host waited for the operating system TCP connect timeout. Set it to `0` to retain the old behavior. An invalid `timeout-connect` value, which used to be ignored, now fails config validation.
+* Fixed `monitor-loader.stop-loss` to count the net drop in the number of monitors. Previously it compared the number of removed monitors with the number loaded, so a small removal could trigger stop-loss and removing every monitor could not. A percent stop-loss (for example, `50%`) never triggered; it now triggers when the drop is greater than that percent of the monitors loaded before the reload.
 
 ### v2.1.0 (10 Aug 2026)
 
