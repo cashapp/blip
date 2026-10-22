@@ -365,7 +365,7 @@ func (m *Monitor) startup() (err error) {
 		}
 
 		// Run API to emulate an exporter, responding to GET /metrics
-		m.exporter = NewExporter(m.cfg.Exporter, promPlan, newEngineWithDBProvider(m.cfg, m.db, m.dbProvider))
+		m.exporter = NewExporter(m.cfg.Exporter, promPlan, newExporterEngine(m.cfg, m.db, m.dbProvider))
 		m.promAPI = prom.NewAPI(
 			m.cfg.Exporter,
 			m.monitorId,

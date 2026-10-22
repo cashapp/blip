@@ -58,8 +58,9 @@ type lco struct {
 	metricsChan chan []*blip.Metrics // sorted ascending by Interval
 	event       event.MonitorReceiver
 
-	ticksDropped   *atomic.Uint64 // status.LEVEL_TICKS_DROPPED
-	metricsDropped *atomic.Uint64 // status.LEVEL_METRICS_DROPPED
+	ticksDropped     *atomic.Uint64 // status.LEVEL_TICKS_DROPPED
+	metricsDropped   *atomic.Uint64 // status.LEVEL_METRICS_DROPPED
+	transformDropped *atomic.Uint64 // status.LEVEL_TRANSFORM_DROPPED
 
 	stateMux *sync.Mutex
 	state    string
@@ -100,8 +101,9 @@ func newLevelCollectorWithDBProvider(args LevelCollectorArgs, dbProvider blip.Db
 		event:       event.MonitorReceiver{MonitorId: args.Config.MonitorId},
 		metricsChan: make(chan []*blip.Metrics, 10),
 
-		ticksDropped:   status.Counter(args.Config.MonitorId, status.LEVEL_TICKS_DROPPED),
-		metricsDropped: status.Counter(args.Config.MonitorId, status.LEVEL_METRICS_DROPPED),
+		ticksDropped:     status.Counter(args.Config.MonitorId, status.LEVEL_TICKS_DROPPED),
+		metricsDropped:   status.Counter(args.Config.MonitorId, status.LEVEL_METRICS_DROPPED),
+		transformDropped: status.Counter(args.Config.MonitorId, status.LEVEL_TRANSFORM_DROPPED),
 	}
 }
 
@@ -165,6 +167,7 @@ RECV:
 				blip.Debug("%s: transform metrics", c.monitorId)
 				status.Monitor(c.monitorId, status.LEVEL_SINKS, "TransformMetrics")
 				if err := c.transformMetrics(metrics); err != nil {
+					c.transformDropped.Add(1)
 					blip.Debug("%s: transform metrics error, dropping metrics: %v", c.monitorId, err)
 					continue RECV
 				}

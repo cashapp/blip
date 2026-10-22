@@ -9,9 +9,14 @@ import "sync/atomic"
 // only increases, and it persists across monitor stop and start; it's reset
 // only when the monitor is unloaded, which includes reloading a monitor after
 // its config changes. Counters are reported once the monitor starts. A host
-// can read counters with
-// ReportCounters (or API endpoint /status/monitors/counters) and forward them
-// to its own metrics system. Compare successive values to get a rate.
+// can read counters with ReportCounters (or API endpoint
+// /status/monitors/counters) and forward them to its own metrics system.
+// Compare successive values to get a rate.
+//
+// The engine and collector counters (ENGINE_* and COLLECTOR_*) count level
+// collector (LCO) collections. If the monitor runs an exporter, its engine
+// counts scrapes in the same counters with prefix EXPORTER_PREFIX, like
+// "exporter-engine-emr-timeouts".
 const (
 	// Domains not started before the engine max runtime (EMR) expired.
 	ENGINE_DOMAINS_NOT_STARTED = "engine-domains-not-started"
@@ -22,7 +27,9 @@ const (
 	ENGINE_DOMAINS_NOT_RETURNED = "engine-domains-not-returned"
 
 	// Engine collections (one per interval) that hit the EMR before every
-	// domain was started and returned.
+	// domain was started and returned. This usually means the host is
+	// CPU-starved, but a domain collector that panics (COLLECTOR_PANICS) or
+	// hangs (COLLECTOR_FAULTS) doesn't return, so it also causes EMR timeouts.
 	ENGINE_EMR_TIMEOUTS = "engine-emr-timeouts"
 
 	// Domain collectors still running at their next interval because they
@@ -30,6 +37,17 @@ const (
 	// metrics from the domain are dropped (event DROP_METRICS_FENCE) if the
 	// collector ever returns.
 	COLLECTOR_FAULTS = "collector-faults"
+
+	// Domain collectors that panicked (event COLLECTOR_PANIC). The domain's
+	// metrics for the interval are lost, and the engine waits for the domain
+	// until the EMR, so each panic is also counted in ENGINE_EMR_TIMEOUTS and
+	// ENGINE_DOMAINS_NOT_RETURNED.
+	COLLECTOR_PANICS = "collector-panics"
+
+	// Domain collectors that returned context.DeadlineExceeded because they
+	// reached their collector max runtime (CMR). Their metrics are partial or
+	// missing (event COLLECTOR_ERROR if returned within the EMR).
+	COLLECTOR_TIMEOUTS = "collector-timeouts"
 
 	// Domain metrics dropped because the engine collection channel was full
 	// (event DROP_METRICS_FLUSH).
@@ -40,14 +58,24 @@ const (
 	// tick delays every later level by one tick.
 	LEVEL_TICKS_DROPPED = "level-ticks-dropped"
 
-	// Intervals of metrics dropped because the sink channel was full: sinks are
-	// slower than collection (event LCO_METRICS_FAULT).
+	// Collections dropped because the sink channel was full: sinks are slower
+	// than collection (event LCO_METRICS_FAULT). Each collection is the metrics
+	// for one interval plus any late metrics from earlier intervals, so a drop
+	// can lose metrics from more than one interval.
 	LEVEL_METRICS_DROPPED = "level-metrics-dropped"
+
+	// Collections dropped because the TransformMetrics plugin returned an
+	// error. Metrics lost when a sink or TransformMetrics panics (event
+	// LCO_RECEIVER_PANIC) are not counted.
+	LEVEL_TRANSFORM_DROPPED = "level-transform-dropped"
 
 	// Metrics dropped from a sink retry buffer because it was full: the oldest
 	// buffered metrics are pushed off to make room for the latest. The counter
 	// name is suffixed with ":" and the sink name, like "sink-retry-dropped:datadog".
 	SINK_RETRY_DROPPED = "sink-retry-dropped"
+
+	// Prefix of the engine and collector counters of the exporter engine.
+	EXPORTER_PREFIX = "exporter-"
 )
 
 // Counter returns the named counter for the monitor, creating it at zero if it

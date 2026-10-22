@@ -56,6 +56,10 @@ var _ CounterSink = &Retry{}
 // monitor loader has removed the status of any earlier monitor with the same
 // ID. A sink must not register counters when it's created because the loader
 // makes new sinks before it unloads the monitor they replace.
+//
+// A sink that wraps another sink must forward RegisterCounters to it, like
+// Delta does. For example, a plugin sink that wraps Retry and doesn't forward
+// RegisterCounters gets no status.SINK_RETRY_DROPPED counter.
 type CounterSink interface {
 	RegisterCounters()
 }

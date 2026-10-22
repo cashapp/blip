@@ -5,6 +5,7 @@ package monitor
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"runtime"
 	"sort"
@@ -70,16 +71,23 @@ type engineCounters struct {
 	domainsNotReturned *atomic.Uint64
 	emrTimeouts        *atomic.Uint64
 	collectorFaults    *atomic.Uint64
+	collectorPanics    *atomic.Uint64
+	collectorTimeouts  *atomic.Uint64
 	flushDrops         *atomic.Uint64
 }
 
-func newEngineCounters(monitorId string) *engineCounters {
+// newEngineCounters returns the engine counters for the monitor. Counter names
+// are prefixed with prefix, which is empty for the LCO engine and
+// status.EXPORTER_PREFIX for the exporter engine.
+func newEngineCounters(monitorId, prefix string) *engineCounters {
 	return &engineCounters{
-		domainsNotStarted:  status.Counter(monitorId, status.ENGINE_DOMAINS_NOT_STARTED),
-		domainsNotReturned: status.Counter(monitorId, status.ENGINE_DOMAINS_NOT_RETURNED),
-		emrTimeouts:        status.Counter(monitorId, status.ENGINE_EMR_TIMEOUTS),
-		collectorFaults:    status.Counter(monitorId, status.COLLECTOR_FAULTS),
-		flushDrops:         status.Counter(monitorId, status.COLLECTOR_FLUSH_DROPS),
+		domainsNotStarted:  status.Counter(monitorId, prefix+status.ENGINE_DOMAINS_NOT_STARTED),
+		domainsNotReturned: status.Counter(monitorId, prefix+status.ENGINE_DOMAINS_NOT_RETURNED),
+		emrTimeouts:        status.Counter(monitorId, prefix+status.ENGINE_EMR_TIMEOUTS),
+		collectorFaults:    status.Counter(monitorId, prefix+status.COLLECTOR_FAULTS),
+		collectorPanics:    status.Counter(monitorId, prefix+status.COLLECTOR_PANICS),
+		collectorTimeouts:  status.Counter(monitorId, prefix+status.COLLECTOR_TIMEOUTS),
+		flushDrops:         status.Counter(monitorId, prefix+status.COLLECTOR_FLUSH_DROPS),
 	}
 }
 
@@ -88,6 +96,17 @@ func NewEngine(cfg blip.ConfigMonitor, db *sql.DB) *Engine {
 }
 
 func newEngineWithDBProvider(cfg blip.ConfigMonitor, db *sql.DB, dbProvider blip.DbProvider) *Engine {
+	return newEngineWithCounters(cfg, db, dbProvider, "")
+}
+
+// newExporterEngine returns an engine for the exporter. Its counters are
+// prefixed with status.EXPORTER_PREFIX so that exporter scrapes, which have
+// their own EMR, are not counted as LCO collections.
+func newExporterEngine(cfg blip.ConfigMonitor, db *sql.DB, dbProvider blip.DbProvider) *Engine {
+	return newEngineWithCounters(cfg, db, dbProvider, status.EXPORTER_PREFIX)
+}
+
+func newEngineWithCounters(cfg blip.ConfigMonitor, db *sql.DB, dbProvider blip.DbProvider, counterPrefix string) *Engine {
 	return &Engine{
 		cfg:        cfg,
 		db:         db,
@@ -100,7 +119,7 @@ func newEngineWithDBProvider(cfg blip.ConfigMonitor, db *sql.DB, dbProvider blip
 		collectAt:      map[string][]*clutch{},
 		checkAt:        map[string][]*clutch{},
 		collectionChan: make(chan collection, len(metrics.List())*2),
-		counters:       newEngineCounters(cfg.MonitorId),
+		counters:       newEngineCounters(cfg.MonitorId, counterPrefix),
 	}
 }
 
@@ -596,12 +615,16 @@ func (cl *clutch) collect(m blip.Metrics, sem chan bool) {
 	interval := m.Interval
 	ctx := cl.ctx
 	cancel := cl.cancel
+	bg := cl.bg // read under lock: after a fault, the next interval sets cl.bg
 
 	cl.Unlock() // ___unlock___
 
 	defer func() {
 		if r := recover(); r != nil {
-			if !cl.bg { // foreground
+			if cl.counters != nil {
+				cl.counters.collectorPanics.Add(1)
+			}
+			if !bg { // foreground
 				select {
 				case sem <- true:
 				default:
@@ -638,6 +661,7 @@ func (cl *clutch) collect(m blip.Metrics, sem chan bool) {
 		cl.Unlock()
 		return // this goroutine is behind the fence, do NOT modify cl fields
 	}
+	cl.countTimeout(err)
 	cl.vals = vals
 	cl.err = err
 	cl.flush(err != blip.ErrMore)
@@ -652,6 +676,7 @@ func (cl *clutch) collect(m blip.Metrics, sem chan bool) {
 	// The engine will call cl.flush every interval if cl.pending is true.
 	cl.Lock()
 	cl.bg = true
+	bg = true
 	cl.Unlock()
 	for err == blip.ErrMore && err != context.Canceled && err != context.DeadlineExceeded {
 		vals, err = cl.c.Collect(nil, "") // background collect
@@ -664,8 +689,17 @@ func (cl *clutch) collect(m blip.Metrics, sem chan bool) {
 			cl.pending = true
 			cl.vals = append(cl.vals, vals...)
 		}
+		cl.countTimeout(err)
 		cl.err = err
 		cl.Unlock()
+	}
+}
+
+// countTimeout counts err if the collector reached its CMR.
+func (cl *clutch) countTimeout(err error) {
+	/* -- CALLER MUST LOCK clutch -- */
+	if cl.counters != nil && errors.Is(err, context.DeadlineExceeded) {
+		cl.counters.collectorTimeouts.Add(1)
 	}
 }
 

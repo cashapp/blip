@@ -53,14 +53,22 @@ Compare successive values to get a rate.
 
 |Counter|Increments once for every|
 |-------|---------|
-|`engine-emr-timeouts`|Collection (interval) that hit the engine max runtime (EMR) before every domain started and returned|
+|`engine-emr-timeouts`|Collection (interval) that hit the engine max runtime (EMR) before every domain started and returned; usually a CPU-starved host, but a collector that panics or hangs also causes EMR timeouts|
 |`engine-domains-not-started`|Domain not started before the EMR|
 |`engine-domains-not-returned`|Domain started but not returned before the EMR; its metrics are reported late, if at all|
 |`collector-faults`|Domain still running at its next interval because it didn't stop at its collector max runtime (event `collector-fault`); its previous metrics are dropped|
+|`collector-panics`|Domain collector panic (event `collector-panic`); its metrics for the interval are lost, and it's also counted in `engine-emr-timeouts` and `engine-domains-not-returned`|
+|`collector-timeouts`|Domain collector that stopped at its collector max runtime (CMR) and returned partial or no metrics|
 |`collector-flush-drops`|Domain metrics dropped because the engine collection channel was full (event `drop-metrics-flush`)|
 |`level-ticks-dropped`|Level collector tick dropped because the previous collection blocked past it; each delays later levels by one tick|
-|`level-metrics-dropped`|Interval of metrics dropped because sinks were not keeping up (event `lco-metrics-fault`)|
+|`level-metrics-dropped`|Collection dropped because sinks were not keeping up (event `lco-metrics-fault`), which can include late metrics from more than one interval|
+|`level-transform-dropped`|Collection dropped because the `TransformMetrics` plugin returned an error|
 |`sink-retry-dropped:<sink>`|Metrics dropped from a sink retry buffer because it was full|
+
+If the monitor runs an [exporter]({{< ref "/config/config-file#exporter" >}}), its scrapes are counted in the `engine-*` and `collector-*` counters prefixed with `exporter-`, like `exporter-engine-emr-timeouts`.
+The unprefixed counters count only level collector collections.
+
+Metrics lost when a sink or `TransformMetrics` panics (event `lco-receiver-panic`) are not counted.
 
 When the host running Blip is CPU-starved, the `engine-*` and `level-ticks-dropped` counters increase first.
 When a sink is slow or unavailable, `sink-retry-dropped` and then `level-metrics-dropped` increase.
@@ -74,11 +82,14 @@ Integrations can read the same counters with `status.ReportCounters`.
   "localhost": {
     "collector-faults": 0,
     "collector-flush-drops": 0,
+    "collector-panics": 0,
+    "collector-timeouts": 1,
     "engine-domains-not-returned": 3,
     "engine-domains-not-started": 1,
     "engine-emr-timeouts": 3,
     "level-metrics-dropped": 0,
     "level-ticks-dropped": 2,
+    "level-transform-dropped": 0,
     "sink-retry-dropped:datadog": 0
   }
 }
