@@ -47,7 +47,8 @@ Returns monitor status for all monitors keyed on [monitor ID]({{< ref "/config/c
 
 Returns collection fault counters for all monitors keyed on [monitor ID]({{< ref "/config/config-file#id" >}}), then counter name.
 Counters count conditions where a monitor collected late, collected partial metrics, or dropped metrics.
-Each counter only increases, and it persists across monitor stop and start; it's reset only when the monitor is unloaded.
+Each counter only increases, and it persists across monitor stop and start; it's reset only when the monitor is unloaded, which includes reloading a monitor after its config changes.
+Counters are reported once the monitor starts.
 Compare successive values to get a rate.
 
 |Counter|Increments once for every|

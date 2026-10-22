@@ -29,7 +29,8 @@ const (
 //
 // Retry sends SINK_SEND_ERROR events on Send error; the real sink should not.
 // It counts metrics pushed off the full buffer in monitor status counter
-// status.SINK_RETRY_DROPPED suffixed with ":" and the real sink name.
+// status.SINK_RETRY_DROPPED suffixed with ":" and the real sink name, after
+// the monitor calls RegisterCounters.
 type Retry struct {
 	sink blip.Sink
 
@@ -38,13 +39,25 @@ type Retry struct {
 	sendTimeout time.Duration
 	retryWait   time.Duration
 
-	event event.MonitorReceiver
+	event     event.MonitorReceiver
+	monitorId string
 
 	stackMux *sync.Mutex
 	stack    []*retryItem // LIFO
 	max      int
 	top      int
-	dropped  *atomic.Uint64 // status.SINK_RETRY_DROPPED
+	dropped  *atomic.Uint64 // status.SINK_RETRY_DROPPED; nil until RegisterCounters
+}
+
+var _ CounterSink = &Retry{}
+
+// CounterSink is an optional interface for sinks that report monitor status
+// counters. The monitor calls RegisterCounters each time it starts, after the
+// monitor loader has removed the status of any earlier monitor with the same
+// ID. A sink must not register counters when it's created because the loader
+// makes new sinks before it unloads the monitor they replace.
+type CounterSink interface {
+	RegisterCounters()
 }
 
 // CheckpointSink can resume a partially acknowledged metrics batch. Retry
@@ -92,8 +105,9 @@ func NewRetry(args RetryArgs) *Retry {
 	}
 
 	rb := &Retry{
-		sink:  args.Sink,
-		event: event.MonitorReceiver{MonitorId: args.MonitorId},
+		sink:      args.Sink,
+		event:     event.MonitorReceiver{MonitorId: args.MonitorId},
+		monitorId: args.MonitorId,
 
 		sendMux:     &sync.Mutex{},
 		sending:     false,
@@ -104,10 +118,19 @@ func NewRetry(args RetryArgs) *Retry {
 		stack:    make([]*retryItem, args.BufferSize),
 		max:      int(args.BufferSize) - 1,
 		top:      -1,
-		dropped:  status.Counter(args.MonitorId, status.SINK_RETRY_DROPPED+":"+args.Sink.Name()),
 	}
 	blip.Debug("buff %d, send timeout %s", rb.max+1, rb.sendTimeout)
 	return rb
+}
+
+// RegisterCounters registers the monitor status counter for metrics dropped
+// from the buffer. It's safe to call more than once: status.Counter returns
+// the existing counter.
+func (rb *Retry) RegisterCounters() {
+	c := status.Counter(rb.monitorId, status.SINK_RETRY_DROPPED+":"+rb.sink.Name())
+	rb.stackMux.Lock()
+	rb.dropped = c
+	rb.stackMux.Unlock()
 }
 
 // Name returns the name of the real sink, not "retry".
@@ -182,7 +205,9 @@ func (rb *Retry) push(item *retryItem) {
 	} else {
 		// Push down stack (push off oldest metrics)
 		copy(rb.stack, rb.stack[1:])
-		rb.dropped.Add(1)
+		if rb.dropped != nil {
+			rb.dropped.Add(1)
+		}
 	}
 	rb.stack[rb.top] = item
 }

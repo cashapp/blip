@@ -337,11 +337,14 @@ func (e *Engine) Collect(emrCtx context.Context, interval uint, levelName string
 		case <-emrCtx.Done():
 			blip.Debug("EMR timeout starting collectors")
 			// @todo skip pending and sweep, goto end?
+			// This break exits only the select, not the loop, so the loop keeps
+			// going: if a collector returns and frees a slot, the select can pick
+			// sem over the expired EMR and start the next domain after the EMR.
 			emrTimeout = true
 			break
 		}
 	}
-	notStarted := len(domains) - len(running)
+	notStarted := len(domains) - len(running) // domains that actually didn't start, see break above
 
 	// Flush metrics from domains NOT started at this level
 	for _, cl := range e.checkAt[levelName] {
@@ -606,7 +609,7 @@ func (cl *clutch) collect(m blip.Metrics, sem chan bool) {
 			}
 			b := make([]byte, 4096)
 			n := runtime.Stack(b, false)
-			perr := fmt.Errorf("PANIC: monitor ID %s: %s: %v\n%s", cl.m.MonitorId, cl.domain, r, string(b[0:n]))
+			perr := fmt.Errorf("PANIC: monitor ID %s: %s: %v\n%s", m.MonitorId, cl.domain, r, string(b[0:n]))
 			cl.event.Error(event.COLLECTOR_PANIC, perr.Error())
 		}
 		cancel() // local cancel, not cl.cancel, in case goroutine is behind the fence

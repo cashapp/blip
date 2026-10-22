@@ -7,7 +7,9 @@ import "sync/atomic"
 // Monitor counters are cumulative counts of collection faults: conditions
 // where a monitor collected late, partially, or dropped metrics. Each counter
 // only increases, and it persists across monitor stop and start; it's reset
-// only when the monitor is unloaded. A host can read counters with
+// only when the monitor is unloaded, which includes reloading a monitor after
+// its config changes. Counters are reported once the monitor starts. A host
+// can read counters with
 // ReportCounters (or API endpoint /status/monitors/counters) and forward them
 // to its own metrics system. Compare successive values to get a rate.
 const (
@@ -49,9 +51,12 @@ const (
 )
 
 // Counter returns the named counter for the monitor, creating it at zero if it
-// doesn't exist. Callers should get the counter once (for example, when creating
-// a component) and increment it with Add(1): increments are lock-free and do not
-// allocate. The returned pointer is valid until RemoveMonitor is called.
+// doesn't exist. Callers should get the counter once when the monitor starts
+// and increment it with Add(1): increments are lock-free and do not allocate.
+// The returned pointer is reported until RemoveMonitor is called. The monitor
+// loader calls RemoveMonitor when it unloads a monitor, including a changed
+// monitor after it makes the replacement, so don't get counters when making
+// monitor components that outlive a start, like sinks (see sink.CounterSink).
 func Counter(monitorId, name string) *atomic.Uint64 {
 	s.Lock()
 	defer s.Unlock()
