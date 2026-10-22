@@ -364,7 +364,10 @@ func (m *Monitor) startup() (err error) {
 			return err
 		}
 
-		// Run API to emulate an exporter, responding to GET /metrics
+		// Run API to emulate an exporter, responding to GET /metrics. The
+		// exporter engine must be made with newExporterEngine, not like the
+		// LCO engine, so its counters have the status.EXPORTER_PREFIX and
+		// scrapes aren't counted as LCO collections.
 		m.exporter = NewExporter(m.cfg.Exporter, promPlan, newExporterEngine(m.cfg, m.db, m.dbProvider))
 		m.promAPI = prom.NewAPI(
 			m.cfg.Exporter,

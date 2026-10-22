@@ -28,8 +28,9 @@ const (
 
 	// Engine collections (one per interval) that hit the EMR before every
 	// domain was started and returned. This usually means the host is
-	// CPU-starved, but a domain collector that panics (COLLECTOR_PANICS) or
-	// hangs (COLLECTOR_FAULTS) doesn't return, so it also causes EMR timeouts.
+	// CPU-starved, but a domain collector that hangs (COLLECTOR_FAULTS) or
+	// panics in its foreground Collect (COLLECTOR_PANICS) doesn't return, so
+	// it also causes EMR timeouts.
 	ENGINE_EMR_TIMEOUTS = "engine-emr-timeouts"
 
 	// Domain collectors still running at their next interval because they
@@ -39,14 +40,18 @@ const (
 	COLLECTOR_FAULTS = "collector-faults"
 
 	// Domain collectors that panicked (event COLLECTOR_PANIC). The domain's
-	// metrics for the interval are lost, and the engine waits for the domain
-	// until the EMR, so each panic is also counted in ENGINE_EMR_TIMEOUTS and
-	// ENGINE_DOMAINS_NOT_RETURNED.
+	// metrics for the interval are lost. A panic in the foreground Collect of
+	// the current interval isn't flushed, so the engine waits for the domain
+	// until the EMR, and the panic is also counted in ENGINE_EMR_TIMEOUTS and
+	// ENGINE_DOMAINS_NOT_RETURNED. A panic in the ErrMore background loop, or
+	// in a run behind the collector fault fence, doesn't change those counters.
 	COLLECTOR_PANICS = "collector-panics"
 
 	// Domain collectors that returned context.DeadlineExceeded because they
 	// reached their collector max runtime (CMR). Their metrics are partial or
-	// missing (event COLLECTOR_ERROR if returned within the EMR).
+	// missing (event COLLECTOR_ERROR if returned within the EMR). Only counted
+	// if the collector returns the context error or wraps it with %w. On a
+	// CPU-starved host, this rises almost one for one with ENGINE_EMR_TIMEOUTS.
 	COLLECTOR_TIMEOUTS = "collector-timeouts"
 
 	// Domain metrics dropped because the engine collection channel was full
