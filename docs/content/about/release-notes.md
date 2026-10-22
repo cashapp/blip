@@ -39,6 +39,7 @@ Default sink HTTP clients now have a 10-second whole-request timeout plus bounde
 ### Unreleased
 
 * Applied `timeout-connect` (default `10s`) to MySQL connections. Previously it was ignored, so connecting to an unreachable host waited for the operating system TCP connect timeout. Set it to `0` to retain the old behavior. An invalid `timeout-connect` value, which used to be ignored, now fails config validation.
+* Fixed `repl.lag` at multiple levels with the Blip heartbeat writer: `report-no-heartbeat` and `report-not-a-replica` now apply at every level, not only at one random level, and the heartbeat reader now uses `repl-check`. Plans that set a different `writer` at different levels (an unset `writer` is `auto`) now fail to prepare.
 
 ### v2.1.0 (10 Aug 2026)
 
