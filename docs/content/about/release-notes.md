@@ -36,6 +36,10 @@ AWS Secrets Manager `password-secret` authentication now uses the secret's optio
 
 Default sink HTTP clients now have a 10-second whole-request timeout plus bounded connection and response-header timeouts. Custom HTTP client factories are unchanged.
 
+### Unreleased
+
+* Applied `timeout-connect` (default `10s`) to MySQL connections. Previously it was ignored, so connecting to an unreachable host waited for the operating system TCP connect timeout. Set it to `0` to retain the old behavior. An invalid `timeout-connect` value, which used to be ignored, now fails config validation.
+
 ### v2.1.0 (10 Aug 2026)
 
 Version v2.0.0 was withdrawn before release completion because its module path lacked the `/v2` suffix required by Go modules. v2.1.0 is the first usable v2 release.
