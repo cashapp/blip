@@ -4,11 +4,14 @@ package repllag
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 
 	"github.com/cashapp/blip/v2/test"
+	"github.com/cashapp/blip/v2/test/mock"
 )
 
 func TestPrepareForSingleLevelAndNoSourceOnMySQL80(t *testing.T) {
@@ -107,5 +110,28 @@ func TestCollectWithAllSources(t *testing.T) {
 		}
 		metrics, _ := c.Collect(context.TODO(), "kpi")
 		assert.Equal(t, 0, len(metrics))
+	}
+}
+
+func TestCollectPFSWrapsQueryError(t *testing.T) {
+	// One case per query in collectPFS: the replica check query (only run
+	// when the repl-check option is set) and the lag query
+	for _, replCheck := range []string{"server_id", ""} {
+		t.Run("replCheck="+replCheck, func(t *testing.T) {
+			db := mock.ErrorDB(fmt.Errorf("query: %w", context.DeadlineExceeded))
+			defer db.Close()
+
+			c := NewLag(db)
+			c.lagWriterIn["kpi"] = LAG_WRITER_PFS
+			c.replCheck = replCheck
+
+			_, err := c.Collect(context.Background(), "kpi")
+			if err == nil {
+				t.Fatal("Collect returned nil error, expected query error")
+			}
+			if !errors.Is(err, context.DeadlineExceeded) {
+				t.Errorf("errors.Is(err, context.DeadlineExceeded) = false, expected true; err: %v", err)
+			}
+		})
 	}
 }
