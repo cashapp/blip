@@ -36,6 +36,10 @@ AWS Secrets Manager `password-secret` authentication now uses the secret's optio
 
 Default sink HTTP clients now have a 10-second whole-request timeout plus bounded connection and response-header timeouts. Custom HTTP client factories are unchanged.
 
+### Unreleased
+
+* Fixed built-in sinks rejecting the retry options `buffer-size`, `send-timeout`, and `send-retry-wait`.
+
 ### v2.1.0 (10 Aug 2026)
 
 Version v2.0.0 was withdrawn before release completion because its module path lacked the `/v2` suffix required by Go modules. v2.1.0 is the first usable v2 release.
